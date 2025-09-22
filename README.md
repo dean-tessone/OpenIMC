@@ -13,6 +13,8 @@ A PyQt5-based viewer for IMC (Imaging Mass Cytometry) .mcd files using the readi
   - Grid view for comparing multiple channels simultaneously
 - **Dynamic Comparison Mode**: Compare the same channel across different acquisitions
 - **Metadata Display**: View acquisition metadata including dimensions, channel information, and experimental details
+- **Cell Segmentation (optional)**: Run Cellpose (cyto3/nuclei) with CPU/GPU acceleration and overlay masks
+- **Feature Extraction (optional)**: Compute per-cell morphology and intensity features with optional multiprocessing and export to CSV
 
 ### Advanced Features
 - **Custom Scaling**: Per-channel intensity scaling with slider controls
@@ -55,14 +57,14 @@ pip install -r requirements.txt
 
 ### 4. Verify Installation
 ```bash
-python open_mcd.py --help
+python main.py
 ```
 
 ## Usage
 
 ### Starting the Application
 ```bash
-python open_mcd.py
+python main.py
 ```
 
 ### Basic Workflow
@@ -88,6 +90,18 @@ python open_mcd.py
 5. **View Images**
    - Click "View selected" to display your chosen channels
    - Use comparison mode to compare the same channel across acquisitions
+
+6. **Run Segmentation (optional)**
+   - Click "Cell Segmentation"
+   - Choose model (cyto3 or nuclei) and configure preprocessing if needed
+   - Optionally select GPU device (Auto/CPU/GPU) if PyTorch+CUDA or MPS are available
+   - Enable "Show segmentation overlay" to visualize masks after completion
+
+7. **Extract Features (optional)**
+   - Click "Extract Features"
+   - Select acquisitions (or all with masks) and feature sets
+   - Choose an output directory/filename or keep results in memory
+   - The results DataFrame includes both `acquisition_id` and `acquisition_label` for clarity
 
 ### Advanced Features
 
@@ -119,14 +133,31 @@ python open_mcd.py
 1. **"readimc is not installed" error**
    - Ensure readimc is installed: `pip install readimc>=0.9.0`
 
-2. **PyQt5 installation issues**
+2. **Cellpose/GPU segmentation not available**
+   - Cellpose is optional. Install to enable segmentation: `pip install cellpose`
+   - For CUDA GPUs, also install PyTorch with CUDA (see PyTorch install guide)
+   - On Apple Silicon, MPS is auto-detected when available
+
+3. **PyQt5 installation issues**
    - On some systems, you may need to install PyQt5 separately:
    - Ubuntu/Debian: `sudo apt-get install python3-pyqt5`
    - macOS: `brew install pyqt5`
 
-3. **Memory issues with large files**
+4. **Memory issues with large files**
    - The application includes caching, but very large datasets may require more RAM
    - Consider closing other applications to free up memory
+
+5. **Multiprocessing during feature extraction**
+   - The app uses multiprocessing where possible; if it fails, it falls back to single-threaded processing automatically
+   - If you see pickling-related errors, ensure you start via `python main.py` (not from within embedded REPLs)
+
+## Acknowledgments
+
+- Cellpose: GPU-accelerated cell segmentation framework used for segmentation functionality.
+  - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
+  - Project: https://www.cellpose.org/
+- readimc: IMC file reader used to load .mcd acquisitions and channel data.
+  - Project: https://github.com/BodenmillerGroup/readimc
 
 4. **Display issues**
    - Ensure your system supports the required OpenGL version for PyQt5

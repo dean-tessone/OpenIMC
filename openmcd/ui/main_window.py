@@ -1,0 +1,2670 @@
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+import multiprocessing as mp
+from skimage.measure import regionprops, regionprops_table
+from PyQt5 import QtWidgets
+from PyQt5.QtCore import Qt
+
+from openmcd.data.mcd_loader import MCDLoader, AcquisitionInfo
+from openmcd.ui.mpl_canvas import MplCanvas
+from openmcd.ui.utils import (
+    PreprocessingCache,
+    robust_percentile_scale,
+    arcsinh_normalize,
+    percentile_clip_normalize,
+    stack_to_rgb,
+    combine_channels,
+)
+from openmcd.ui.dialogs.progress_dialog import ProgressDialog
+from openmcd.ui.dialogs.gpu_selection_dialog import GPUSelectionDialog
+from openmcd.ui.dialogs.preprocessing_dialog import PreprocessingDialog
+from openmcd.ui.dialogs.segmentation_dialog import SegmentationDialog
+from openmcd.ui.dialogs.export import ExportDialog
+from openmcd.ui.dialogs.feature_extraction import FeatureExtractionDialog
+
+# Optional runtime flags for GPU/TIFF
+_HAVE_TORCH = False
+try:
+    import torch  # type: ignore
+    _HAVE_TORCH = True
+except Exception:
+    _HAVE_TORCH = False
+
+_HAVE_TIFFFILE = False
+try:
+    import tifffile  # type: ignore  # noqa: F401
+    _HAVE_TIFFFILE = True
+except Exception:
+    _HAVE_TIFFFILE = False
+from openmcd.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
+from openmcd.ui.dialogs.comparison_dialog import DynamicComparisonDialog
+
+# Optional runtime flags for extra deps
+_HAVE_CELLPOSE = False
+try:
+    from cellpose import models as _cp_models  # type: ignore  # noqa: F401
+    import skimage  # type: ignore  # noqa: F401
+    _HAVE_CELLPOSE = True
+except Exception:
+    _HAVE_CELLPOSE = False
+else:
+    # Import models under the expected name when available
+    from cellpose import models  # type: ignore
+
+# --------------------------
+# Main Window
+# --------------------------
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("IMC .mcd File Viewer")
+        
+        # Set window size to full screen
+        screen = QtWidgets.QApplication.desktop().screenGeometry()
+        self.resize(screen.width(), screen.height())
+
+        # State
+        self.loader: Optional[MCDLoader] = None
+        self.current_path: Optional[str] = None
+        self.acquisitions: List[AcquisitionInfo] = []
+        self.current_acq_id: Optional[str] = None
+
+        # Per (acq_id, channel) annotations → label
+        self.annotations: Dict[Tuple[str, str], str] = {}
+        self.annotation_labels = ["Unlabeled", "High-quality", "Low-quality", "Artifact/Exclude"]
+        
+        # Store last selected channels for auto-selection
+        self.last_selected_channels: List[str] = []
+
+        # Widgets
+        self.canvas = MplCanvas(width=6, height=6, dpi=100)
+        self.open_btn = QtWidgets.QPushButton("Open .mcd")
+        self.acq_combo = QtWidgets.QComboBox()
+        self.channel_list = QtWidgets.QListWidget()
+        self.channel_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.deselect_all_btn = QtWidgets.QPushButton("Deselect all")
+        self.view_btn = QtWidgets.QPushButton("View selected")
+        self.comparison_btn = QtWidgets.QPushButton("Comparison mode")
+        self.segment_btn = QtWidgets.QPushButton("Cell Segmentation")
+        self.load_masks_btn = QtWidgets.QPushButton("Load Masks")
+        self.extract_features_btn = QtWidgets.QPushButton("Extract Features")
+        self.clustering_btn = QtWidgets.QPushButton("Cell Clustering")
+        self.export_btn = QtWidgets.QPushButton("Export to OME-TIFF")
+        
+        # Visualization options
+        self.grayscale_chk = QtWidgets.QCheckBox("Grayscale mode")
+        self.grid_view_chk = QtWidgets.QCheckBox("Grid view for multiple channels")
+        self.grid_view_chk.setChecked(True)
+        self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
+        self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
+        
+        # Custom scaling controls
+        self.custom_scaling_chk = QtWidgets.QCheckBox("Custom scaling")
+        self.custom_scaling_chk.toggled.connect(self._on_custom_scaling_toggled)
+        
+        self.scaling_frame = QtWidgets.QFrame()
+        self.scaling_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        scaling_layout = QtWidgets.QVBoxLayout(self.scaling_frame)
+        scaling_layout.addWidget(QtWidgets.QLabel("Custom Intensity Range:"))
+        
+        # Channel selection for per-channel scaling
+        channel_row = QtWidgets.QHBoxLayout()
+        channel_row.addWidget(QtWidgets.QLabel("Channel:"))
+        self.scaling_channel_combo = QtWidgets.QComboBox()
+        self.scaling_channel_combo.currentTextChanged.connect(self._on_scaling_channel_changed)
+        channel_row.addWidget(self.scaling_channel_combo)
+        channel_row.addStretch()
+        scaling_layout.addLayout(channel_row)
+        
+        # Slider controls
+        slider_layout = QtWidgets.QVBoxLayout()
+        
+        # Min slider
+        min_row = QtWidgets.QHBoxLayout()
+        min_row.addWidget(QtWidgets.QLabel("Min:"))
+        self.min_slider = QtWidgets.QSlider(Qt.Horizontal)
+        self.min_slider.setRange(0, 1000)
+        self.min_slider.setValue(0)
+        self.min_slider.valueChanged.connect(self._on_slider_changed)
+        min_row.addWidget(self.min_slider)
+        self.min_label = QtWidgets.QLabel("0.000")
+        self.min_label.setMinimumWidth(60)
+        min_row.addWidget(self.min_label)
+        slider_layout.addLayout(min_row)
+        
+        # Max slider
+        max_row = QtWidgets.QHBoxLayout()
+        max_row.addWidget(QtWidgets.QLabel("Max:"))
+        self.max_slider = QtWidgets.QSlider(Qt.Horizontal)
+        self.max_slider.setRange(0, 1000)
+        self.max_slider.setValue(1000)
+        self.max_slider.valueChanged.connect(self._on_slider_changed)
+        max_row.addWidget(self.max_slider)
+        self.max_label = QtWidgets.QLabel("1000.000")
+        self.max_label.setMinimumWidth(60)
+        max_row.addWidget(self.max_label)
+        slider_layout.addLayout(max_row)
+        
+        scaling_layout.addLayout(slider_layout)
+        
+        # Arcsinh normalization controls
+        arcsinh_layout = QtWidgets.QHBoxLayout()
+        arcsinh_layout.addWidget(QtWidgets.QLabel("Arcsinh Co-factor:"))
+        self.cofactor_spinbox = QtWidgets.QDoubleSpinBox()
+        self.cofactor_spinbox.setRange(0.1, 100.0)
+        self.cofactor_spinbox.setDecimals(1)
+        self.cofactor_spinbox.setValue(5.0)
+        self.cofactor_spinbox.setSingleStep(0.5)
+        arcsinh_layout.addWidget(self.cofactor_spinbox)
+        arcsinh_layout.addStretch()
+        scaling_layout.addLayout(arcsinh_layout)
+        
+        # Control buttons
+        button_row = QtWidgets.QHBoxLayout()
+        self.percentile_btn = QtWidgets.QPushButton("Percentile Scaling")
+        self.percentile_btn.clicked.connect(self._percentile_scaling)
+        button_row.addWidget(self.percentile_btn)
+        
+        self.arcsinh_btn = QtWidgets.QPushButton("Arcsinh Normalization")
+        self.arcsinh_btn.clicked.connect(self._arcsinh_normalization)
+        button_row.addWidget(self.arcsinh_btn)
+        
+        self.default_range_btn = QtWidgets.QPushButton("Default Range")
+        self.default_range_btn.clicked.connect(self._default_range)
+        button_row.addWidget(self.default_range_btn)
+        
+        self.apply_btn = QtWidgets.QPushButton("Apply")
+        self.apply_btn.clicked.connect(self._apply_scaling)
+        self.apply_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
+        button_row.addWidget(self.apply_btn)
+        
+        scaling_layout.addLayout(button_row)
+        self.scaling_frame.setVisible(False)
+        
+        # Store per-channel scaling values
+        self.channel_scaling = {}  # {channel_name: {'min': value, 'max': value}}
+        
+        # Arcsinh normalization state
+        self.arcsinh_enabled = False
+        
+        # Segmentation state
+        self.segmentation_masks = {}  # {acq_id: mask_array}
+        self.segmentation_colors = {}  # {acq_id: colors_array}
+        self.segmentation_overlay = False
+        self.preprocessing_cache = PreprocessingCache()
+        
+        # Feature extraction state
+        self.feature_dataframe = None  # Store extracted features in memory
+        
+        # Color assignment for RGB composite
+        self.color_assignment_frame = QtWidgets.QFrame()
+        self.color_assignment_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        color_layout = QtWidgets.QVBoxLayout(self.color_assignment_frame)
+        color_layout.addWidget(QtWidgets.QLabel("Color Assignment (for RGB composite):"))
+        
+        color_row_layout = QtWidgets.QHBoxLayout()
+        color_row_layout.addWidget(QtWidgets.QLabel("Red:"))
+        self.red_combo = QtWidgets.QComboBox()
+        self.red_combo.setMaximumWidth(120)
+        color_row_layout.addWidget(self.red_combo)
+        
+        color_row_layout.addWidget(QtWidgets.QLabel("Green:"))
+        self.green_combo = QtWidgets.QComboBox()
+        self.green_combo.setMaximumWidth(120)
+        color_row_layout.addWidget(self.green_combo)
+        
+        color_row_layout.addWidget(QtWidgets.QLabel("Blue:"))
+        self.blue_combo = QtWidgets.QComboBox()
+        self.blue_combo.setMaximumWidth(120)
+        color_row_layout.addWidget(self.blue_combo)
+        
+        color_layout.addLayout(color_row_layout)
+
+        self.ann_combo = QtWidgets.QComboBox()
+        self.ann_combo.addItems(self.annotation_labels)
+        self.ann_apply_btn = QtWidgets.QPushButton("Apply label")
+        self.ann_save_btn = QtWidgets.QPushButton("Save annotations CSV")
+        self.ann_load_btn = QtWidgets.QPushButton("Load annotations CSV")
+
+        # Metadata display
+        self.metadata_text = QtWidgets.QTextEdit()
+        self.metadata_text.setMaximumHeight(150)
+        self.metadata_text.setReadOnly(True)
+
+        # Left panel layout
+        controls = QtWidgets.QWidget()
+        v = QtWidgets.QVBoxLayout(controls)
+        v.addWidget(self.open_btn)
+
+        v.addWidget(QtWidgets.QLabel("Acquisition:"))
+        v.addWidget(self.acq_combo)
+
+        v.addWidget(QtWidgets.QLabel("Channels:"))
+        v.addWidget(self.channel_list, 1)
+        
+        # Channel control buttons
+        channel_btn_row = QtWidgets.QHBoxLayout()
+        channel_btn_row.addWidget(self.deselect_all_btn)
+        channel_btn_row.addStretch()
+        v.addLayout(channel_btn_row)
+        
+        # Visualization options
+        v.addWidget(self.grayscale_chk)
+        v.addWidget(self.grid_view_chk)
+        v.addWidget(self.segmentation_overlay_chk)
+        v.addWidget(self.custom_scaling_chk)
+        v.addWidget(self.scaling_frame)
+        v.addWidget(self.color_assignment_frame)
+
+        ann_row = QtWidgets.QHBoxLayout()
+        ann_row.addWidget(QtWidgets.QLabel("Annotation:"))
+        ann_row.addWidget(self.ann_combo, 1)
+        v.addLayout(ann_row)
+        v.addWidget(self.ann_apply_btn)
+
+        v.addSpacing(8)
+        v.addWidget(self.view_btn)
+        v.addWidget(self.comparison_btn)
+        v.addWidget(self.segment_btn)
+        v.addWidget(self.load_masks_btn)
+        v.addWidget(self.extract_features_btn)
+        v.addWidget(self.clustering_btn)
+        v.addWidget(self.export_btn)
+        v.addSpacing(8)
+        v.addWidget(self.ann_save_btn)
+        v.addWidget(self.ann_load_btn)
+        v.addSpacing(8)
+        
+        v.addWidget(QtWidgets.QLabel("Metadata:"))
+        v.addWidget(self.metadata_text)
+        v.addStretch(1)
+
+        # Splitter
+        splitter = QtWidgets.QSplitter(Qt.Horizontal)
+        leftw = QtWidgets.QWidget()
+        leftw.setLayout(v)
+        splitter.addWidget(leftw)
+        splitter.addWidget(self.canvas)
+        splitter.setStretchFactor(1, 1)
+        self.setCentralWidget(splitter)
+
+        # Menu
+        file_menu = self.menuBar().addMenu("&File")
+        act_open = file_menu.addAction("Open .mcd…")
+        act_open.triggered.connect(self._open_dialog)
+        file_menu.addSeparator()
+        act_export = file_menu.addAction("Export to OME-TIFF…")
+        act_export.triggered.connect(self._export_ome_tiff)
+        file_menu.addSeparator()
+        act_load_masks = file_menu.addAction("Load Segmentation Masks…")
+        act_load_masks.triggered.connect(self._load_segmentation_masks)
+        file_menu.addSeparator()
+        act_quit = file_menu.addAction("Quit")
+        act_quit.triggered.connect(self.close)
+
+        # Analysis menu
+        analysis_menu = self.menuBar().addMenu("&Analysis")
+        act_clustering = analysis_menu.addAction("Cell Clustering…")
+        act_clustering.triggered.connect(self._open_clustering_dialog)
+
+        # Signals
+        self.open_btn.clicked.connect(self._open_dialog)
+        self.acq_combo.currentIndexChanged.connect(self._on_acq_changed)
+        self.deselect_all_btn.clicked.connect(self._deselect_all_channels)
+        self.channel_list.itemChanged.connect(self._on_channel_selection_changed)
+        self.view_btn.clicked.connect(self._view_selected)
+        self.comparison_btn.clicked.connect(self._comparison)
+        self.segment_btn.clicked.connect(self._run_segmentation)
+        self.load_masks_btn.clicked.connect(self._load_segmentation_masks)
+        self.extract_features_btn.clicked.connect(self._extract_features)
+        self.clustering_btn.clicked.connect(self._open_clustering_dialog)
+        self.export_btn.clicked.connect(self._export_ome_tiff)
+        self.ann_apply_btn.clicked.connect(self._apply_annotation)
+        self.ann_save_btn.clicked.connect(self._save_annotations)
+        self.ann_load_btn.clicked.connect(self._load_annotations)
+
+        # Loader
+        try:
+            self.loader = MCDLoader()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Missing dependency", str(e))
+
+    # ---------- File open ----------
+    def _open_dialog(self):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Open IMC .mcd file", "", "IMC MCD files (*.mcd);;All files (*.*)"
+        )
+        if path:
+            self._load_mcd(path)
+
+    def _load_mcd(self, path: str):
+        if self.loader is None:
+            try:
+                self.loader = MCDLoader()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Dependency error", str(e))
+                return
+        try:
+            self.loader.open(path)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Open failed", f"Failed to open {path}\n\n{e}")
+            return
+        self.current_path = path
+        self.acquisitions = self.loader.list_acquisitions()
+        self.acq_combo.clear()
+        for ai in self.acquisitions:
+            label = ai.name + (f"({ai.well})" if ai.well else "")
+            self.acq_combo.addItem(label, ai.id)
+        if self.acquisitions:
+            self._populate_channels(self.acquisitions[0].id)
+
+    # ---------- Acquisition / channels ----------
+    def _on_acq_changed(self, idx: int):
+        acq_id = self.acq_combo.itemData(idx)
+        if acq_id:
+            self._populate_channels(acq_id)
+            # Update scaling channel combo when acquisition changes
+            if self.custom_scaling_chk.isChecked():
+                self._update_scaling_channel_combo()
+
+    def _populate_channels(self, acq_id: str):
+        self.current_acq_id = acq_id
+        self.channel_list.clear()
+        try:
+            chans = self.loader.get_channels(acq_id)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Channels error", str(e))
+            return
+        
+        # Pre-select channels that were selected in the previous acquisition
+        selected_channels = []
+        for ch in chans:
+            item = QtWidgets.QListWidgetItem(ch)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+            
+            # Check if this channel was selected in the previous acquisition
+            if ch in self.last_selected_channels:
+                item.setCheckState(Qt.Checked)
+                selected_channels.append(ch)
+            else:
+                item.setCheckState(Qt.Unchecked)
+            
+            self.channel_list.addItem(item)
+        
+        # Update color assignment dropdowns
+        self._populate_color_assignments(chans)
+        
+        # Auto-load image if channels were pre-selected
+        if selected_channels:
+            self._auto_load_image(selected_channels)
+        
+        # Update metadata display
+        ai = next(a for a in self.acquisitions if a.id == acq_id)
+        metadata_text = f"Acquisition: {ai.name}\n"
+        if ai.well:
+            metadata_text += f"{ai.well}\n"
+        if ai.size[0] and ai.size[1]:
+            metadata_text += f"Size: {ai.size[1]} x {ai.size[0]} pixels\n"
+        metadata_text += f"Channels: {len(ai.channels)}\n\n"
+        
+        # Add GPU info if available
+        if _HAVE_TORCH:
+            gpu_info = self._get_gpu_info()
+            if gpu_info:
+                metadata_text += f"GPU: {gpu_info}\n\n"
+        
+        if ai.metadata:
+            metadata_text += "Metadata:\n"
+            for key, value in ai.metadata.items():
+                metadata_text += f"  {key}: {value}\n"
+        
+        self.metadata_text.setPlainText(metadata_text)
+
+    def _on_channel_selection_changed(self):
+        """Update color assignment dropdowns when channel selection changes."""
+        selected_channels = self._selected_channels()
+        self._populate_color_assignments(selected_channels)
+        
+        # Clear any color assignments that are no longer in the selected channels
+        self._clear_invalid_color_assignments(selected_channels)
+
+    def _populate_color_assignments(self, channels: List[str]):
+        """Populate the color assignment dropdowns with selected channels only."""
+        # Clear existing items
+        self.red_combo.clear()
+        self.green_combo.clear()
+        self.blue_combo.clear()
+        
+        # Add "None" option
+        self.red_combo.addItem("None", None)
+        self.green_combo.addItem("None", None)
+        self.blue_combo.addItem("None", None)
+        
+        # Add only selected channels
+        for ch in channels:
+            self.red_combo.addItem(ch, ch)
+            self.green_combo.addItem(ch, ch)
+            self.blue_combo.addItem(ch, ch)
+        
+        # Set default assignments to None
+        self.red_combo.setCurrentIndex(0)  # "None" is at index 0
+        self.green_combo.setCurrentIndex(0)  # "None" is at index 0
+        self.blue_combo.setCurrentIndex(0)  # "None" is at index 0
+
+    def _clear_invalid_color_assignments(self, selected_channels: List[str]):
+        """Clear color assignments that are no longer in the selected channels."""
+        # Check each color assignment and clear if not in selected channels
+        red_channel = self.red_combo.currentData()
+        green_channel = self.green_combo.currentData()
+        blue_channel = self.blue_combo.currentData()
+        
+        if red_channel and red_channel not in selected_channels:
+            # Find "None" option and select it
+            for i in range(self.red_combo.count()):
+                if self.red_combo.itemData(i) is None:
+                    self.red_combo.setCurrentIndex(i)
+                    break
+        
+        if green_channel and green_channel not in selected_channels:
+            # Find "None" option and select it
+            for i in range(self.green_combo.count()):
+                if self.green_combo.itemData(i) is None:
+                    self.green_combo.setCurrentIndex(i)
+                    break
+        
+        if blue_channel and blue_channel not in selected_channels:
+            # Find "None" option and select it
+            for i in range(self.blue_combo.count()):
+                if self.blue_combo.itemData(i) is None:
+                    self.blue_combo.setCurrentIndex(i)
+                    break
+
+    def _deselect_all_channels(self):
+        """Deselect all channels in the channel list."""
+        for i in range(self.channel_list.count()):
+            item = self.channel_list.item(i)
+            item.setCheckState(Qt.Unchecked)
+        self.channel_list.clearSelection()
+        
+        # Clear all color assignments when deselecting all channels
+        self._populate_color_assignments([])
+
+    def _selected_channels(self) -> List[str]:
+        chans: List[str] = []
+        for i in range(self.channel_list.count()):
+            it = self.channel_list.item(i)
+            if it.checkState() == Qt.Checked or it.isSelected():
+                chans.append(it.text())
+        # unique, preserve order
+        seen = set()
+        uniq = []
+        for c in chans:
+            if c not in seen:
+                uniq.append(c)
+                seen.add(c)
+        return uniq
+
+    def _get_acquisition_subtitle(self, acq_id: str) -> str:
+        """Get acquisition subtitle showing well/description instead of acquisition number."""
+        acq_info = next((ai for ai in self.acquisitions if ai.id == acq_id), None)
+        if not acq_info:
+            return "Unknown"
+        
+        # Use well if available, otherwise use name (which might be more descriptive)
+        if acq_info.well:
+            return f"{acq_info.well}"
+        else:
+            return acq_info.name
+
+    def _on_custom_scaling_toggled(self):
+        """Handle custom scaling checkbox toggle."""
+        self.scaling_frame.setVisible(self.custom_scaling_chk.isChecked())
+        if self.custom_scaling_chk.isChecked():
+            self._update_scaling_channel_combo()
+            self._load_channel_scaling()
+
+    def _update_scaling_channel_combo(self):
+        """Update the scaling channel combo box with available channels."""
+        self.scaling_channel_combo.clear()
+        if self.current_acq_id is None:
+            return
+        
+        # Get all available channels for current acquisition
+        if hasattr(self, 'acquisitions') and self.acquisitions:
+            acq_info = next((ai for ai in self.acquisitions if ai.id == self.current_acq_id), None)
+            if acq_info and hasattr(acq_info, 'channels'):
+                for channel in acq_info.channels:
+                    self.scaling_channel_combo.addItem(channel)
+        
+        # Select first channel if available
+        if self.scaling_channel_combo.count() > 0:
+            self.scaling_channel_combo.setCurrentIndex(0)
+            self._load_channel_scaling()
+
+    def _on_scaling_channel_changed(self):
+        """Handle changes to the scaling channel selection."""
+        if self.custom_scaling_chk.isChecked():
+            self._load_channel_scaling()
+
+    def _on_slider_changed(self):
+        """Handle changes to the min/max sliders."""
+        if self.custom_scaling_chk.isChecked():
+            self._update_slider_labels()
+            # Don't auto-refresh display - user must click Apply
+
+    def _update_slider_labels(self):
+        """Update the min/max labels based on slider values."""
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel or self.current_acq_id is None:
+            return
+        
+        try:
+            img = self.loader.get_image(self.current_acq_id, current_channel)
+            img_min, img_max = float(np.min(img)), float(np.max(img))
+            
+            # Convert slider values (0-1000) to actual image range
+            min_val = img_min + (self.min_slider.value() / 1000.0) * (img_max - img_min)
+            max_val = img_min + (self.max_slider.value() / 1000.0) * (img_max - img_min)
+            
+            self.min_label.setText(f"{min_val:.3f}")
+            self.max_label.setText(f"{max_val:.3f}")
+        except Exception as e:
+            print(f"Error updating slider labels: {e}")
+
+    def _load_channel_scaling(self):
+        """Load scaling values for the currently selected channel."""
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel:
+            return
+        
+        if current_channel in self.channel_scaling:
+            # Load saved values
+            min_val = self.channel_scaling[current_channel]['min']
+            max_val = self.channel_scaling[current_channel]['max']
+        else:
+            # Use default range (full image range)
+            if self.current_acq_id is None:
+                return
+            try:
+                img = self.loader.get_image(self.current_acq_id, current_channel)
+                min_val = float(np.min(img))
+                max_val = float(np.max(img))
+            except Exception as e:
+                print(f"Error loading channel scaling: {e}")
+                return
+        
+        # Update sliders based on actual values
+        self._update_sliders_from_values(min_val, max_val)
+
+    def _save_channel_scaling(self):
+        """Save current scaling values for the selected channel."""
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel or self.current_acq_id is None:
+            return
+        
+        try:
+            img = self.loader.get_image(self.current_acq_id, current_channel)
+            img_min, img_max = float(np.min(img)), float(np.max(img))
+            
+            # Convert slider values to actual image range
+            min_val = img_min + (self.min_slider.value() / 1000.0) * (img_max - img_min)
+            max_val = img_min + (self.max_slider.value() / 1000.0) * (img_max - img_min)
+            
+            self.channel_scaling[current_channel] = {'min': min_val, 'max': max_val}
+        except Exception as e:
+            print(f"Error saving channel scaling: {e}")
+
+    def _update_sliders_from_values(self, min_val, max_val):
+        """Update sliders based on actual min/max values."""
+        if self.current_acq_id is None:
+            return
+        
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel:
+            return
+        
+        try:
+            img = self.loader.get_image(self.current_acq_id, current_channel)
+            img_min, img_max = float(np.min(img)), float(np.max(img))
+            
+            # Convert actual values to slider positions (0-1000)
+            if img_max > img_min:
+                min_slider_val = int(((min_val - img_min) / (img_max - img_min)) * 1000)
+                max_slider_val = int(((max_val - img_min) / (img_max - img_min)) * 1000)
+            else:
+                min_slider_val = 0
+                max_slider_val = 1000
+            
+            # Update sliders without triggering valueChanged
+            self.min_slider.blockSignals(True)
+            self.max_slider.blockSignals(True)
+            self.min_slider.setValue(min_slider_val)
+            self.max_slider.setValue(max_slider_val)
+            self.min_slider.blockSignals(False)
+            self.max_slider.blockSignals(False)
+            
+            # Update labels
+            self._update_slider_labels()
+        except Exception as e:
+            print(f"Error updating sliders from values: {e}")
+
+    def _percentile_scaling(self):
+        """Set scaling using robust percentile scaling (1st-99th percentiles)."""
+        if self.current_acq_id is None:
+            return
+        
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel:
+            return
+        
+        try:
+            img = self.loader.get_image(self.current_acq_id, current_channel)
+            # Use robust percentile scaling function
+            scaled_img = robust_percentile_scale(img, low=1.0, high=99.0)
+            
+            # Get the actual min/max values that were used for scaling
+            min_val = float(np.percentile(img, 1))
+            max_val = float(np.percentile(img, 99))
+            
+            self._update_sliders_from_values(min_val, max_val)
+            
+            # Disable arcsinh normalization when using other scaling methods
+            self.arcsinh_enabled = False
+            # Don't auto-apply - user must click Apply button
+        except Exception as e:
+            print(f"Error in percentile scaling: {e}")
+
+    def _arcsinh_normalization(self):
+        """Apply arcsinh normalization with configurable co-factor."""
+        if self.current_acq_id is None:
+            return
+        
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel:
+            return
+        
+        try:
+            img = self.loader.get_image(self.current_acq_id, current_channel)
+            cofactor = self.cofactor_spinbox.value()
+            
+            # Apply arcsinh normalization
+            normalized_img = arcsinh_normalize(img, cofactor=cofactor)
+            
+            # Get the min/max values of the normalized image for scaling
+            min_val = float(np.min(normalized_img))
+            max_val = float(np.max(normalized_img))
+            
+            self._update_sliders_from_values(min_val, max_val)
+            
+            # Enable arcsinh normalization for this channel
+            self.arcsinh_enabled = True
+            # Don't auto-apply - user must click Apply button
+        except Exception as e:
+            print(f"Error in arcsinh normalization: {e}")
+
+    def _default_range(self):
+        """Set scaling to the image's actual min/max range."""
+        if self.current_acq_id is None:
+            return
+        
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel:
+            return
+        
+        try:
+            img = self.loader.get_image(self.current_acq_id, current_channel)
+            min_val = float(np.min(img))
+            max_val = float(np.max(img))
+            
+            self._update_sliders_from_values(min_val, max_val)
+            
+            # Disable arcsinh normalization when using other scaling methods
+            self.arcsinh_enabled = False
+            # Don't auto-apply - user must click Apply button
+        except Exception as e:
+            print(f"Error in default range: {e}")
+
+    def _load_image_with_normalization(self, acq_id: str, channel: str) -> np.ndarray:
+        """Load image and apply arcsinh normalization if enabled."""
+        img = self.loader.get_image(acq_id, channel)
+        
+        if self.arcsinh_enabled:
+            cofactor = self.cofactor_spinbox.value()
+            img = arcsinh_normalize(img, cofactor=cofactor)
+        
+        return img
+
+    def _apply_scaling(self):
+        """Apply the current scaling settings to the selected channel and refresh display."""
+        if self.current_acq_id is None:
+            return
+        
+        current_channel = self.scaling_channel_combo.currentText()
+        if not current_channel:
+            return
+        
+        # Save current scaling values
+        self._save_channel_scaling()
+        
+        # Refresh display
+        self._view_selected()
+
+
+    # ---------- View ----------
+    def _view_selected(self):
+        if self.current_acq_id is None:
+            QtWidgets.QMessageBox.information(self, "No acquisition", "Open a .mcd and select an acquisition.")
+            return
+        chans = self._selected_channels()
+        if not chans:
+            QtWidgets.QMessageBox.information(self, "No channels", "Select one or more channels.")
+            return
+        
+        # Store selected channels for auto-selection in next acquisition
+        self.last_selected_channels = chans.copy()
+        
+        grayscale = self.grayscale_chk.isChecked()
+        grid_view = self.grid_view_chk.isChecked()
+        
+        # Get custom scaling values if enabled
+        # For single channel view, use that channel's scaling
+        # For RGB/grid view, we'll handle per-channel scaling in the display methods
+        custom_min = None
+        custom_max = None
+        if self.custom_scaling_chk.isChecked() and len(chans) == 1:
+            # For single channel, use the scaling for that specific channel
+            channel = chans[0]
+            if channel in self.channel_scaling:
+                custom_min = self.channel_scaling[channel]['min']
+                custom_max = self.channel_scaling[channel]['max']
+        
+        try:
+            if len(chans) == 1 and not grid_view:
+                # Single channel view
+                img = self._load_image_with_normalization(self.current_acq_id, chans[0])
+                
+                # Apply segmentation overlay if enabled
+                if self.segmentation_overlay:
+                    img = self._get_segmentation_overlay(img)
+                
+                # Get acquisition subtitle
+                acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+                title = f"{chans[0]}\n{acq_subtitle}"
+                if self.segmentation_overlay:
+                    title += " (with segmentation overlay)"
+                self.canvas.show_image(img, title, grayscale=grayscale, raw_img=img, custom_min=custom_min, custom_max=custom_max)
+            elif len(chans) <= 3 and not grid_view:
+                # RGB composite view using user-selected color assignments
+                self._show_rgb_composite(chans, grayscale)
+            else:
+                # Grid view for multiple channels (when grid_view is True or >3 channels)
+                images = [self._load_image_with_normalization(self.current_acq_id, c) for c in chans]
+                
+                # Apply segmentation overlay to all images if enabled
+                if self.segmentation_overlay:
+                    images = [self._get_segmentation_overlay(img) for img in images]
+                
+                # Get acquisition subtitle
+                acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+                # Add acquisition subtitle to each channel title
+                titles = [f"{ch}\n{acq_subtitle}" for ch in chans]
+                if self.segmentation_overlay:
+                    titles = [f"{ch}\n{acq_subtitle} (segmented)" for ch in chans]
+                self.canvas.show_grid(images, titles, grayscale=grayscale, raw_images=images, 
+                                    channel_names=chans, channel_scaling=self.channel_scaling, 
+                                    custom_scaling_enabled=self.custom_scaling_chk.isChecked())
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "View error", str(e))
+
+    def _auto_load_image(self, selected_channels: List[str]):
+        """Automatically load and display image for pre-selected channels."""
+        try:
+            grayscale = self.grayscale_chk.isChecked()
+            grid_view = self.grid_view_chk.isChecked()
+            
+            # Get custom scaling values if enabled
+            custom_min = None
+            custom_max = None
+            if self.custom_scaling_chk.isChecked() and len(selected_channels) == 1:
+                # For single channel, use the scaling for that specific channel
+                channel = selected_channels[0]
+                if channel in self.channel_scaling:
+                    custom_min = self.channel_scaling[channel]['min']
+                    custom_max = self.channel_scaling[channel]['max']
+            
+            if len(selected_channels) == 1 and not grid_view:
+                # Single channel view
+                img = self._load_image_with_normalization(self.current_acq_id, selected_channels[0])
+                
+                # Apply segmentation overlay if enabled
+                if self.segmentation_overlay:
+                    img = self._get_segmentation_overlay(img)
+                
+                # Get acquisition subtitle
+                acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+                title = f"{selected_channels[0]}\n{acq_subtitle}"
+                if self.segmentation_overlay:
+                    title += " (with segmentation overlay)"
+                self.canvas.show_image(img, title, grayscale=grayscale, raw_img=img, custom_min=custom_min, custom_max=custom_max)
+            elif len(selected_channels) <= 3 and not grid_view:
+                # RGB composite view using user-selected color assignments
+                self._show_rgb_composite(selected_channels, grayscale)
+            else:
+                # Grid view for multiple channels (when grid_view is True or >3 channels)
+                images = [self._load_image_with_normalization(self.current_acq_id, c) for c in selected_channels]
+                
+                # Apply segmentation overlay to all images if enabled
+                if self.segmentation_overlay:
+                    images = [self._get_segmentation_overlay(img) for img in images]
+                
+                # Get acquisition subtitle
+                acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+                # Add acquisition subtitle to each channel title
+                titles = [f"{ch}\n{acq_subtitle}" for ch in selected_channels]
+                if self.segmentation_overlay:
+                    titles = [f"{ch}\n{acq_subtitle} (segmented)" for ch in selected_channels]
+                self.canvas.show_grid(images, titles, grayscale=grayscale, raw_images=images, 
+                                    channel_names=selected_channels, channel_scaling=self.channel_scaling, 
+                                    custom_scaling_enabled=self.custom_scaling_chk.isChecked())
+        except Exception as e:
+            print(f"Auto-load error: {e}")
+
+    def _show_rgb_composite(self, selected_channels: List[str], grayscale: bool):
+        """Show RGB composite using user-selected color assignments."""
+        # Get user-selected color assignments
+        red_channel = self.red_combo.currentData()
+        green_channel = self.green_combo.currentData()
+        blue_channel = self.blue_combo.currentData()
+        
+        # If currentData() returns None, try currentText()
+        if red_channel is None:
+            red_channel = self.red_combo.currentText() if self.red_combo.currentText() != "None" else None
+        if green_channel is None:
+            green_channel = self.green_combo.currentText() if self.green_combo.currentText() != "None" else None
+        if blue_channel is None:
+            blue_channel = self.blue_combo.currentText() if self.blue_combo.currentText() != "None" else None
+        
+        # If no color assignments are made, use the first 1-3 selected channels as default
+        if not red_channel and not green_channel and not blue_channel:
+            if len(selected_channels) >= 1:
+                red_channel = selected_channels[0]
+            if len(selected_channels) >= 2:
+                green_channel = selected_channels[1]
+            if len(selected_channels) >= 3:
+                blue_channel = selected_channels[2]
+        
+        # Create RGB stack based on user selections
+        rgb_channels = []
+        rgb_titles = []
+        raw_channels = []  # Store raw images for colorbar
+        
+        # Get the first selected channel to determine image size
+        first_img = None
+        if selected_channels:
+            first_img = self._load_image_with_normalization(self.current_acq_id, selected_channels[0])
+        
+        if first_img is None:
+            QtWidgets.QMessageBox.information(self, "No RGB channels", "Please select at least one channel for RGB composite.")
+            return
+        
+        # Always create 3 channels (R, G, B) even if some are empty
+        for color, channel, color_name in [(red_channel, red_channel, 'Red'), (green_channel, green_channel, 'Green'), (blue_channel, blue_channel, 'Blue')]:
+            # Convert both to strings for comparison to handle any type mismatches
+            channel_str = str(channel) if channel else None
+            selected_channels_str = [str(c) for c in selected_channels]
+            
+            if channel and channel_str in selected_channels_str:
+                img = self._load_image_with_normalization(self.current_acq_id, channel)
+                rgb_channels.append(img)
+                raw_channels.append(img)
+                rgb_titles.append(f"{channel} ({color_name})")
+            else:
+                # Add zero-filled channel if not selected
+                rgb_channels.append(np.zeros_like(first_img))
+                raw_channels.append(np.zeros_like(first_img))
+                rgb_titles.append(f"None ({color_name})")
+        
+        # Ensure we have exactly 3 channels
+        while len(rgb_channels) < 3:
+            rgb_channels.append(np.zeros_like(first_img))
+            raw_channels.append(np.zeros_like(first_img))
+            rgb_titles.append(f"None ({['Red', 'Green', 'Blue'][len(rgb_channels)-1]})")
+        
+        # Stack channels
+        stack = np.dstack(rgb_channels)
+        raw_stack = np.dstack(raw_channels)
+        
+        # Apply segmentation overlay if enabled
+        if self.segmentation_overlay:
+            # Apply overlay to each channel in the stack
+            for i in range(stack.shape[2]):
+                if not np.all(rgb_channels[i] == 0):  # Only apply to non-zero channels
+                    stack[..., i] = self._get_segmentation_overlay(stack[..., i])
+        
+        # Get acquisition subtitle
+        acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+        title = " + ".join(rgb_titles) + f"\n{acq_subtitle}"
+        if self.segmentation_overlay:
+            title += " (segmented)"
+        
+        # Clear canvas and show RGB composite with individual colorbars
+        self.canvas.fig.clear()
+        
+        if grayscale:
+            # Single grayscale image with colorbar
+            ax = self.canvas.fig.add_subplot(111)
+            
+            # Get per-channel scaling for the first channel
+            vmin, vmax = None, None
+            if self.custom_scaling_chk.isChecked() and selected_channels and len(selected_channels) > 0:
+                first_channel = selected_channels[0]
+                if first_channel in self.channel_scaling:
+                    vmin = self.channel_scaling[first_channel]['min']
+                    vmax = self.channel_scaling[first_channel]['max']
+            
+            if vmin is None or vmax is None:
+                vmin, vmax = np.min(stack[..., 0]), np.max(stack[..., 0])
+            
+            im = ax.imshow(stack[..., 0], interpolation="nearest", cmap='gray', vmin=vmin, vmax=vmax)
+            # Add colorbar for grayscale
+            cbar = self.canvas.fig.colorbar(im, ax=ax, shrink=0.8, aspect=20)
+            cbar.set_ticks([vmin, vmax])
+            cbar.set_ticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
+            ax.set_title(title)
+            ax.axis("off")
+        else:
+            # RGB composite with individual channel colorbars
+            # Create a 2x2 grid: main image (top), colorbars (bottom)
+            gs = self.canvas.fig.add_gridspec(2, 3, height_ratios=[3, 1], hspace=0.3, wspace=0.3)
+            
+            # Main RGB composite image (spans top row)
+            ax_main = self.canvas.fig.add_subplot(gs[0, :])
+            im = ax_main.imshow(stack_to_rgb(stack), interpolation="nearest")
+            ax_main.set_title(title)
+            ax_main.axis("off")
+            
+            # Individual channel colorbars (bottom row)
+            for i, (channel_name, color_name) in enumerate(zip(rgb_titles, ['Red', 'Green', 'Blue'])):
+                ax_cbar = self.canvas.fig.add_subplot(gs[1, i])
+                
+                # Create a colorbar for this channel
+                if i < len(raw_channels) and raw_channels[i] is not None and not np.all(raw_channels[i] == 0):
+                    # This channel has data
+                    raw_min, raw_max = np.min(raw_channels[i]), np.max(raw_channels[i])
+                    
+                    # Check for per-channel scaling
+                    if self.custom_scaling_chk.isChecked() and selected_channels and i < len(selected_channels):
+                        channel = selected_channels[i]
+                        if channel in self.channel_scaling:
+                            raw_min = self.channel_scaling[channel]['min']
+                            raw_max = self.channel_scaling[channel]['max']
+                    
+                    if raw_max > raw_min:  # Valid data range
+                        # Create a gradient for the colorbar
+                        gradient = np.linspace(0, 1, 256).reshape(1, -1)
+                        ax_cbar.imshow(gradient, aspect='auto', cmap='gray' if grayscale else ['Reds', 'Greens', 'Blues'][i])
+                        ax_cbar.set_xticks([0, 255])
+                        ax_cbar.set_xticklabels([f'{raw_min:.1f}', f'{raw_max:.1f}'])
+                        ax_cbar.set_yticks([])
+                        ax_cbar.set_title(f"{channel_name}", fontsize=10)
+                    else:
+                        # No data
+                        ax_cbar.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax_cbar.transAxes)
+                        ax_cbar.set_title(f"{channel_name}", fontsize=10)
+                else:
+                    # No data for this channel
+                    ax_cbar.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax_cbar.transAxes)
+                    ax_cbar.set_title(f"{channel_name}", fontsize=10)
+                
+                ax_cbar.set_xlim(0, 255)
+        
+        self.canvas.draw()
+
+
+    # ---------- Annotations ----------
+    def _apply_annotation(self):
+        if self.current_acq_id is None:
+            QtWidgets.QMessageBox.information(self, "No acquisition", "Select an acquisition first.")
+            return
+        chans = self._selected_channels()
+        if not chans:
+            QtWidgets.QMessageBox.information(self, "No channels", "Select channel(s) to annotate.")
+            return
+        label = self.ann_combo.currentText()
+        for ch in chans:
+            self.annotations[(self.current_acq_id, ch)] = label
+        QtWidgets.QMessageBox.information(self, "Annotated", f"Labeled {len(chans)} channel(s) as '{label}'.")
+
+    def _save_annotations(self):
+        if not self.annotations:
+            QtWidgets.QMessageBox.information(self, "Nothing to save", "No annotations yet.")
+            return
+        rows = [
+            {"acquisition_id": a, "channel": c, "label": lab}
+            for (a, c), lab in self.annotations.items()
+        ]
+        df = pd.DataFrame(rows).sort_values(["acquisition_id", "channel"])
+        base = "channel_annotations.csv"
+        if self.current_path:
+            stem = os.path.splitext(os.path.basename(self.current_path))[0]
+            base = f"{stem}_annotations.csv"
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save annotations CSV", base, "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            df.to_csv(path, index=False)
+            QtWidgets.QMessageBox.information(self, "Saved", f"Annotations saved to:\n{path}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(e))
+
+    def _load_annotations(self):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load annotations CSV", "", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            df = pd.read_csv(path)
+            if not {"acquisition_id", "channel", "label"}.issubset(df.columns):
+                raise ValueError("CSV must have columns: acquisition_id, channel, label")
+            for _, row in df.iterrows():
+                self.annotations[(str(row["acquisition_id"]), str(row["channel"]))] = str(row["label"])
+            QtWidgets.QMessageBox.information(self, "Loaded", f"Loaded {len(df)} annotations.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Load failed", str(e))
+
+    # ---------- Comparison ----------
+    def _comparison(self):
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.information(self, "No acquisitions", "Open a .mcd first.")
+            return
+        
+        # Open the dynamic comparison dialog
+        dlg = DynamicComparisonDialog(self.acquisitions, self.loader, self)
+        dlg.exec_()
+
+    # ---------- Export ----------
+    def _export_ome_tiff(self):
+        """Export acquisitions to OME-TIFF format."""
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.information(self, "No acquisitions", "Open a .mcd first.")
+            return
+        
+        if not _HAVE_TIFFFILE:
+            QtWidgets.QMessageBox.critical(
+                self, "Missing dependency", 
+                "tifffile library is required for OME-TIFF export.\n"
+                "Install it with: pip install tifffile"
+            )
+            return
+        
+        # Open export dialog
+        dlg = ExportDialog(self.acquisitions, self.current_acq_id, self)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        
+        export_type = dlg.get_export_type()
+        output_dir = dlg.get_output_directory()
+        include_metadata = dlg.get_include_metadata()
+        apply_normalization = dlg.get_apply_normalization()
+        
+        # Create and show progress dialog
+        progress_dlg = ProgressDialog("Export to OME-TIFF", self)
+        progress_dlg.show()
+        
+        try:
+            if export_type == "single":
+                success = self._export_single_acquisition(
+                    output_dir, include_metadata, apply_normalization, progress_dlg
+                )
+            else:
+                success = self._export_whole_slide(
+                    output_dir, include_metadata, apply_normalization, progress_dlg
+                )
+            
+            progress_dlg.close()
+            
+            if success and not progress_dlg.is_cancelled():
+                QtWidgets.QMessageBox.information(
+                    self, "Export Complete", 
+                    f"Successfully exported to:\n{output_dir}"
+                )
+            elif progress_dlg.is_cancelled():
+                QtWidgets.QMessageBox.information(
+                    self, "Export Cancelled", 
+                    "Export was cancelled by user."
+                )
+        except Exception as e:
+            progress_dlg.close()
+            QtWidgets.QMessageBox.critical(
+                self, "Export Failed", 
+                f"Export failed with error:\n{str(e)}"
+            )
+    
+    def _export_single_acquisition(self, output_dir: str, include_metadata: bool, 
+                                 apply_normalization: bool, progress_dlg: ProgressDialog) -> bool:
+        """Export the currently selected acquisition."""
+        if not self.current_acq_id:
+            raise ValueError("No acquisition selected")
+        
+        acq_info = next(ai for ai in self.acquisitions if ai.id == self.current_acq_id)
+        
+        # Get all channels for this acquisition
+        all_channels = self.loader.get_channels(self.current_acq_id)
+        if not all_channels:
+            raise ValueError("No channels found for this acquisition")
+        
+        progress_dlg.set_maximum(len(all_channels) + 2)  # +2 for stacking and writing
+        progress_dlg.update_progress(0, f"Exporting {acq_info.name}", "Loading channels...")
+        
+        # Load all channel data
+        channel_data = []
+        channel_names = []
+        
+        for i, channel in enumerate(all_channels):
+            if progress_dlg.is_cancelled():
+                return False
+                
+            progress_dlg.update_progress(
+                i + 1, 
+                f"Exporting {acq_info.name}", 
+                f"Loading channel {i+1}/{len(all_channels)}: {channel}"
+            )
+            
+            if apply_normalization:
+                img = self._load_image_with_normalization(self.current_acq_id, channel)
+            else:
+                img = self.loader.get_image(self.current_acq_id, channel)
+            channel_data.append(img)
+            channel_names.append(channel)
+        
+        if progress_dlg.is_cancelled():
+            return False
+        
+        # Stack channels (C, H, W) for OME-TIFF
+        progress_dlg.update_progress(
+            len(all_channels) + 1, 
+            f"Exporting {acq_info.name}", 
+            "Stacking channels..."
+        )
+        stack = np.stack(channel_data, axis=0)
+        
+        # Create filename from acquisition name
+        safe_name = self._sanitize_filename(acq_info.name)
+        if acq_info.well:
+            safe_well = self._sanitize_filename(acq_info.well)
+            filename = f"{safe_name}_{safe_well}.ome.tiff"
+        else:
+            filename = f"{safe_name}.ome.tiff"
+        
+        output_path = os.path.join(output_dir, filename)
+        
+        # Prepare comprehensive metadata
+        metadata = self._create_ome_metadata(
+            acq_info, channel_names, include_metadata, stack.shape
+        )
+        
+        # Write OME-TIFF
+        progress_dlg.update_progress(
+            len(all_channels) + 2, 
+            f"Exporting {acq_info.name}", 
+            f"Writing {filename}..."
+        )
+        
+        if progress_dlg.is_cancelled():
+            return False
+            
+        tifffile.imwrite(
+            output_path,
+            stack,
+            imagej=True,
+            metadata=metadata,
+            ome=True
+        )
+        
+        return True
+    
+    def _export_whole_slide(self, output_dir: str, include_metadata: bool, 
+                          apply_normalization: bool, progress_dlg: ProgressDialog) -> bool:
+        """Export all acquisitions from the slide."""
+        total_acquisitions = len(self.acquisitions)
+        progress_dlg.set_maximum(total_acquisitions)
+        
+        for acq_idx, acq_info in enumerate(self.acquisitions):
+            if progress_dlg.is_cancelled():
+                return False
+            
+            progress_dlg.update_progress(
+                acq_idx, 
+                f"Exporting acquisition {acq_idx + 1}/{total_acquisitions}", 
+                f"Processing {acq_info.name}..."
+            )
+            
+            # Get all channels for this acquisition
+            all_channels = self.loader.get_channels(acq_info.id)
+            if not all_channels:
+                print(f"Warning: No channels found for acquisition {acq_info.name}")
+                continue
+            
+            # Load all channel data
+            channel_data = []
+            channel_names = []
+            
+            for channel in all_channels:
+                if progress_dlg.is_cancelled():
+                    return False
+                    
+                if apply_normalization:
+                    img = self._load_image_with_normalization(acq_info.id, channel)
+                else:
+                    img = self.loader.get_image(acq_info.id, channel)
+                channel_data.append(img)
+                channel_names.append(channel)
+            
+            if progress_dlg.is_cancelled():
+                return False
+            
+            # Stack channels (C, H, W) for OME-TIFF
+            stack = np.stack(channel_data, axis=0)
+            
+            # Create filename from acquisition name
+            safe_name = self._sanitize_filename(acq_info.name)
+            if acq_info.well:
+                safe_well = self._sanitize_filename(acq_info.well)
+                filename = f"{safe_name}_{safe_well}.ome.tiff"
+            else:
+                filename = f"{safe_name}.ome.tiff"
+            
+            output_path = os.path.join(output_dir, filename)
+            
+            # Prepare comprehensive metadata
+            metadata = self._create_ome_metadata(
+                acq_info, channel_names, include_metadata, stack.shape
+            )
+            
+            # Write OME-TIFF
+            progress_dlg.update_progress(
+                acq_idx + 1, 
+                f"Exporting acquisition {acq_idx + 1}/{total_acquisitions}", 
+                f"Writing {filename}..."
+            )
+            
+            if progress_dlg.is_cancelled():
+                return False
+                
+            tifffile.imwrite(
+                output_path,
+                stack,
+                imagej=True,
+                metadata=metadata,
+                ome=True
+            )
+        
+        return True
+    
+    def _create_ome_metadata(self, acq_info: AcquisitionInfo, channel_names: List[str], 
+                            include_metadata: bool, stack_shape: Tuple[int, ...]) -> Dict:
+        """Create comprehensive OME-TIFF metadata."""
+        metadata = {}
+        
+        # Basic acquisition information
+        metadata['AcquisitionID'] = acq_info.id
+        metadata['AcquisitionName'] = acq_info.name
+        if acq_info.well:
+            metadata['Well'] = acq_info.well
+        
+        # Image dimensions
+        if len(stack_shape) >= 3:
+            metadata['SizeC'] = stack_shape[0]  # Number of channels
+            metadata['SizeT'] = 1  # Time points
+            metadata['SizeZ'] = 1  # Z slices
+            metadata['SizeY'] = stack_shape[1]  # Height
+            metadata['SizeX'] = stack_shape[2]  # Width
+        
+        # Channel information
+        metadata['ChannelNames'] = channel_names
+        
+        # Get detailed channel information from acquisition
+        acq_id = acq_info.id
+        if hasattr(self.loader, '_acq_channel_metals') and acq_id in self.loader._acq_channel_metals:
+            channel_metals = self.loader._acq_channel_metals[acq_id]
+            channel_labels = self.loader._acq_channel_labels[acq_id]
+            
+            # Create detailed channel metadata
+            channel_metadata = []
+            for i, (metal, label, name) in enumerate(zip(channel_metals, channel_labels, channel_names)):
+                channel_info = {
+                    'ID': f"Channel:{i}",
+                    'Name': name,
+                    'Metal': metal if metal else f"Channel_{i+1}",
+                    'Label': label if label else f"Channel_{i+1}"
+                }
+                channel_metadata.append(channel_info)
+            
+            metadata['Channels'] = channel_metadata
+        
+        # Pixel size information (try to extract from metadata)
+        pixel_size_x = None
+        pixel_size_y = None
+        pixel_size_unit = "µm"  # Default unit
+        
+        if include_metadata and acq_info.metadata:
+            # Look for common pixel size keys in metadata
+            for key, value in acq_info.metadata.items():
+                key_lower = key.lower()
+                if 'pixel' in key_lower and 'size' in key_lower:
+                    if 'x' in key_lower or 'width' in key_lower:
+                        try:
+                            pixel_size_x = float(value)
+                        except (ValueError, TypeError):
+                            pass
+                    elif 'y' in key_lower or 'height' in key_lower:
+                        try:
+                            pixel_size_y = float(value)
+                        except (ValueError, TypeError):
+                            pass
+                elif 'resolution' in key_lower:
+                    try:
+                        # Sometimes resolution is given as a single value
+                        pixel_size_x = pixel_size_y = float(value)
+                    except (ValueError, TypeError):
+                        pass
+                elif 'unit' in key_lower and 'pixel' in key_lower:
+                    pixel_size_unit = str(value)
+                elif 'microns' in key_lower or 'micrometers' in key_lower:
+                    # Sometimes pixel size is given as "microns per pixel"
+                    try:
+                        pixel_size_x = pixel_size_y = float(value)
+                        pixel_size_unit = "µm"
+                    except (ValueError, TypeError):
+                        pass
+            
+            # If we found pixel size information, add it to metadata
+            if pixel_size_x is not None:
+                metadata['PhysicalSizeX'] = pixel_size_x
+                metadata['PhysicalSizeXUnit'] = pixel_size_unit
+            if pixel_size_y is not None:
+                metadata['PhysicalSizeY'] = pixel_size_y
+                metadata['PhysicalSizeYUnit'] = pixel_size_unit
+            
+            # Add all original metadata
+            metadata.update(acq_info.metadata)
+        
+        # OME-TIFF specific metadata
+        metadata['ImageJ'] = '1.53c'  # ImageJ version
+        metadata['hyperstack'] = 'true'
+        metadata['mode'] = 'grayscale'
+        metadata['unit'] = pixel_size_unit
+        
+        # Add acquisition timestamp if available
+        if include_metadata and acq_info.metadata:
+            for key, value in acq_info.metadata.items():
+                if 'time' in key.lower() or 'date' in key.lower():
+                    metadata['AcquisitionTime'] = str(value)
+                    break
+        
+        return metadata
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize filename for safe filesystem usage."""
+        # Replace invalid characters with underscores
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            filename = filename.replace(char, '_')
+        
+        # Remove leading/trailing spaces and dots
+        filename = filename.strip(' .')
+        
+        # Ensure filename is not empty
+        if not filename:
+            filename = "unnamed"
+        
+        return filename
+
+    # ---------- Segmentation ----------
+    def _run_segmentation(self):
+        """Run cell segmentation using Cellpose."""
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.information(self, "No acquisitions", "Open a .mcd first.")
+            return
+        
+        if not _HAVE_CELLPOSE:
+            QtWidgets.QMessageBox.critical(
+                self, "Missing dependency", 
+                "Cellpose library is required for segmentation.\n"
+                "Install it with: pip install cellpose"
+            )
+            return
+        
+        if not self.current_acq_id:
+            QtWidgets.QMessageBox.information(self, "No acquisition", "Select an acquisition first.")
+            return
+        
+        # Get available channels
+        channels = self.loader.get_channels(self.current_acq_id)
+        if not channels:
+            QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
+            return
+        
+        # Open segmentation dialog
+        dlg = SegmentationDialog(channels, self)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        
+        # Get segmentation parameters
+        model = dlg.get_model()
+        diameter = dlg.get_diameter()
+        flow_threshold = dlg.get_flow_threshold()
+        cellprob_threshold = dlg.get_cellprob_threshold()
+        show_overlay = dlg.get_show_overlay()
+        save_masks = dlg.get_save_masks()
+        masks_directory = dlg.get_masks_directory()
+        gpu_id = dlg.get_selected_gpu()
+        preprocessing_config = dlg.get_preprocessing_config()
+        segment_all = dlg.get_segment_all()
+        
+        # Validate preprocessing configuration
+        if not preprocessing_config:
+            QtWidgets.QMessageBox.warning(self, "No preprocessing configured", "Please configure preprocessing to select channels for segmentation.")
+            return
+        
+        # Get channels from preprocessing config
+        nuclear_channels = preprocessing_config.get('nuclear_channels', [])
+        cyto_channels = preprocessing_config.get('cyto_channels', [])
+        
+        if not nuclear_channels:
+            QtWidgets.QMessageBox.warning(self, "No nuclear channels", "Please select at least one nuclear channel in the preprocessing configuration.")
+            return
+        
+        if model == "cyto" and not cyto_channels:
+            QtWidgets.QMessageBox.warning(self, "No cytoplasm channels", "Please select at least one cytoplasm channel in the preprocessing configuration for whole-cell segmentation.")
+            return
+        
+        try:
+            if segment_all:
+                # Run segmentation on all acquisitions
+                self._perform_segmentation_all_acquisitions(
+                    model, diameter, flow_threshold, cellprob_threshold, 
+                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config
+                )
+            else:
+                # Run segmentation on current acquisition only
+                self._perform_segmentation(
+                    model, diameter, flow_threshold, cellprob_threshold, 
+                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config
+                )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "Segmentation Failed", 
+                f"Segmentation failed with error:\n{str(e)}"
+            )
+    
+    def _perform_segmentation(self, model: str, diameter: int = None, flow_threshold: float = 0.4, 
+                            cellprob_threshold: float = 0.0, show_overlay: bool = True, 
+                            save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None):
+        """Perform the actual segmentation using Cellpose."""
+        # Create progress dialog
+        progress_dlg = ProgressDialog("Cell Segmentation", self)
+        progress_dlg.show()
+        
+        try:
+            progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
+            
+            # Determine GPU usage
+            use_gpu = False
+            gpu_device = None
+            
+            if gpu_id == "auto":
+                # Auto-detect best GPU
+                if _HAVE_TORCH and torch.cuda.is_available():
+                    use_gpu = True
+                    gpu_device = 0  # Use first CUDA device
+                elif _HAVE_TORCH and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    use_gpu = True
+                    gpu_device = 'mps'
+            elif gpu_id is not None:
+                # Use specific GPU
+                use_gpu = True
+                gpu_device = gpu_id
+            
+            # Initialize Cellpose model
+            if model == "nuclei":
+                model_obj = models.Cellpose(gpu=use_gpu, model_type='nuclei')
+            else:  # cyto3
+                model_obj = models.Cellpose(gpu=use_gpu, model_type='cyto3')
+            
+            # Set device if using GPU
+            if use_gpu and gpu_device is not None:
+                if gpu_device == 'mps':
+                    progress_dlg.update_progress(5, "Initializing Cellpose model", "Using Apple Metal Performance Shaders...")
+                else:
+                    progress_dlg.update_progress(5, "Initializing Cellpose model", f"Using CUDA GPU {gpu_device}...")
+            else:
+                progress_dlg.update_progress(5, "Initializing Cellpose model", "Using CPU...")
+            
+            progress_dlg.update_progress(20, "Preprocessing images", "Loading and preprocessing channels...")
+            
+            # Preprocess and combine channels
+            nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
+                preprocessing_config, progress_dlg
+            )
+            
+            # Prepare input images
+            if model == "nuclei":
+                # For nuclei model, use only nuclear channel
+                images = [nuclear_img]
+                channels = [0, 0]  # [cytoplasm, nucleus] - both are nuclear channel
+            else:  # cyto3
+                # For cyto3 model, use both channels
+                if cyto_img is None:
+                    cyto_img = nuclear_img  # Fallback to nuclear channel
+                images = [cyto_img, nuclear_img]
+                channels = [0, 1]  # [cytoplasm, nucleus]
+            
+            progress_dlg.update_progress(60, "Running segmentation", "Processing with Cellpose...")
+            
+            # Run segmentation
+            masks, flows, styles, diams = model_obj.eval(
+                images, 
+                diameter=diameter,
+                flow_threshold=flow_threshold,
+                cellprob_threshold=cellprob_threshold,
+                channels=channels
+            )
+            
+            progress_dlg.update_progress(80, "Processing results", "Creating segmentation masks...")
+            
+            # Store segmentation results
+            self.segmentation_masks[self.current_acq_id] = masks[0]  # First (and only) mask
+            # Clear colors for this acquisition so they get regenerated
+            if self.current_acq_id in self.segmentation_colors:
+                del self.segmentation_colors[self.current_acq_id]
+            self.segmentation_overlay = show_overlay
+            
+            # Save masks if requested
+            if save_masks:
+                self._save_segmentation_masks(masks_directory)
+            
+            progress_dlg.update_progress(100, "Segmentation complete", f"Found {len(np.unique(masks[0])) - 1} cells")
+            
+            # Update display if overlay is enabled
+            if show_overlay:
+                self.segmentation_overlay_chk.setChecked(True)
+                self._update_display_with_segmentation()
+            
+            progress_dlg.close()
+            
+            # Get channel information from preprocessing config
+            nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+            cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+            
+            channel_info = ""
+            if nuclear_channels:
+                channel_info += f"Nuclear: {len(nuclear_channels)} channels"
+            if cyto_channels:
+                if channel_info:
+                    channel_info += f" + Cytoplasm: {len(cyto_channels)} channels"
+                else:
+                    channel_info += f"Cytoplasm: {len(cyto_channels)} channels"
+            
+            QtWidgets.QMessageBox.information(
+                self, "Segmentation Complete", 
+                f"Successfully segmented {len(np.unique(masks[0])) - 1} cells.\n"
+                f"Model: {model}\n"
+                f"Channels: {channel_info if channel_info else 'Not specified'}"
+            )
+            
+        except Exception as e:
+            progress_dlg.close()
+            raise e
+    
+    def _perform_segmentation_all_acquisitions(self, model: str, diameter: int = None, 
+                                             flow_threshold: float = 0.4, cellprob_threshold: float = 0.0, 
+                                             show_overlay: bool = True, save_masks: bool = False, 
+                                             masks_directory: str = None, gpu_id = None, preprocessing_config = None):
+        """Perform efficient batch segmentation on all acquisitions."""
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.warning(self, "No acquisitions", "No acquisitions available for segmentation.")
+            return
+        
+        # Create progress dialog for batch processing
+        progress_dlg = ProgressDialog("Batch Cell Segmentation", self)
+        progress_dlg.set_maximum(len(self.acquisitions))
+        progress_dlg.show()
+        
+        try:
+            # Estimate optimal batch size based on available memory
+            batch_size = self._estimate_optimal_batch_size(preprocessing_config, gpu_id)
+            progress_dlg.update_progress(0, "Initializing batch processing", f"Optimal batch size: {batch_size} (0/{total_acquisitions} completed)")
+            
+            # Initialize Cellpose model once
+            progress_dlg.update_progress(0, "Initializing Cellpose model", f"Loading model... (0/{total_acquisitions} completed)")
+            
+            # Determine GPU usage
+            use_gpu = False
+            gpu_device = None
+            
+            if gpu_id == "auto":
+                if _HAVE_TORCH and torch.cuda.is_available():
+                    use_gpu = True
+                    gpu_device = 0
+                elif _HAVE_TORCH and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    use_gpu = True
+                    gpu_device = 'mps'
+            elif gpu_id is not None:
+                use_gpu = True
+                gpu_device = gpu_id
+            
+            # Initialize model
+            if model == "nuclei":
+                model_obj = models.Cellpose(gpu=use_gpu, model_type='nuclei')
+            else:  # cyto3
+                model_obj = models.Cellpose(gpu=use_gpu, model_type='cyto3')
+            
+            # Process acquisitions in batches
+            successful_segmentations = 0
+            total_acquisitions = len(self.acquisitions)
+            
+            for batch_start in range(0, total_acquisitions, batch_size):
+                if progress_dlg.is_cancelled():
+                    break
+                
+                batch_end = min(batch_start + batch_size, total_acquisitions)
+                batch_acquisitions = self.acquisitions[batch_start:batch_end]
+                
+                progress_dlg.update_progress(
+                    successful_segmentations, 
+                    f"Processing batch {batch_start//batch_size + 1}", 
+                    f"Loading {len(batch_acquisitions)} acquisitions... ({successful_segmentations}/{total_acquisitions} completed)"
+                )
+                
+                try:
+                    # Load and preprocess all acquisitions in this batch
+                    batch_data = self._load_batch_acquisitions(
+                        batch_acquisitions, preprocessing_config, progress_dlg
+                    )
+                    
+                    if not batch_data:
+                        continue
+                    
+                    # Run segmentation on the entire batch
+                    progress_dlg.update_progress(
+                        successful_segmentations,
+                        f"Segmenting batch {batch_start//batch_size + 1}",
+                        f"Processing {len(batch_data['images'])} images... ({successful_segmentations}/{total_acquisitions} completed)"
+                    )
+                    
+                    masks, flows, styles, diams = model_obj.eval(
+                        batch_data['images'],
+                        diameter=diameter,
+                        flow_threshold=flow_threshold,
+                        cellprob_threshold=cellprob_threshold,
+                        channels=batch_data['channels']
+                    )
+                    
+                    # Store results using acquisition mapping to ensure correct order
+                    acquisition_mapping = batch_data['acquisition_mapping']
+                    processed_acquisitions = set()
+                    
+                    for i, mask in enumerate(masks):
+                        if i < len(acquisition_mapping):
+                            acq_id = acquisition_mapping[i]
+                            
+                            # Only process each acquisition once (use the first mask for each acquisition)
+                            if acq_id not in processed_acquisitions:
+                                self.segmentation_masks[acq_id] = mask
+                                # Clear colors for this acquisition so they get regenerated
+                                if acq_id in self.segmentation_colors:
+                                    del self.segmentation_colors[acq_id]
+                                successful_segmentations += 1
+                                processed_acquisitions.add(acq_id)
+                                
+                                # Save masks if requested
+                                if save_masks:
+                                    self._save_segmentation_masks_for_acquisition(mask, acq_id, masks_directory)
+                                
+                                # Update progress after each acquisition
+                                acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+                                progress_dlg.update_progress(
+                                    successful_segmentations,
+                                    f"Completed batch {batch_start//batch_size + 1}",
+                                    f"Segmented {acq_info.name} ({successful_segmentations}/{total_acquisitions} completed)"
+                                )
+                    
+                    # Clear batch data to free memory
+                    del batch_data
+                    if _HAVE_TORCH and use_gpu:
+                        torch.cuda.empty_cache()
+                    
+                except Exception as e:
+                    print(f"Error processing batch {batch_start//batch_size + 1}: {e}")
+                    # Fall back to individual processing for this batch
+                    for acq in batch_acquisitions:
+                        try:
+                            self._process_single_acquisition_fallback(
+                                acq, model_obj, model, diameter, flow_threshold, 
+                                cellprob_threshold, preprocessing_config, save_masks, masks_directory
+                            )
+                            successful_segmentations += 1
+                            
+                            # Update progress after each fallback acquisition
+                            progress_dlg.update_progress(
+                                successful_segmentations,
+                                f"Fallback processing",
+                                f"Segmented {acq.name} ({successful_segmentations}/{total_acquisitions} completed)"
+                            )
+                        except Exception as e2:
+                            print(f"Error segmenting acquisition {acq.name}: {e2}")
+                            continue
+            
+            progress_dlg.update_progress(total_acquisitions, "Batch segmentation complete", 
+                                       f"Successfully segmented {successful_segmentations}/{total_acquisitions} acquisitions")
+            
+            # Show completion message
+            QtWidgets.QMessageBox.information(
+                self, "Batch Segmentation Complete",
+                f"Successfully segmented {successful_segmentations} out of {total_acquisitions} acquisitions.\n"
+                f"Segmentation masks are available for overlay display."
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "Batch Segmentation Failed", 
+                f"Batch segmentation failed with error:\n{str(e)}"
+            )
+        finally:
+            progress_dlg.close()
+    
+    def _estimate_optimal_batch_size(self, preprocessing_config: dict, gpu_id) -> int:
+        """Estimate optimal batch size based on available memory."""
+        # Start with a conservative estimate
+        base_batch_size = 4
+        
+        if not preprocessing_config:
+            return base_batch_size
+        
+        # Get channel counts
+        nuclear_channels = len(preprocessing_config.get('nuclear_channels', []))
+        cyto_channels = len(preprocessing_config.get('cyto_channels', []))
+        total_channels = nuclear_channels + cyto_channels
+        
+        # Estimate image size (use first acquisition as reference)
+        if self.acquisitions:
+            try:
+                first_acq = self.acquisitions[0]
+                sample_img = self.loader.get_image(first_acq.id, first_acq.channels[0])
+                img_size_mb = sample_img.nbytes / (1024 * 1024)  # Size in MB
+            except:
+                img_size_mb = 50  # Default estimate
+        else:
+            img_size_mb = 50
+        
+        # Estimate memory requirements per acquisition
+        # Each acquisition needs: nuclear_img + cyto_img + masks + intermediate processing
+        memory_per_acq_mb = img_size_mb * total_channels * 3  # 3x for processing overhead
+        
+        # Get available memory
+        available_memory_mb = self._get_available_memory()
+        
+        # Calculate batch size based on available memory
+        # Use 70% of available memory to leave room for system
+        usable_memory_mb = available_memory_mb * 0.7
+        estimated_batch_size = max(1, int(usable_memory_mb / memory_per_acq_mb))
+        
+        # Apply limits
+        min_batch_size = 1
+        max_batch_size = 16  # Reasonable upper limit
+        
+        batch_size = max(min_batch_size, min(max_batch_size, estimated_batch_size))
+        
+        print(f"Memory estimation: {available_memory_mb:.0f}MB available, {memory_per_acq_mb:.0f}MB per acquisition, batch size: {batch_size}")
+        
+        return batch_size
+    
+    def _get_available_memory(self) -> float:
+        """Get available system memory in MB."""
+        try:
+            import psutil
+            return psutil.virtual_memory().available / (1024 * 1024)
+        except ImportError:
+            # Fallback estimation
+            return 4000  # Assume 4GB available
+    
+    def _load_batch_acquisitions(self, acquisitions, preprocessing_config: dict, progress_dlg) -> dict:
+        """Load and preprocess a batch of acquisitions efficiently."""
+        batch_images = []
+        batch_channels = []
+        acquisition_mapping = []  # Track which images belong to which acquisition
+        
+        for acq in acquisitions:
+            try:
+                # Temporarily set current acquisition for preprocessing
+                original_acq_id = self.current_acq_id
+                self.current_acq_id = acq.id
+                
+                # Preprocess channels for this acquisition
+                nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
+                    preprocessing_config, progress_dlg
+                )
+                
+                # Prepare input images based on model type
+                if nuclear_img is not None:
+                    if cyto_img is not None:
+                        # Both nuclear and cytoplasm available
+                        batch_images.extend([cyto_img, nuclear_img])
+                        batch_channels.extend([0, 1])  # cyto, nuclear
+                        acquisition_mapping.extend([acq.id, acq.id])  # Both images belong to same acquisition
+                    else:
+                        # Only nuclear available
+                        batch_images.extend([nuclear_img, nuclear_img])
+                        batch_channels.extend([0, 0])  # nuclear, nuclear
+                        acquisition_mapping.extend([acq.id, acq.id])  # Both images belong to same acquisition
+                else:
+                    print(f"Warning: No valid images for acquisition {acq.name}")
+                    continue
+                
+                # Restore original acquisition
+                self.current_acq_id = original_acq_id
+                
+            except Exception as e:
+                print(f"Error preprocessing acquisition {acq.name}: {e}")
+                continue
+        
+        if not batch_images:
+            return None
+        
+        return {
+            'images': batch_images,
+            'channels': batch_channels,
+            'acquisition_mapping': acquisition_mapping,
+            'acquisition_count': len(acquisitions)
+        }
+    
+    def _process_single_acquisition_fallback(self, acq, model_obj, model: str, diameter: int,
+                                           flow_threshold: float, cellprob_threshold: float,
+                                           preprocessing_config: dict, save_masks: bool, masks_directory: str = None):
+        """Fallback method to process a single acquisition individually."""
+        # Temporarily set current acquisition
+        original_acq_id = self.current_acq_id
+        self.current_acq_id = acq.id
+        
+        try:
+            # Preprocess channels
+            nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
+                preprocessing_config, None
+            )
+            
+            # Prepare input images
+            if model == "nuclei":
+                images = [nuclear_img]
+                channels = [0, 0]
+            else:  # cyto3
+                if cyto_img is None:
+                    cyto_img = nuclear_img
+                images = [cyto_img, nuclear_img]
+                channels = [0, 1]
+            
+            # Run segmentation
+            masks, flows, styles, diams = model_obj.eval(
+                images,
+                diameter=diameter,
+                flow_threshold=flow_threshold,
+                cellprob_threshold=cellprob_threshold,
+                channels=channels
+            )
+            
+            # Store results
+            self.segmentation_masks[acq.id] = masks[0]
+            # Clear colors for this acquisition so they get regenerated
+            if acq.id in self.segmentation_colors:
+                del self.segmentation_colors[acq.id]
+            
+            # Save masks if requested
+            if save_masks:
+                self._save_segmentation_masks_for_acquisition(masks[0], acq.id, masks_directory)
+                
+        finally:
+            # Restore original acquisition
+            self.current_acq_id = original_acq_id
+    
+    def _save_segmentation_masks_for_acquisition(self, masks: np.ndarray, acq_id: str, masks_directory: str = None):
+        """Save segmentation masks for a specific acquisition."""
+        acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+        filename = f"{acq_info.name}_segmentation_masks.tif"
+        
+        # Use provided directory or fallback to .mcd directory
+        if masks_directory and os.path.exists(masks_directory):
+            filepath = os.path.join(masks_directory, filename)
+        else:
+            filepath = os.path.join(os.path.dirname(self.mcd_path), filename)
+        
+        try:
+            tifffile.imwrite(filepath, masks.astype(np.uint16))
+            print(f"Segmentation masks saved: {filepath}")
+        except Exception as e:
+            print(f"Error saving segmentation masks: {e}")
+    
+    def _save_segmentation_masks(self, masks_directory: str = None):
+        """Save segmentation masks to file."""
+        if not self.current_acq_id or self.current_acq_id not in self.segmentation_masks:
+            return
+        
+        acq_info = next(ai for ai in self.acquisitions if ai.id == self.current_acq_id)
+        safe_name = self._sanitize_filename(acq_info.name)
+        if acq_info.well:
+            safe_well = self._sanitize_filename(acq_info.well)
+            filename = f"{safe_name}_{safe_well}_segmentation.tiff"
+        else:
+            filename = f"{safe_name}_segmentation.tiff"
+        
+        # Use provided directory or ask user to select
+        if masks_directory and os.path.exists(masks_directory):
+            output_dir = masks_directory
+        else:
+            output_dir = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select Directory to Save Segmentation Masks", ""
+            )
+            if not output_dir:
+                return
+        
+        output_path = os.path.join(output_dir, filename)
+        
+        # Save mask as TIFF
+        if _HAVE_TIFFFILE:
+            tifffile.imwrite(output_path, self.segmentation_masks[self.current_acq_id].astype(np.uint16))
+        else:
+            # Fallback to numpy save
+            np.save(output_path.replace('.tiff', '.npy'), self.segmentation_masks[self.current_acq_id])
+    
+    def _update_display_with_segmentation(self):
+        """Update the current display to show segmentation overlay."""
+        if not self.segmentation_overlay or self.current_acq_id not in self.segmentation_masks:
+            return
+        
+        # Refresh the current view
+        self._view_selected()
+    
+    def _get_segmentation_overlay(self, img: np.ndarray) -> np.ndarray:
+        """Create segmentation overlay for display."""
+        if not self.segmentation_overlay or self.current_acq_id not in self.segmentation_masks:
+            return img
+        
+        mask = self.segmentation_masks[self.current_acq_id]
+        
+        # Create colored overlay
+        overlay = np.zeros((*img.shape[:2], 3), dtype=np.float32)
+        
+        # Get or generate colors for this acquisition
+        unique_labels = np.unique(mask)
+        if self.current_acq_id not in self.segmentation_colors:
+            # Generate and store colors for this acquisition
+            self.segmentation_colors[self.current_acq_id] = np.random.rand(len(unique_labels), 3)
+        
+        colors = self.segmentation_colors[self.current_acq_id]
+        
+        for i, label in enumerate(unique_labels):
+            if label == 0:  # Background
+                continue
+            cell_mask = (mask == label)
+            overlay[cell_mask] = colors[i]
+        
+        # Blend with original image
+        if img.ndim == 2:
+            img_rgb = np.stack([img, img, img], axis=-1)
+        else:
+            img_rgb = img
+        
+        # Normalize images to [0, 1]
+        img_norm = (img_rgb - img_rgb.min()) / (img_rgb.max() - img_rgb.min() + 1e-8)
+        overlay_norm = (overlay - overlay.min()) / (overlay.max() - overlay.min() + 1e-8)
+        
+        # Blend (50% original, 50% overlay)
+        blended = 0.7 * img_norm + 0.3 * overlay_norm
+        
+        return blended
+
+    def _get_gpu_info(self):
+        """Get GPU information for display."""
+        if not _HAVE_TORCH:
+            return None
+        
+        try:
+            if torch.cuda.is_available():
+                gpu_count = torch.cuda.device_count()
+                gpu_names = [torch.cuda.get_device_name(i) for i in range(gpu_count)]
+                return f"CUDA ({gpu_count} GPU{'s' if gpu_count > 1 else ''}): {', '.join(gpu_names)}"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                return "Apple Metal Performance Shaders (MPS)"
+            else:
+                return "CPU only"
+        except Exception:
+            return "GPU detection failed"
+    
+    def _preprocess_channels_for_segmentation(self, preprocessing_config: dict, progress_dlg) -> tuple:
+        """Preprocess and combine channels for segmentation."""
+        if not preprocessing_config:
+            raise ValueError("Preprocessing configuration is required for segmentation")
+        
+        config = preprocessing_config
+        
+        # Get nuclear channels
+        nuclear_channels = config.get('nuclear_channels', [])
+        if not nuclear_channels:
+            raise ValueError("No nuclear channels specified in preprocessing configuration")
+        
+        # Get cytoplasm channels
+        cyto_channels = config.get('cyto_channels', [])
+        
+        # Load and normalize nuclear channels
+        progress_dlg.update_progress(25, "Preprocessing images", "Loading nuclear channels...")
+        nuclear_imgs = []
+        for channel in nuclear_channels:
+            img = self.loader.get_image(self.current_acq_id, channel)
+            # Apply normalization if configured
+            img = self._apply_normalization(img, config, self.current_acq_id, channel)
+            nuclear_imgs.append(img)
+        
+        # Combine nuclear channels
+        nuclear_combo_method = config.get('nuclear_combo_method', 'single')
+        nuclear_weights = config.get('nuclear_weights')
+        nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights)
+        
+        # Load and normalize cytoplasm channels
+        cyto_img = None
+        if cyto_channels:
+            progress_dlg.update_progress(35, "Preprocessing images", "Loading cytoplasm channels...")
+            cyto_imgs = []
+            for channel in cyto_channels:
+                img = self.loader.get_image(self.current_acq_id, channel)
+                # Apply normalization if configured
+                img = self._apply_normalization(img, config, self.current_acq_id, channel)
+                cyto_imgs.append(img)
+            
+            # Combine cytoplasm channels
+            cyto_combo_method = config.get('cyto_combo_method', 'single')
+            cyto_weights = config.get('cyto_weights')
+            cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights)
+        
+        return nuclear_img, cyto_img
+    
+    def _apply_normalization(self, img: np.ndarray, config: dict, acq_id: str, channel: str) -> np.ndarray:
+        """Apply normalization to an image based on configuration."""
+        norm_method = config.get('normalization_method', 'None')
+        
+        if norm_method == 'None':
+            return img
+        
+        # Check cache first
+        cache_key = f"{acq_id}_{channel}_{norm_method}"
+        if norm_method == 'arcsinh':
+            cofactor = config.get('arcsinh_cofactor', 5.0)
+            cache_key += f"_{cofactor}"
+        elif norm_method == 'percentile_clip':
+            p_low, p_high = config.get('percentile_params', (1.0, 99.0))
+            cache_key += f"_{p_low}_{p_high}"
+        
+        # Apply normalization
+        if norm_method == 'arcsinh':
+            cofactor = config.get('arcsinh_cofactor', 5.0)
+            return arcsinh_normalize(img, cofactor)
+        elif norm_method == 'percentile_clip':
+            p_low, p_high = config.get('percentile_params', (1.0, 99.0))
+            return percentile_clip_normalize(img, p_low, p_high)
+        
+        return img
+    
+    def _on_segmentation_overlay_toggled(self):
+        """Handle segmentation overlay checkbox toggle."""
+        self.segmentation_overlay = self.segmentation_overlay_chk.isChecked()
+        
+        # Update display if we have segmentation masks
+        if self.current_acq_id in self.segmentation_masks:
+            self._view_selected()
+            
+            # Update checkbox text to show cell count
+            if self.segmentation_overlay:
+                cell_count = len(np.unique(self.segmentation_masks[self.current_acq_id])) - 1
+                self.segmentation_overlay_chk.setText(f"Show segmentation overlay ({cell_count} cells)")
+            else:
+                self.segmentation_overlay_chk.setText("Show segmentation overlay")
+    
+    def _extract_features(self):
+        """Open feature extraction dialog and perform feature extraction."""
+        if not self.segmentation_masks:
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "No segmentation masks", 
+                "No segmentation masks found. Please run segmentation first."
+            )
+            return
+        
+        # Open feature extraction dialog
+        dlg = FeatureExtractionDialog(self, self.acquisitions, self.segmentation_masks)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        
+        # Get extraction parameters
+        selected_acquisitions = dlg.get_selected_acquisitions()
+        selected_features = dlg.get_selected_features()
+        output_path = dlg.get_output_path()
+        
+        if not selected_acquisitions:
+            QtWidgets.QMessageBox.warning(self, "No acquisitions selected", "Please select at least one acquisition.")
+            return
+        
+        if not any(selected_features.values()):
+            QtWidgets.QMessageBox.warning(self, "No features selected", "Please select at least one feature to extract.")
+            return
+        
+        # Perform feature extraction
+        try:
+            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "Feature Extraction Failed", 
+                f"Feature extraction failed with error:\n{str(e)}"
+            )
+    
+    def _extract_features_worker(self, args):
+        """Worker function for multiprocessing feature extraction."""
+        acq_id, mask, selected_features, acq_info, loader, arcsinh_enabled, cofactor = args
+        
+        try:
+            # Get pixel size from metadata
+            pixel_size_um = self._get_pixel_size_um(acq_id, acq_info)
+            
+            # Get all available channels
+            channels = acq_info.channels  # channels are already strings, not objects
+            
+            # Initialize feature dictionary
+            features = {
+                'acquisition_id': acq_id,
+                'acquisition_name': acq_info.name,
+                'well': acq_info.well if acq_info.well else ''
+            }
+            
+            # Get unique cell IDs (excluding background = 0)
+            unique_cells = np.unique(mask)
+            unique_cells = unique_cells[unique_cells > 0]  # Remove background
+            
+            if len(unique_cells) == 0:
+                return None
+            
+            # Extract morphology features
+            if any(selected_features[key] for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 
+                                                     'eccentricity', 'solidity', 'extent', 'circularity',
+                                                     'major_axis_len_um', 'minor_axis_len_um', 'aspect_ratio',
+                                                     'bbox_area_um2', 'touches_border', 'holes_count']):
+                morph_features = self._extract_morphology_features(mask, unique_cells, pixel_size_um, selected_features)
+                features.update(morph_features)
+            
+            # Extract intensity features for each channel
+            if any(selected_features[key] for key in ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated', 'frac_pos']):
+                for channel in channels:
+                    try:
+                        # Load channel image
+                        channel_img = loader.get_image(acq_id, channel)
+                        
+                        # Apply arcsinh normalization if enabled
+                        if arcsinh_enabled:
+                            channel_img = arcsinh_normalize(channel_img, cofactor=cofactor)
+                        
+                        intensity_features = self._extract_intensity_features(
+                            channel_img, mask, unique_cells, channel, selected_features
+                        )
+                        features.update(intensity_features)
+                    except Exception as e:
+                        print(f"Warning: Could not load channel {channel}: {e}")
+                        continue
+            
+            # Create DataFrame
+            features_df = pd.DataFrame(features)
+            
+            return features_df
+            
+        except Exception as e:
+            print(f"Error extracting features for acquisition {acq_id}: {e}")
+            return None
+
+    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path):
+        """Perform the actual feature extraction using multiprocessing."""
+        # Create progress dialog
+        progress_dlg = ProgressDialog("Feature Extraction", self)
+        progress_dlg.set_maximum(len(selected_acquisitions))
+        progress_dlg.show()
+        
+        try:
+            # Prepare arguments for multiprocessing
+            mp_args = []
+            for acq_id in selected_acquisitions:
+                try:
+                    current_acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+                    mask = self.segmentation_masks[acq_id]
+                    cofactor = self.cofactor_spinbox.value() if hasattr(self, 'cofactor_spinbox') else 5.0
+                    
+                    mp_args.append((
+                        acq_id, 
+                        mask, 
+                        selected_features, 
+                        current_acq_info, 
+                        self.loader, 
+                        self.arcsinh_enabled, 
+                        cofactor
+                    ))
+                except StopIteration:
+                    continue
+            
+            if not mp_args:
+                QtWidgets.QMessageBox.warning(self, "No valid acquisitions", "No valid acquisitions found for feature extraction.")
+                return
+            
+            # Use multiprocessing with maximum CPU count
+            max_workers = mp.cpu_count()
+            progress_dlg.update_progress(0, "Starting feature extraction", f"Using {max_workers} CPU cores")
+            
+            all_features = []
+            try:
+                from openmcd.processing.feature_worker import extract_features_for_acquisition
+                # Prepare arguments without non-picklable objects
+                safe_args = []
+                for (acq_id, mask, selected_features, current_acq_info, _loader, arcsinh_enabled, cofactor) in mp_args:
+                    # Build user-facing label matching UI (name + optional well)
+                    acq_label = None
+                    try:
+                        acq_obj = next(a for a in self.acquisitions if a.id == acq_id)
+                        acq_label = acq_obj.name + (f" ({acq_obj.well})" if acq_obj.well else "")
+                    except StopIteration:
+                        acq_label = acq_id
+                    safe_args.append((
+                        acq_id,
+                        mask,
+                        selected_features,
+                        {"channels": current_acq_info.channels if hasattr(current_acq_info, 'channels') else current_acq_info.get('channels', [])},
+                        acq_label,
+                        self.current_path or "",
+                        arcsinh_enabled,
+                        cofactor,
+                    ))
+                with mp.Pool(max_workers) as pool:
+                    # Process acquisitions in parallel using module-level worker
+                    results = pool.starmap(extract_features_for_acquisition, safe_args)
+                    
+                    # Collect results and update progress
+                    for i, result in enumerate(results):
+                        if progress_dlg.is_cancelled():
+                            break
+                        
+                        if result is not None and not result.empty:
+                            all_features.append(result)
+                        
+                        # Update progress
+                        progress_dlg.update_progress(
+                            i + 1, 
+                            f"Processed acquisition {i+1}/{len(results)}", 
+                            f"Extracted features from {len(all_features)} acquisitions"
+                        )
+            except Exception as mp_error:
+                print(f"Multiprocessing failed, falling back to single-threaded processing: {mp_error}")
+                progress_dlg.update_progress(0, "Multiprocessing failed, using single-threaded processing", "Processing acquisitions sequentially")
+                
+                # Fallback to single-threaded processing
+                for i, args in enumerate(mp_args):
+                    if progress_dlg.is_cancelled():
+                        break
+                    
+                    result = self._extract_features_worker(args)
+                    if result is not None and not result.empty:
+                        all_features.append(result)
+                    
+                    # Update progress
+                    progress_dlg.update_progress(
+                        i + 1, 
+                        f"Processed acquisition {i+1}/{len(mp_args)}", 
+                        f"Extracted features from {len(all_features)} acquisitions"
+                    )
+            
+            if not all_features:
+                QtWidgets.QMessageBox.warning(self, "No features extracted", "No features could be extracted from the selected acquisitions.")
+                return
+            
+            # Combine all features
+            combined_features = pd.concat(all_features, ignore_index=True)
+            
+            # Store in memory
+            self.feature_dataframe = combined_features
+            
+            # Save to CSV
+            if output_path:
+                combined_features.to_csv(output_path, index=False)
+                progress_dlg.update_progress(
+                    len(selected_acquisitions), 
+                    "Feature extraction complete", 
+                    f"Features saved to: {output_path}\nTotal cells: {len(combined_features)}"
+                )
+            else:
+                progress_dlg.update_progress(
+                    len(selected_acquisitions), 
+                    "Feature extraction complete", 
+                    f"Features stored in memory\nTotal cells: {len(combined_features)}"
+                )
+            
+            # Show completion message
+            QtWidgets.QMessageBox.information(
+                self, 
+                "Feature Extraction Complete",
+                f"Successfully extracted features from {len(selected_acquisitions)} acquisitions.\n"
+                f"Total cells: {len(combined_features)}\n"
+                f"Features saved to: {output_path if output_path else 'memory only'}"
+            )
+            
+        except Exception as e:
+            progress_dlg.close()
+            raise e
+        finally:
+            progress_dlg.close()
+    
+    def _extract_features_for_acquisition(self, acq_id, mask, selected_features, acq_info):
+        """Extract features for a single acquisition."""
+        try:
+            # Get pixel size from metadata
+            pixel_size_um = self._get_pixel_size_um(acq_id, acq_info)
+            
+            # Get all available channels
+            channels = acq_info.channels  # channels are already strings, not objects
+            
+            # Initialize feature dictionary
+            features = {
+                'acquisition_id': acq_id,
+                'acquisition_name': acq_info.name,
+                'well': acq_info.well if acq_info.well else ''
+            }
+            
+            # Get unique cell IDs (excluding background = 0)
+            unique_cells = np.unique(mask)
+            unique_cells = unique_cells[unique_cells > 0]  # Remove background
+            
+            if len(unique_cells) == 0:
+                return None
+            
+            # Extract morphology features
+            if any(selected_features[key] for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 
+                                                     'eccentricity', 'solidity', 'extent', 'circularity',
+                                                     'major_axis_len_um', 'minor_axis_len_um', 'aspect_ratio',
+                                                     'bbox_area_um2', 'touches_border', 'holes_count']):
+                morph_features = self._extract_morphology_features(mask, unique_cells, pixel_size_um, selected_features)
+                features.update(morph_features)
+            
+            # Extract intensity features for each channel
+            if any(selected_features[key] for key in ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated', 'frac_pos']):
+                for channel in channels:
+                    try:
+                        # Load channel image
+                        channel_img = self._load_image_with_normalization(acq_id, channel)
+                        intensity_features = self._extract_intensity_features(
+                            channel_img, mask, unique_cells, channel, selected_features
+                        )
+                        features.update(intensity_features)
+                    except Exception as e:
+                        print(f"Warning: Could not load channel {channel}: {e}")
+                        continue
+            
+            # Create DataFrame
+            features_df = pd.DataFrame(features)
+            
+            return features_df
+            
+        except Exception as e:
+            print(f"Error extracting features for acquisition {acq_id}: {e}")
+            return None
+    
+    def _get_pixel_size_um(self, acq_id, acq_info=None):
+        """Get pixel size in micrometers from acquisition metadata."""
+        try:
+            # Use provided acq_info or look it up
+            if acq_info is None:
+                acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+            
+            # Try to get pixel size from metadata
+            if hasattr(acq_info, 'metadata') and acq_info.metadata:
+                # Look for common pixel size keys
+                for key in ['pixel_size_x', 'pixel_size', 'PhysicalSizeX']:
+                    if key in acq_info.metadata:
+                        return float(acq_info.metadata[key])
+            
+            # Default pixel size (1 μm) if not found
+            return 1.0
+        except Exception as e:
+            return 1.0
+    
+    def _extract_morphology_features(self, mask, unique_cells, pixel_size_um, selected_features):
+        """Extract morphology features from segmentation mask."""
+        features = {}
+        
+        # Get region properties - mask is already labeled, no need for label() function
+        props = regionprops(mask)
+        
+        # Initialize feature arrays including cell_id
+        features['cell_id'] = []
+        for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 'eccentricity', 
+                   'solidity', 'extent', 'circularity', 'major_axis_len_um', 'minor_axis_len_um', 
+                   'aspect_ratio', 'bbox_area_um2', 'touches_border', 'holes_count']:
+            if selected_features[key]:
+                features[key] = []
+        
+        for prop in props:
+            cell_id = prop.label
+            
+            # Add cell_id to the features dictionary
+            features['cell_id'].append(cell_id)
+            
+            if selected_features['area_um2']:
+                features['area_um2'].append(prop.area * (pixel_size_um ** 2))
+            
+            if selected_features['perimeter_um']:
+                features['perimeter_um'].append(prop.perimeter * pixel_size_um)
+            
+            if selected_features['equivalent_diameter_um']:
+                features['equivalent_diameter_um'].append(prop.equivalent_diameter * pixel_size_um)
+            
+            if selected_features['eccentricity']:
+                features['eccentricity'].append(prop.eccentricity)
+            
+            if selected_features['solidity']:
+                features['solidity'].append(prop.solidity)
+            
+            if selected_features['extent']:
+                features['extent'].append(prop.extent)
+            
+            if selected_features['circularity']:
+                perimeter = prop.perimeter
+                area = prop.area
+                circularity = (4 * np.pi * area) / (perimeter ** 2) if perimeter > 0 else 0
+                features['circularity'].append(circularity)
+            
+            if selected_features['major_axis_len_um']:
+                features['major_axis_len_um'].append(prop.major_axis_length * pixel_size_um)
+            
+            if selected_features['minor_axis_len_um']:
+                features['minor_axis_len_um'].append(prop.minor_axis_length * pixel_size_um)
+            
+            if selected_features['aspect_ratio']:
+                aspect_ratio = prop.major_axis_length / prop.minor_axis_length if prop.minor_axis_length > 0 else 0
+                features['aspect_ratio'].append(aspect_ratio)
+            
+            if selected_features['bbox_area_um2']:
+                bbox_area = (prop.bbox[2] - prop.bbox[0]) * (prop.bbox[3] - prop.bbox[1])
+                features['bbox_area_um2'].append(bbox_area * (pixel_size_um ** 2))
+            
+            if selected_features['touches_border']:
+                # Check if cell touches image border
+                touches = (prop.bbox[0] == 0 or prop.bbox[1] == 0 or 
+                          prop.bbox[2] == mask.shape[0] or prop.bbox[3] == mask.shape[1])
+                features['touches_border'].append(touches)
+            
+            if selected_features['holes_count']:
+                # Count holes in the cell (simplified - count of background pixels in convex hull)
+                # This is a simplified implementation
+                features['holes_count'].append(0)  # Placeholder - would need more complex analysis
+        
+        return features
+    
+    def _extract_intensity_features(self, channel_img, mask, unique_cells, channel_name, selected_features):
+        """Extract intensity features for a specific channel."""
+        features = {}
+        
+        # Initialize feature arrays
+        for key in ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated', 'frac_pos']:
+            if selected_features[key]:
+                features[f"{key}_{channel_name}"] = []
+        
+        for cell_id in unique_cells:
+            # Get mask for this cell
+            cell_mask = (mask == cell_id)
+            cell_pixels = channel_img[cell_mask]
+            
+            if len(cell_pixels) == 0:
+                # Fill with NaN if no pixels
+                for key in ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated', 'frac_pos']:
+                    if selected_features[key]:
+                        features[f"{key}_{channel_name}"].append(np.nan)
+                continue
+            
+            if selected_features['mean']:
+                features[f"mean_{channel_name}"].append(np.mean(cell_pixels))
+            
+            if selected_features['median']:
+                features[f"median_{channel_name}"].append(np.median(cell_pixels))
+            
+            if selected_features['std']:
+                features[f"std_{channel_name}"].append(np.std(cell_pixels))
+            
+            if selected_features['mad']:
+                features[f"mad_{channel_name}"].append(stats.median_abs_deviation(cell_pixels))
+            
+            if selected_features['p10']:
+                features[f"p10_{channel_name}"].append(np.percentile(cell_pixels, 10))
+            
+            if selected_features['p90']:
+                features[f"p90_{channel_name}"].append(np.percentile(cell_pixels, 90))
+            
+            if selected_features['integrated']:
+                mean_intensity = np.mean(cell_pixels)
+                area = np.sum(cell_mask)
+                features[f"integrated_{channel_name}"].append(mean_intensity * area)
+            
+            if selected_features['frac_pos']:
+                # Use 95th percentile of ROI as threshold
+                threshold = np.percentile(channel_img, 95)
+                frac_pos = np.sum(cell_pixels > threshold) / len(cell_pixels)
+                features[f"frac_pos_{channel_name}"].append(frac_pos)
+        
+        return features
+    
+    def _load_segmentation_masks(self):
+        """Load previously saved segmentation masks from a directory."""
+        if not self.current_acq_id:
+            QtWidgets.QMessageBox.warning(self, "No acquisition selected", "Please select an acquisition first.")
+            return
+        
+        # Ask user to select directory containing masks
+        masks_dir = QtWidgets.QFileDialog.getExistingDirectory(
+            self, 
+            "Select Directory Containing Segmentation Masks",
+            "",  # Start from current directory
+            QtWidgets.QFileDialog.ShowDirsOnly | QtWidgets.QFileDialog.DontResolveSymlinks
+        )
+        
+        if not masks_dir:
+            return
+        
+        # Look for mask files for the current acquisition
+        acq_info = next(ai for ai in self.acquisitions if ai.id == self.current_acq_id)
+        safe_name = self._sanitize_filename(acq_info.name)
+        
+        # Try different possible filenames
+        possible_filenames = []
+        if acq_info.well:
+            safe_well = self._sanitize_filename(acq_info.well)
+            possible_filenames.append(f"{safe_name}_{safe_well}_segmentation.tiff")
+            possible_filenames.append(f"{safe_name}_{safe_well}_segmentation_masks.tif")
+        possible_filenames.append(f"{safe_name}_segmentation.tiff")
+        possible_filenames.append(f"{safe_name}_segmentation_masks.tif")
+        
+        # Find the first existing mask file
+        mask_file = None
+        for filename in possible_filenames:
+            filepath = os.path.join(masks_dir, filename)
+            if os.path.exists(filepath):
+                mask_file = filepath
+                break
+        
+        if not mask_file:
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "No mask file found", 
+                f"No segmentation mask file found for acquisition '{acq_info.name}' in the selected directory.\n\n"
+                f"Looking for files matching:\n" + "\n".join(f"• {f}" for f in possible_filenames)
+            )
+            return
+        
+        try:
+            # Load the mask file
+            if _HAVE_TIFFFILE:
+                mask = tifffile.imread(mask_file)
+            else:
+                # Fallback to PIL if tifffile not available
+                from PIL import Image
+                mask = np.array(Image.open(mask_file))
+            
+            # Store the loaded mask
+            self.segmentation_masks[self.current_acq_id] = mask
+            # Clear colors for this acquisition so they get regenerated
+            if self.current_acq_id in self.segmentation_colors:
+                del self.segmentation_colors[self.current_acq_id]
+            self.segmentation_overlay = True
+            self.segmentation_overlay_chk.setChecked(True)
+            
+            # Update display
+            self._view_selected()
+            
+            # Show success message
+            cell_count = len(np.unique(mask)) - 1  # Subtract 1 for background
+            QtWidgets.QMessageBox.information(
+                self, 
+                "Masks loaded successfully", 
+                f"Loaded segmentation masks from:\n{mask_file}\n\n"
+                f"Found {cell_count} cells. Overlay is now enabled."
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "Error loading masks", 
+                f"Failed to load segmentation masks:\n{str(e)}"
+            )
+
+    def closeEvent(self, event):
+        """Clean up when closing the application."""
+        if self.loader:
+            self.loader.close()
+        event.accept()
+
+    def _open_clustering_dialog(self):
+        """Open the cell clustering analysis dialog."""
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            QtWidgets.QMessageBox.warning(
+                self, 
+                "No Feature Data", 
+                "No feature data available. Please extract features first using the 'Extract Features' button."
+            )
+            return
+        
+        # Open clustering dialog
+        dlg = CellClusteringDialog(self.feature_dataframe, self)
+        dlg.exec_()
+
+
+
+
+
