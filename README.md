@@ -11,10 +11,12 @@ A PyQt5-based viewer for IMC (Imaging Mass Cytometry) .mcd files using the readi
   - Single channel view with grayscale or color mapping
   - RGB composite view with custom color channel assignments
   - Grid view for comparing multiple channels simultaneously
-- **Dynamic Comparison Mode**: Compare the same channel across different acquisitions
+- **Dynamic Comparison Mode**: Compare the same channel across different acquisitions with advanced scaling options
 - **Metadata Display**: View acquisition metadata including dimensions, channel information, and experimental details
 - **Cell Segmentation (optional)**: Run Cellpose (cyto3/nuclei) with CPU/GPU acceleration and overlay masks
 - **Feature Extraction (optional)**: Compute per-cell morphology and intensity features with optional multiprocessing and export to CSV
+- **Cell Clustering Analysis (optional)**: Perform hierarchical and Leiden clustering on extracted cell features
+- **UMAP Dimensionality Reduction (optional)**: Visualize high-dimensional cell data in 2D space using UMAP
 
 ### Advanced Features
 - **Custom Scaling**: Per-channel intensity scaling with slider controls
@@ -22,6 +24,12 @@ A PyQt5-based viewer for IMC (Imaging Mass Cytometry) .mcd files using the readi
 - **Annotation System**: Label channels with quality assessments (High-quality, Low-quality, Artifact/Exclude)
 - **Export Capabilities**: Save annotations as CSV files for further analysis
 - **Memory Management**: Intelligent caching system for efficient handling of large datasets
+- **Multiple Clustering Algorithms**: Choose between hierarchical clustering and Leiden community detection
+- **Feature Selection**: Interactive dialog to select morphometric and intensity features for clustering
+- **Cluster Visualization**: Heatmaps, dendrograms, and cluster statistics for analysis results
+- **UMAP Integration**: 2D embedding visualization with customizable parameters (n_neighbors, min_dist)
+- **Cluster Explorer**: Detailed exploration of individual clusters with cell image visualization
+- **Enhanced Comparison Mode**: RGB composite support, linked/unlinked scaling, and arcsinh normalization
 
 ### User Interface
 - **Intuitive Controls**: Easy-to-use interface with clear organization
@@ -34,7 +42,17 @@ A PyQt5-based viewer for IMC (Imaging Mass Cytometry) .mcd files using the readi
 - Python 3.11
 - PyQt5 for the graphical interface
 - readimc library for .mcd file reading
-- Standard scientific Python packages (numpy, pandas, matplotlib, etc.)
+- Standard scientific Python packages (numpy, pandas, matplotlib, scipy, scikit-image, scikit-learn, etc.)
+
+### Optional Dependencies
+
+For enhanced functionality, the following packages are optional but recommended:
+
+- **Cellpose** (cellpose==3.1.1.2): For cell segmentation functionality
+- **PyTorch** (torch>=1.9.0): For GPU-accelerated segmentation (CUDA/MPS support)
+- **Leiden Algorithm** (leidenalg>=0.10.0, python-igraph>=0.11.0): For advanced clustering analysis
+- **UMAP** (umap-learn>=0.5.0): For dimensionality reduction and visualization
+- **Seaborn** (seaborn>=0.13.2): For enhanced statistical visualizations
 
 ## Installation
 
@@ -103,6 +121,20 @@ python main.py
    - Choose an output directory/filename or keep results in memory
    - The results DataFrame includes both `acquisition_id` and `acquisition_label` for clarity
 
+8. **Cell Clustering Analysis (optional)**
+   - Click "Cell Clustering" (requires feature extraction first)
+   - Select features for clustering (morphometric and/or intensity features)
+   - Choose clustering method: Hierarchical or Leiden community detection
+   - Configure clustering parameters (number of clusters, linkage method, etc.)
+   - View results as heatmaps, dendrograms, and cluster statistics
+
+9. **UMAP Visualization (optional)**
+   - From the clustering dialog, click "Run UMAP"
+   - Select features for dimensionality reduction
+   - Customize UMAP parameters (n_neighbors, min_dist)
+   - Visualize cell populations in 2D embedding space
+   - Overlay cluster information on UMAP plots
+
 ### Advanced Features
 
 #### Custom Scaling
@@ -119,12 +151,28 @@ python main.py
 - Select multiple acquisitions to compare
 - Choose a channel to display across all selected acquisitions
 - Use linked scaling for fair comparison or individual scaling for detailed analysis
+- Create RGB composite images by selecting multiple channels for red, green, and blue
+- Apply arcsinh normalization for improved visualization of high-dimensional data
 
 #### Annotations
 - Select channels and choose a label from the dropdown
 - Click "Apply label" to annotate channels
 - Save annotations as CSV for later analysis
 - Load previously saved annotations
+
+#### Clustering Analysis
+- **Feature Selection**: Choose from morphometric features (area, perimeter, eccentricity, etc.) and intensity features (mean, median, std, etc.)
+- **Clustering Methods**: 
+  - Hierarchical clustering with customizable linkage methods (ward, complete, average, single)
+  - Leiden community detection for graph-based clustering
+- **Visualization**: View results as heatmaps, dendrograms, and cluster statistics
+- **Cluster Explorer**: Examine individual clusters with cell image visualization and channel-specific analysis
+
+#### UMAP Dimensionality Reduction
+- **Feature Selection**: Choose features for 2D embedding visualization
+- **Parameter Tuning**: Adjust n_neighbors (default: 15) and min_dist (default: 0.1) for optimal visualization
+- **Cluster Overlay**: Visualize clustering results on UMAP plots
+- **Interactive Exploration**: Zoom, pan, and explore the 2D embedding space
 
 ## Troubleshooting
 
@@ -155,13 +203,34 @@ python main.py
    - The app uses multiprocessing where possible; if it fails, it falls back to single-threaded processing automatically
    - If you see pickling-related errors, ensure you start via `python main.py` (not from within embedded REPLs)
 
+7. **Clustering and UMAP dependencies**
+   - For Leiden clustering: Install `leidenalg` and `python-igraph`: `pip install leidenalg python-igraph`
+   - For UMAP visualization: Install `umap-learn`: `pip install umap-learn`
+   - For enhanced visualizations: Install `seaborn`: `pip install seaborn`
+   - These are optional - the app will work without them but clustering features will be limited
+
+8. **Memory issues with large clustering datasets**
+   - UMAP and clustering can be memory-intensive for large cell populations (>10,000 cells)
+   - Consider subsampling your data or using fewer features if you encounter memory issues
+   - The app includes progress indicators for long-running clustering operations
+
 ## Acknowledgments
 
-- Cellpose: GPU-accelerated cell segmentation framework used for segmentation functionality.
+- **Cellpose**: GPU-accelerated cell segmentation framework used for segmentation functionality.
   - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
   - Project: https://www.cellpose.org/
-- readimc: IMC file reader used to load .mcd acquisitions and channel data.
+- **readimc**: IMC file reader used to load .mcd acquisitions and channel data.
   - Project: https://github.com/BodenmillerGroup/readimc
+- **UMAP**: Uniform Manifold Approximation and Projection for dimensionality reduction.
+  - Paper: McInnes et al., UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction
+  - Project: https://umap-learn.readthedocs.io/
+- **Leiden Algorithm**: Community detection algorithm for graph-based clustering.
+  - Paper: Traag et al., From Louvain to Leiden: guaranteeing well-connected communities
+  - Project: https://github.com/vtraag/leidenalg
+- **scikit-learn**: Machine learning library providing clustering algorithms and utilities.
+  - Project: https://scikit-learn.org/
+- **seaborn**: Statistical data visualization library for enhanced plotting capabilities.
+  - Project: https://seaborn.pydata.org/
 
 ## License
 
