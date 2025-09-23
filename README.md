@@ -143,11 +143,15 @@ python main.py
    - Ubuntu/Debian: `sudo apt-get install python3-pyqt5`
    - macOS: `brew install pyqt5`
 
-4. **Memory issues with large files**
+4. **Display issues**
+   - Ensure your system supports the required OpenGL version for PyQt5
+   - Try running with different Qt backends if needed 
+
+5. **Memory issues with large files**
    - The application includes caching, but very large datasets may require more RAM
    - Consider closing other applications to free up memory
 
-5. **Multiprocessing during feature extraction**
+6. **Multiprocessing during feature extraction**
    - The app uses multiprocessing where possible; if it fails, it falls back to single-threaded processing automatically
    - If you see pickling-related errors, ensure you start via `python main.py` (not from within embedded REPLs)
 
@@ -158,18 +162,6 @@ python main.py
   - Project: https://www.cellpose.org/
 - readimc: IMC file reader used to load .mcd acquisitions and channel data.
   - Project: https://github.com/BodenmillerGroup/readimc
-
-4. **Display issues**
-   - Ensure your system supports the required OpenGL version for PyQt5
-   - Try running with different Qt backends if needed
-
-### Getting Help
-
-If you encounter issues:
-1. Check that all dependencies are correctly installed
-2. Verify your .mcd file is not corrupted
-3. Ensure you have sufficient system memory
-4. Check the console output for detailed error messages
 
 ## License
 

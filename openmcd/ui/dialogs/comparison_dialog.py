@@ -107,6 +107,11 @@ class DynamicComparisonDialog(QtWidgets.QDialog):
         self.custom_scaling_chk = QtWidgets.QCheckBox("Custom scaling")
         self.custom_scaling_chk.toggled.connect(self._on_comparison_scaling_toggled)
         options_layout.addWidget(self.custom_scaling_chk)
+
+        # Optional segmentation overlay (if masks exist in parent)
+        self.overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay (when available)")
+        self.overlay_chk.toggled.connect(self._update_display)
+        options_layout.addWidget(self.overlay_chk)
         
         self.scaling_frame = QtWidgets.QFrame()
         self.scaling_frame.setFrameStyle(QtWidgets.QFrame.Box)
@@ -301,6 +306,20 @@ class DynamicComparisonDialog(QtWidgets.QDialog):
             im = canvas.ax.imshow(img, interpolation="nearest", 
                                 cmap='gray' if grayscale else 'viridis',
                                 vmin=img_vmin, vmax=img_vmax)
+
+            # Optional mask overlay
+            if self.overlay_chk.isChecked():
+                parent = self.parent()
+                masks = getattr(parent, 'segmentation_masks', {}) if parent else {}
+                acq_id_overlay = self.selected_acquisitions[i] if i < len(self.selected_acquisitions) else None
+                if acq_id_overlay and acq_id_overlay in masks:
+                    try:
+                        mask = masks[acq_id_overlay]
+                        mask_bool = mask.astype(bool)
+                        if mask_bool.ndim == 2 and mask_bool.shape == img.shape[:2]:
+                            canvas.ax.contour(mask_bool, levels=[0.5], colors='r', linewidths=0.6, alpha=0.7)
+                    except Exception:
+                        pass
             
             canvas.ax.set_title(title, fontsize=10)
             canvas.ax.axis("off")

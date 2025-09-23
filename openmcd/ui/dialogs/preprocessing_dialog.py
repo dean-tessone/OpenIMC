@@ -75,8 +75,17 @@ class PreprocessingDialog(QtWidgets.QDialog):
 
         combo_group = QtWidgets.QGroupBox("Channel Combination")
         combo_layout = QtWidgets.QVBoxLayout(combo_group)
-        nuclear_layout = QtWidgets.QHBoxLayout()
+        
+        # Nuclear channels section
+        nuclear_layout = QtWidgets.QVBoxLayout()
         nuclear_layout.addWidget(QtWidgets.QLabel("Nuclear channels:"))
+        
+        # Nuclear channels search box
+        self.nuclear_search = QtWidgets.QLineEdit()
+        self.nuclear_search.setPlaceholderText("Search nuclear channels...")
+        self.nuclear_search.textChanged.connect(self._filter_nuclear_channels)
+        nuclear_layout.addWidget(self.nuclear_search)
+        
         self.nuclear_list = QtWidgets.QListWidget()
         self.nuclear_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
         for channel in self.channels:
@@ -107,8 +116,16 @@ class PreprocessingDialog(QtWidgets.QDialog):
         nuclear_weights_layout.addWidget(self.nuclear_weights_edit)
         combo_layout.addWidget(self.nuclear_weights_frame)
 
-        cyto_layout = QtWidgets.QHBoxLayout()
+        # Cytoplasm channels section
+        cyto_layout = QtWidgets.QVBoxLayout()
         cyto_layout.addWidget(QtWidgets.QLabel("Cytoplasm channels:"))
+        
+        # Cytoplasm channels search box
+        self.cyto_search = QtWidgets.QLineEdit()
+        self.cyto_search.setPlaceholderText("Search cytoplasm channels...")
+        self.cyto_search.textChanged.connect(self._filter_cyto_channels)
+        cyto_layout.addWidget(self.cyto_search)
+        
         self.cyto_list = QtWidgets.QListWidget()
         self.cyto_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
         for channel in self.channels:
@@ -255,4 +272,22 @@ class PreprocessingDialog(QtWidgets.QDialog):
             return [float(x.strip()) for x in text.split(',')]
         except ValueError:
             return None
+
+    def _filter_nuclear_channels(self):
+        """Filter nuclear channels based on search text."""
+        search_text = self.nuclear_search.text().lower()
+        
+        for i in range(self.nuclear_list.count()):
+            item = self.nuclear_list.item(i)
+            channel_name = item.text().lower()
+            item.setHidden(search_text not in channel_name)
+
+    def _filter_cyto_channels(self):
+        """Filter cytoplasm channels based on search text."""
+        search_text = self.cyto_search.text().lower()
+        
+        for i in range(self.cyto_list.count()):
+            item = self.cyto_list.item(i)
+            channel_name = item.text().lower()
+            item.setHidden(search_text not in channel_name)
 

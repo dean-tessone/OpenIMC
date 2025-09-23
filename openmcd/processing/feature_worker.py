@@ -57,10 +57,29 @@ def extract_features_for_acquisition(
 
         morph_df = pd.DataFrame(regionprops_table(label_image, properties=tuple(props_to_compute)))
 
+        # Normalize morphometric column names to expected schema used in UI and selectors
+        rename_map = {}
+        if 'area' in morph_df.columns:
+            rename_map['area'] = 'area_um2'
+        if 'perimeter' in morph_df.columns:
+            rename_map['perimeter'] = 'perimeter_um'
+        if 'equivalent_diameter' in morph_df.columns:
+            rename_map['equivalent_diameter'] = 'equivalent_diameter_um'
+        if 'major_axis_length' in morph_df.columns:
+            rename_map['major_axis_length'] = 'major_axis_len_um'
+        if 'minor_axis_length' in morph_df.columns:
+            rename_map['minor_axis_length'] = 'minor_axis_len_um'
+        morph_df.rename(columns=rename_map, inplace=True)
+
+        # Derived: aspect_ratio (major/minor) if available
+        if {'major_axis_len_um', 'minor_axis_len_um'}.issubset(set(morph_df.columns)):
+            with np.errstate(divide='ignore', invalid='ignore'):
+                morph_df['aspect_ratio'] = morph_df['major_axis_len_um'] / np.maximum(morph_df['minor_axis_len_um'], 1e-6)
+
         # Optional derived fields
-        if "area" in morph_df.columns and "perimeter" in morph_df.columns and selected_features.get("circularity", False):
+        if "area_um2" in morph_df.columns and "perimeter_um" in morph_df.columns and selected_features.get("circularity", False):
             with np.errstate(divide="ignore", invalid="ignore"):
-                circ = 4.0 * np.pi * morph_df["area"] / np.maximum(morph_df["perimeter"], 1e-6) ** 2
+                circ = 4.0 * np.pi * morph_df["area_um2"] / np.maximum(morph_df["perimeter_um"], 1e-6) ** 2
             morph_df["circularity"] = circ
 
         # Intensity features per channel (subset: mean, std, p10, p90, integrated)

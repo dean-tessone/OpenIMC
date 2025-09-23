@@ -88,10 +88,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.view_btn = QtWidgets.QPushButton("View selected")
         self.comparison_btn = QtWidgets.QPushButton("Comparison mode")
         self.segment_btn = QtWidgets.QPushButton("Cell Segmentation")
-        self.load_masks_btn = QtWidgets.QPushButton("Load Masks")
         self.extract_features_btn = QtWidgets.QPushButton("Extract Features")
         self.clustering_btn = QtWidgets.QPushButton("Cell Clustering")
-        self.export_btn = QtWidgets.QPushButton("Export to OME-TIFF")
         
         # Visualization options
         self.grayscale_chk = QtWidgets.QCheckBox("Grayscale mode")
@@ -118,36 +116,36 @@ class MainWindow(QtWidgets.QMainWindow):
         channel_row.addStretch()
         scaling_layout.addLayout(channel_row)
         
-        # Slider controls
-        slider_layout = QtWidgets.QVBoxLayout()
+        # Number input controls
+        input_layout = QtWidgets.QVBoxLayout()
         
-        # Min slider
+        # Min input
         min_row = QtWidgets.QHBoxLayout()
         min_row.addWidget(QtWidgets.QLabel("Min:"))
-        self.min_slider = QtWidgets.QSlider(Qt.Horizontal)
-        self.min_slider.setRange(0, 1000)
-        self.min_slider.setValue(0)
-        self.min_slider.valueChanged.connect(self._on_slider_changed)
-        min_row.addWidget(self.min_slider)
-        self.min_label = QtWidgets.QLabel("0.000")
-        self.min_label.setMinimumWidth(60)
-        min_row.addWidget(self.min_label)
-        slider_layout.addLayout(min_row)
+        self.min_spinbox = QtWidgets.QDoubleSpinBox()
+        self.min_spinbox.setRange(0.0, 10000.0)
+        self.min_spinbox.setDecimals(3)
+        self.min_spinbox.setValue(0.0)
+        self.min_spinbox.setSingleStep(0.1)
+        self.min_spinbox.valueChanged.connect(self._on_scaling_changed)
+        min_row.addWidget(self.min_spinbox)
+        min_row.addStretch()
+        input_layout.addLayout(min_row)
         
-        # Max slider
+        # Max input
         max_row = QtWidgets.QHBoxLayout()
         max_row.addWidget(QtWidgets.QLabel("Max:"))
-        self.max_slider = QtWidgets.QSlider(Qt.Horizontal)
-        self.max_slider.setRange(0, 1000)
-        self.max_slider.setValue(1000)
-        self.max_slider.valueChanged.connect(self._on_slider_changed)
-        max_row.addWidget(self.max_slider)
-        self.max_label = QtWidgets.QLabel("1000.000")
-        self.max_label.setMinimumWidth(60)
-        max_row.addWidget(self.max_label)
-        slider_layout.addLayout(max_row)
+        self.max_spinbox = QtWidgets.QDoubleSpinBox()
+        self.max_spinbox.setRange(0.0, 10000.0)
+        self.max_spinbox.setDecimals(3)
+        self.max_spinbox.setValue(1000.0)
+        self.max_spinbox.setSingleStep(0.1)
+        self.max_spinbox.valueChanged.connect(self._on_scaling_changed)
+        max_row.addWidget(self.max_spinbox)
+        max_row.addStretch()
+        input_layout.addLayout(max_row)
         
-        scaling_layout.addLayout(slider_layout)
+        scaling_layout.addLayout(input_layout)
         
         # Arcsinh normalization controls
         arcsinh_layout = QtWidgets.QHBoxLayout()
@@ -189,6 +187,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Arcsinh normalization state
         self.arcsinh_enabled = False
         
+        # Current scaling method state
+        self.current_scaling_method = "default"  # "default", "percentile", "arcsinh"
+        
         # Segmentation state
         self.segmentation_masks = {}  # {acq_id: mask_array}
         self.segmentation_colors = {}  # {acq_id: colors_array}
@@ -225,8 +226,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ann_combo = QtWidgets.QComboBox()
         self.ann_combo.addItems(self.annotation_labels)
         self.ann_apply_btn = QtWidgets.QPushButton("Apply label")
-        self.ann_save_btn = QtWidgets.QPushButton("Save annotations CSV")
-        self.ann_load_btn = QtWidgets.QPushButton("Load annotations CSV")
 
         # Metadata display
         self.metadata_text = QtWidgets.QTextEdit()
@@ -242,6 +241,13 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.acq_combo)
 
         v.addWidget(QtWidgets.QLabel("Channels:"))
+        
+        # Channel search box
+        self.channel_search = QtWidgets.QLineEdit()
+        self.channel_search.setPlaceholderText("Search channels...")
+        self.channel_search.textChanged.connect(self._filter_channels)
+        v.addWidget(self.channel_search)
+        
         v.addWidget(self.channel_list, 1)
         
         # Channel control buttons
@@ -268,13 +274,8 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.view_btn)
         v.addWidget(self.comparison_btn)
         v.addWidget(self.segment_btn)
-        v.addWidget(self.load_masks_btn)
         v.addWidget(self.extract_features_btn)
         v.addWidget(self.clustering_btn)
-        v.addWidget(self.export_btn)
-        v.addSpacing(8)
-        v.addWidget(self.ann_save_btn)
-        v.addWidget(self.ann_load_btn)
         v.addSpacing(8)
         
         v.addWidget(QtWidgets.QLabel("Metadata:"))
@@ -295,11 +296,26 @@ class MainWindow(QtWidgets.QMainWindow):
         act_open = file_menu.addAction("Open .mcd…")
         act_open.triggered.connect(self._open_dialog)
         file_menu.addSeparator()
-        act_export = file_menu.addAction("Export to OME-TIFF…")
-        act_export.triggered.connect(self._export_ome_tiff)
-        file_menu.addSeparator()
-        act_load_masks = file_menu.addAction("Load Segmentation Masks…")
+        
+        # Export submenu
+        export_submenu = file_menu.addMenu("Export")
+        act_export_tiff = export_submenu.addAction("Export to OME-TIFF…")
+        act_export_tiff.triggered.connect(self._export_ome_tiff)
+        act_save_annotations = export_submenu.addAction("Save Annotations CSV…")
+        act_save_annotations.triggered.connect(self._save_annotations)
+        
+        # Masks submenu
+        masks_submenu = file_menu.addMenu("Segmentation Masks")
+        act_load_masks = masks_submenu.addAction("Load Masks…")
         act_load_masks.triggered.connect(self._load_segmentation_masks)
+        act_save_masks = masks_submenu.addAction("Save Masks…")
+        act_save_masks.triggered.connect(self._save_segmentation_masks)
+        
+        # Import submenu
+        import_submenu = file_menu.addMenu("Import")
+        act_load_annotations = import_submenu.addAction("Load Annotations CSV…")
+        act_load_annotations.triggered.connect(self._load_annotations)
+        
         file_menu.addSeparator()
         act_quit = file_menu.addAction("Quit")
         act_quit.triggered.connect(self.close)
@@ -314,16 +330,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.acq_combo.currentIndexChanged.connect(self._on_acq_changed)
         self.deselect_all_btn.clicked.connect(self._deselect_all_channels)
         self.channel_list.itemChanged.connect(self._on_channel_selection_changed)
+        self.channel_search.textChanged.connect(self._filter_channels)
         self.view_btn.clicked.connect(self._view_selected)
         self.comparison_btn.clicked.connect(self._comparison)
         self.segment_btn.clicked.connect(self._run_segmentation)
-        self.load_masks_btn.clicked.connect(self._load_segmentation_masks)
         self.extract_features_btn.clicked.connect(self._extract_features)
         self.clustering_btn.clicked.connect(self._open_clustering_dialog)
-        self.export_btn.clicked.connect(self._export_ome_tiff)
         self.ann_apply_btn.clicked.connect(self._apply_annotation)
-        self.ann_save_btn.clicked.connect(self._save_annotations)
-        self.ann_load_btn.clicked.connect(self._load_annotations)
 
         # Loader
         try:
@@ -364,10 +377,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_acq_changed(self, idx: int):
         acq_id = self.acq_combo.itemData(idx)
         if acq_id:
+            # Store current scaling state before changing acquisition
+            preserve_scaling = self.custom_scaling_chk.isChecked()
+            current_scaling_method = self.current_scaling_method
+            
             self._populate_channels(acq_id)
+            
             # Update scaling channel combo when acquisition changes
-            if self.custom_scaling_chk.isChecked():
+            if preserve_scaling:
                 self._update_scaling_channel_combo()
+                # Restore scaling method state
+                self.current_scaling_method = current_scaling_method
+                self._update_minmax_controls_state()
 
     def _populate_channels(self, acq_id: str):
         self.current_acq_id = acq_id
@@ -429,6 +450,10 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Clear any color assignments that are no longer in the selected channels
         self._clear_invalid_color_assignments(selected_channels)
+        
+        # Update scaling channel combo to reflect current selection
+        if self.custom_scaling_chk.isChecked():
+            self._update_scaling_channel_combo()
 
     def _populate_color_assignments(self, channels: List[str]):
         """Populate the color assignment dropdowns with selected channels only."""
@@ -524,19 +549,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.custom_scaling_chk.isChecked():
             self._update_scaling_channel_combo()
             self._load_channel_scaling()
+            # Initialize controls state
+            self._update_minmax_controls_state()
 
     def _update_scaling_channel_combo(self):
-        """Update the scaling channel combo box with available channels."""
+        """Update the scaling channel combo box with selected channels only."""
         self.scaling_channel_combo.clear()
         if self.current_acq_id is None:
             return
         
-        # Get all available channels for current acquisition
-        if hasattr(self, 'acquisitions') and self.acquisitions:
-            acq_info = next((ai for ai in self.acquisitions if ai.id == self.current_acq_id), None)
-            if acq_info and hasattr(acq_info, 'channels'):
-                for channel in acq_info.channels:
-                    self.scaling_channel_combo.addItem(channel)
+        # Only show currently selected channels
+        selected_channels = self._selected_channels()
+        for channel in selected_channels:
+            self.scaling_channel_combo.addItem(channel)
         
         # Select first channel if available
         if self.scaling_channel_combo.count() > 0:
@@ -547,31 +572,38 @@ class MainWindow(QtWidgets.QMainWindow):
         """Handle changes to the scaling channel selection."""
         if self.custom_scaling_chk.isChecked():
             self._load_channel_scaling()
+            # Update controls state based on current scaling method
+            self._update_minmax_controls_state()
 
-    def _on_slider_changed(self):
-        """Handle changes to the min/max sliders."""
+    def _on_scaling_changed(self):
+        """Handle changes to the min/max spinboxes."""
         if self.custom_scaling_chk.isChecked():
-            self._update_slider_labels()
             # Don't auto-refresh display - user must click Apply
-
-    def _update_slider_labels(self):
-        """Update the min/max labels based on slider values."""
-        current_channel = self.scaling_channel_combo.currentText()
-        if not current_channel or self.current_acq_id is None:
-            return
+            pass
+    
+    def _filter_channels(self):
+        """Filter channels based on search text."""
+        search_text = self.channel_search.text().lower()
         
-        try:
-            img = self.loader.get_image(self.current_acq_id, current_channel)
-            img_min, img_max = float(np.min(img)), float(np.max(img))
-            
-            # Convert slider values (0-1000) to actual image range
-            min_val = img_min + (self.min_slider.value() / 1000.0) * (img_max - img_min)
-            max_val = img_min + (self.max_slider.value() / 1000.0) * (img_max - img_min)
-            
-            self.min_label.setText(f"{min_val:.3f}")
-            self.max_label.setText(f"{max_val:.3f}")
-        except Exception as e:
-            print(f"Error updating slider labels: {e}")
+        for i in range(self.channel_list.count()):
+            item = self.channel_list.item(i)
+            channel_name = item.text().lower()
+            item.setHidden(search_text not in channel_name)
+    
+    def _update_minmax_controls_state(self):
+        """Enable/disable min/max controls based on scaling method."""
+        if self.current_scaling_method in ["percentile", "arcsinh"]:
+            # Disable min/max controls for automatic scaling methods
+            self.min_spinbox.setEnabled(False)
+            self.max_spinbox.setEnabled(False)
+            self.min_spinbox.setStyleSheet("QDoubleSpinBox { background-color: #f0f0f0; color: #666; }")
+            self.max_spinbox.setStyleSheet("QDoubleSpinBox { background-color: #f0f0f0; color: #666; }")
+        else:
+            # Enable min/max controls for manual/default scaling
+            self.min_spinbox.setEnabled(True)
+            self.max_spinbox.setEnabled(True)
+            self.min_spinbox.setStyleSheet("")
+            self.max_spinbox.setStyleSheet("")
 
     def _load_channel_scaling(self):
         """Load scaling values for the currently selected channel."""
@@ -595,60 +627,30 @@ class MainWindow(QtWidgets.QMainWindow):
                 print(f"Error loading channel scaling: {e}")
                 return
         
-        # Update sliders based on actual values
-        self._update_sliders_from_values(min_val, max_val)
+        # Update spinboxes based on actual values
+        self._update_spinboxes_from_values(min_val, max_val)
 
     def _save_channel_scaling(self):
         """Save current scaling values for the selected channel."""
         current_channel = self.scaling_channel_combo.currentText()
-        if not current_channel or self.current_acq_id is None:
-            return
-        
-        try:
-            img = self.loader.get_image(self.current_acq_id, current_channel)
-            img_min, img_max = float(np.min(img)), float(np.max(img))
-            
-            # Convert slider values to actual image range
-            min_val = img_min + (self.min_slider.value() / 1000.0) * (img_max - img_min)
-            max_val = img_min + (self.max_slider.value() / 1000.0) * (img_max - img_min)
-            
-            self.channel_scaling[current_channel] = {'min': min_val, 'max': max_val}
-        except Exception as e:
-            print(f"Error saving channel scaling: {e}")
-
-    def _update_sliders_from_values(self, min_val, max_val):
-        """Update sliders based on actual min/max values."""
-        if self.current_acq_id is None:
-            return
-        
-        current_channel = self.scaling_channel_combo.currentText()
         if not current_channel:
             return
         
-        try:
-            img = self.loader.get_image(self.current_acq_id, current_channel)
-            img_min, img_max = float(np.min(img)), float(np.max(img))
-            
-            # Convert actual values to slider positions (0-1000)
-            if img_max > img_min:
-                min_slider_val = int(((min_val - img_min) / (img_max - img_min)) * 1000)
-                max_slider_val = int(((max_val - img_min) / (img_max - img_min)) * 1000)
-            else:
-                min_slider_val = 0
-                max_slider_val = 1000
-            
-            # Update sliders without triggering valueChanged
-            self.min_slider.blockSignals(True)
-            self.max_slider.blockSignals(True)
-            self.min_slider.setValue(min_slider_val)
-            self.max_slider.setValue(max_slider_val)
-            self.min_slider.blockSignals(False)
-            self.max_slider.blockSignals(False)
-            
-            # Update labels
-            self._update_slider_labels()
-        except Exception as e:
-            print(f"Error updating sliders from values: {e}")
+        # Get values directly from spinboxes
+        min_val = self.min_spinbox.value()
+        max_val = self.max_spinbox.value()
+        
+        self.channel_scaling[current_channel] = {'min': min_val, 'max': max_val}
+
+    def _update_spinboxes_from_values(self, min_val, max_val):
+        """Update spinboxes based on actual min/max values."""
+        # Update spinboxes without triggering valueChanged
+        self.min_spinbox.blockSignals(True)
+        self.max_spinbox.blockSignals(True)
+        self.min_spinbox.setValue(min_val)
+        self.max_spinbox.setValue(max_val)
+        self.min_spinbox.blockSignals(False)
+        self.max_spinbox.blockSignals(False)
 
     def _percentile_scaling(self):
         """Set scaling using robust percentile scaling (1st-99th percentiles)."""
@@ -668,11 +670,16 @@ class MainWindow(QtWidgets.QMainWindow):
             min_val = float(np.percentile(img, 1))
             max_val = float(np.percentile(img, 99))
             
-            self._update_sliders_from_values(min_val, max_val)
+            self._update_spinboxes_from_values(min_val, max_val)
             
-            # Disable arcsinh normalization when using other scaling methods
+            # Update scaling method state
+            self.current_scaling_method = "percentile"
             self.arcsinh_enabled = False
-            # Don't auto-apply - user must click Apply button
+            self._update_minmax_controls_state()
+            
+            # Auto-apply the scaling
+            self._save_channel_scaling()
+            self._view_selected()
         except Exception as e:
             print(f"Error in percentile scaling: {e}")
 
@@ -696,11 +703,16 @@ class MainWindow(QtWidgets.QMainWindow):
             min_val = float(np.min(normalized_img))
             max_val = float(np.max(normalized_img))
             
-            self._update_sliders_from_values(min_val, max_val)
+            self._update_spinboxes_from_values(min_val, max_val)
             
-            # Enable arcsinh normalization for this channel
+            # Update scaling method state
+            self.current_scaling_method = "arcsinh"
             self.arcsinh_enabled = True
-            # Don't auto-apply - user must click Apply button
+            self._update_minmax_controls_state()
+            
+            # Auto-apply the scaling
+            self._save_channel_scaling()
+            self._view_selected()
         except Exception as e:
             print(f"Error in arcsinh normalization: {e}")
 
@@ -718,11 +730,16 @@ class MainWindow(QtWidgets.QMainWindow):
             min_val = float(np.min(img))
             max_val = float(np.max(img))
             
-            self._update_sliders_from_values(min_val, max_val)
+            self._update_spinboxes_from_values(min_val, max_val)
             
-            # Disable arcsinh normalization when using other scaling methods
+            # Update scaling method state
+            self.current_scaling_method = "default"
             self.arcsinh_enabled = False
-            # Don't auto-apply - user must click Apply button
+            self._update_minmax_controls_state()
+            
+            # Auto-apply the scaling and reload image in original range
+            self._save_channel_scaling()
+            self._view_selected()
         except Exception as e:
             print(f"Error in default range: {e}")
 
@@ -1628,14 +1645,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         # Create progress dialog for batch processing
+        total_acquisitions = len(self.acquisitions)
         progress_dlg = ProgressDialog("Batch Cell Segmentation", self)
-        progress_dlg.set_maximum(len(self.acquisitions))
+        progress_dlg.set_maximum(total_acquisitions)
         progress_dlg.show()
         
         try:
-            # Estimate optimal batch size based on available memory
-            batch_size = self._estimate_optimal_batch_size(preprocessing_config, gpu_id)
-            progress_dlg.update_progress(0, "Initializing batch processing", f"Optimal batch size: {batch_size} (0/{total_acquisitions} completed)")
+            # Set fixed batch size
+            batch_size = 16
+            progress_dlg.update_progress(0, "Initializing batch processing", f"Batch size: {batch_size} (0/{total_acquisitions} completed)")
             
             # Initialize Cellpose model once
             progress_dlg.update_progress(0, "Initializing Cellpose model", f"Loading model... (0/{total_acquisitions} completed)")
@@ -1663,7 +1681,6 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Process acquisitions in batches
             successful_segmentations = 0
-            total_acquisitions = len(self.acquisitions)
             
             for batch_start in range(0, total_acquisitions, batch_size):
                 if progress_dlg.is_cancelled():
@@ -1775,60 +1792,6 @@ class MainWindow(QtWidgets.QMainWindow):
         finally:
             progress_dlg.close()
     
-    def _estimate_optimal_batch_size(self, preprocessing_config: dict, gpu_id) -> int:
-        """Estimate optimal batch size based on available memory."""
-        # Start with a conservative estimate
-        base_batch_size = 4
-        
-        if not preprocessing_config:
-            return base_batch_size
-        
-        # Get channel counts
-        nuclear_channels = len(preprocessing_config.get('nuclear_channels', []))
-        cyto_channels = len(preprocessing_config.get('cyto_channels', []))
-        total_channels = nuclear_channels + cyto_channels
-        
-        # Estimate image size (use first acquisition as reference)
-        if self.acquisitions:
-            try:
-                first_acq = self.acquisitions[0]
-                sample_img = self.loader.get_image(first_acq.id, first_acq.channels[0])
-                img_size_mb = sample_img.nbytes / (1024 * 1024)  # Size in MB
-            except:
-                img_size_mb = 50  # Default estimate
-        else:
-            img_size_mb = 50
-        
-        # Estimate memory requirements per acquisition
-        # Each acquisition needs: nuclear_img + cyto_img + masks + intermediate processing
-        memory_per_acq_mb = img_size_mb * total_channels * 3  # 3x for processing overhead
-        
-        # Get available memory
-        available_memory_mb = self._get_available_memory()
-        
-        # Calculate batch size based on available memory
-        # Use 70% of available memory to leave room for system
-        usable_memory_mb = available_memory_mb * 0.7
-        estimated_batch_size = max(1, int(usable_memory_mb / memory_per_acq_mb))
-        
-        # Apply limits
-        min_batch_size = 1
-        max_batch_size = 16  # Reasonable upper limit
-        
-        batch_size = max(min_batch_size, min(max_batch_size, estimated_batch_size))
-        
-        print(f"Memory estimation: {available_memory_mb:.0f}MB available, {memory_per_acq_mb:.0f}MB per acquisition, batch size: {batch_size}")
-        
-        return batch_size
-    
-    def _get_available_memory(self) -> float:
-        """Get available system memory in MB."""
-        try:
-            import psutil
-            return psutil.virtual_memory().available / (1024 * 1024)
-        except ImportError:
-            # Fallback estimation
-            return 4000  # Assume 4GB available
     
     def _load_batch_acquisitions(self, acquisitions, preprocessing_config: dict, progress_dlg) -> dict:
         """Load and preprocess a batch of acquisitions efficiently."""
@@ -1945,17 +1908,13 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"Error saving segmentation masks: {e}")
     
     def _save_segmentation_masks(self, masks_directory: str = None):
-        """Save segmentation masks to file."""
-        if not self.current_acq_id or self.current_acq_id not in self.segmentation_masks:
+        """Save all segmentation masks to files."""
+        if not self.segmentation_masks:
+            QtWidgets.QMessageBox.information(
+                self, "No Masks", 
+                "No segmentation masks available to save."
+            )
             return
-        
-        acq_info = next(ai for ai in self.acquisitions if ai.id == self.current_acq_id)
-        safe_name = self._sanitize_filename(acq_info.name)
-        if acq_info.well:
-            safe_well = self._sanitize_filename(acq_info.well)
-            filename = f"{safe_name}_{safe_well}_segmentation.tiff"
-        else:
-            filename = f"{safe_name}_segmentation.tiff"
         
         # Use provided directory or ask user to select
         if masks_directory and os.path.exists(masks_directory):
@@ -1967,14 +1926,36 @@ class MainWindow(QtWidgets.QMainWindow):
             if not output_dir:
                 return
         
-        output_path = os.path.join(output_dir, filename)
+        # Save all masks
+        saved_count = 0
+        for acq_id, mask in self.segmentation_masks.items():
+            try:
+                acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+                safe_name = self._sanitize_filename(acq_info.name)
+                if acq_info.well:
+                    safe_well = self._sanitize_filename(acq_info.well)
+                    filename = f"{safe_name}_{safe_well}_segmentation.tiff"
+                else:
+                    filename = f"{safe_name}_segmentation.tiff"
+                
+                output_path = os.path.join(output_dir, filename)
+                
+                # Save mask as TIFF
+                if _HAVE_TIFFFILE:
+                    tifffile.imwrite(output_path, mask.astype(np.uint16))
+                else:
+                    # Fallback to numpy save
+                    np.save(output_path.replace('.tiff', '.npy'), mask)
+                
+                saved_count += 1
+            except Exception as e:
+                print(f"Error saving mask for {acq_id}: {e}")
+                continue
         
-        # Save mask as TIFF
-        if _HAVE_TIFFFILE:
-            tifffile.imwrite(output_path, self.segmentation_masks[self.current_acq_id].astype(np.uint16))
-        else:
-            # Fallback to numpy save
-            np.save(output_path.replace('.tiff', '.npy'), self.segmentation_masks[self.current_acq_id])
+        QtWidgets.QMessageBox.information(
+            self, "Masks Saved", 
+            f"Successfully saved {saved_count} segmentation mask(s) to:\n{output_dir}"
+        )
     
     def _update_display_with_segmentation(self):
         """Update the current display to show segmentation overlay."""
@@ -2006,7 +1987,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if label == 0:  # Background
                 continue
             cell_mask = (mask == label)
-            overlay[cell_mask] = colors[i]
+            overlay[cell_mask, :] = colors[i]
         
         # Blend with original image
         if img.ndim == 2:

@@ -9,7 +9,6 @@ class ProgressDialog(QtWidgets.QDialog):
         self.setFixedSize(450, 180)
         self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
         self.cancelled = False
-        self.start_time = None
         self._create_ui()
 
     def _create_ui(self):
@@ -28,11 +27,6 @@ class ProgressDialog(QtWidgets.QDialog):
         self.details_label.setStyleSheet("QLabel { color: #666; }")
         layout.addWidget(self.details_label)
 
-        self.time_label = QtWidgets.QLabel("")
-        self.time_label.setAlignment(Qt.AlignCenter)
-        self.time_label.setStyleSheet("QLabel { color: #888; font-size: 11px; }")
-        layout.addWidget(self.time_label)
-
         self.cancel_btn = QtWidgets.QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self._cancel)
         layout.addWidget(self.cancel_btn)
@@ -43,25 +37,11 @@ class ProgressDialog(QtWidgets.QDialog):
         self.cancel_btn.setEnabled(False)
 
     def update_progress(self, value: int, status: str = "", details: str = ""):
-        import time
-        if self.start_time is None:
-            self.start_time = time.time()
         self.progress_bar.setValue(value)
         if status:
             self.status_label.setText(status)
         if details:
             self.details_label.setText(details)
-        if value > 0:
-            elapsed = time.time() - self.start_time
-            if value < self.progress_bar.maximum():
-                estimated_total = elapsed * self.progress_bar.maximum() / value
-                remaining = estimated_total - elapsed
-                if remaining > 0:
-                    self.time_label.setText(f"Estimated time remaining: {remaining:.0f}s")
-                else:
-                    self.time_label.setText("Almost done...")
-            else:
-                self.time_label.setText("Complete!")
         QtWidgets.QApplication.processEvents()
 
     def set_maximum(self, maximum: int):
