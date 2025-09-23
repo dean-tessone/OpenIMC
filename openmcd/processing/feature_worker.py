@@ -24,12 +24,16 @@ def extract_features_for_acquisition(
     Arguments MUST be picklable. Returns an empty DataFrame on error.
     """
     try:
+        print(f"[feature_worker] Start extraction acq_id={acq_id}, arcsinh={arcsinh_enabled}, cofactor={cofactor}")
         loader = MCDLoader()
+        print(f"[feature_worker] Opening MCD: {mcd_path}")
         loader.open(mcd_path)
 
         # Load all channels (H, W, C)
         img_stack = loader.get_all_channels(acq_id)
+        print(f"[feature_worker] Loaded stack shape: {img_stack.shape}")
         if arcsinh_enabled:
+            print(f"[feature_worker] Applying arcsinh normalization with cofactor={cofactor}")
             img_stack = arcsinh_normalize(img_stack, cofactor=cofactor)
 
         # Ensure mask is int labels
@@ -55,7 +59,9 @@ def extract_features_for_acquisition(
         if selected_features.get("minor_axis_len_um", False):
             props_to_compute.append("minor_axis_length")
 
+        print(f"[feature_worker] Computing morph props: {props_to_compute}")
         morph_df = pd.DataFrame(regionprops_table(label_image, properties=tuple(props_to_compute)))
+        print(f"[feature_worker] Morph props rows: {len(morph_df)} cols: {list(morph_df.columns)}")
 
         # Normalize morphometric column names to expected schema used in UI and selectors
         rename_map = {}
@@ -84,8 +90,11 @@ def extract_features_for_acquisition(
 
         # Intensity features per channel (subset: mean, std, p10, p90, integrated)
         channel_names: List[str] = acq_info.get("channels", [])
+        print(f"[feature_worker] Computing intensity features for {len(channel_names)} channels")
         for idx, ch_name in enumerate(channel_names):
             ch_img = img_stack[..., idx]
+            if ch_img.ndim != 2:
+                print(f"[feature_worker] Warning: channel {ch_name} has invalid shape {ch_img.shape}")
             # Mean intensity via regionprops_table
             inten_df = pd.DataFrame(regionprops_table(label_image, intensity_image=ch_img, properties=("label", "mean_intensity")))
             inten_df.rename(columns={"mean_intensity": f"{ch_name}_mean"}, inplace=True)
@@ -124,9 +133,11 @@ def extract_features_for_acquisition(
         morph_df.insert(0, "acquisition_id", acq_id)
         morph_df.insert(1, "acquisition_label", acq_label)
 
+        print(f"[feature_worker] Finished extraction acq_id={acq_id}, rows={len(morph_df)}")
         return morph_df
 
     except Exception as e:
+        print(f"[feature_worker] ERROR in extraction acq_id={acq_id}: {e}")
         # Return empty on error to keep pipeline robust
         return pd.DataFrame()
 

@@ -1,4 +1,7 @@
 from typing import Dict, List, Optional, Tuple
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, Future
 
 import numpy as np
 import pandas as pd
@@ -8,6 +11,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 
 from openmcd.data.mcd_loader import MCDLoader, AcquisitionInfo
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from openmcd.ui.mpl_canvas import MplCanvas
 from openmcd.ui.utils import (
     PreprocessingCache,
@@ -70,6 +74,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_path: Optional[str] = None
         self.acquisitions: List[AcquisitionInfo] = []
         self.current_acq_id: Optional[str] = None
+        # Image cache and prefetching
+        self.image_cache: Dict[Tuple[str, str], np.ndarray] = {}
+        self._cache_lock = threading.Lock()
+        self._prefetch_future: Optional[Future] = None
+        self._executor = ThreadPoolExecutor(max_workers=1)
 
         # Per (acq_id, channel) annotations → label
         self.annotations: Dict[Tuple[str, str], str] = {}
@@ -85,7 +94,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_list = QtWidgets.QListWidget()
         self.channel_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.deselect_all_btn = QtWidgets.QPushButton("Deselect all")
+        # Removed 'View selected' button; auto-refresh is enabled
         self.view_btn = QtWidgets.QPushButton("View selected")
+        self.view_btn.setVisible(False)
         self.comparison_btn = QtWidgets.QPushButton("Comparison mode")
         self.segment_btn = QtWidgets.QPushButton("Cell Segmentation")
         self.extract_features_btn = QtWidgets.QPushButton("Extract Features")
@@ -94,6 +105,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Visualization options
         self.grayscale_chk = QtWidgets.QCheckBox("Grayscale mode")
         self.grid_view_chk = QtWidgets.QCheckBox("Grid view for multiple channels")
+        # Auto-refresh on toggle
+        self.grayscale_chk.toggled.connect(lambda _: self._view_selected())
+        self.grid_view_chk.toggled.connect(self._on_grid_view_toggled)
         self.grid_view_chk.setChecked(True)
         self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
         self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
@@ -173,10 +187,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.default_range_btn.clicked.connect(self._default_range)
         button_row.addWidget(self.default_range_btn)
         
+        # Remove Apply button; auto-apply scaling on change
         self.apply_btn = QtWidgets.QPushButton("Apply")
-        self.apply_btn.clicked.connect(self._apply_scaling)
-        self.apply_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
-        button_row.addWidget(self.apply_btn)
+        self.apply_btn.setVisible(False)
         
         scaling_layout.addLayout(button_row)
         self.scaling_frame.setVisible(False)
@@ -186,9 +199,12 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Arcsinh normalization state
         self.arcsinh_enabled = False
+        # Per-channel normalization config: {channel: {"method": str, "cofactor": float}}
+        self.channel_normalization: Dict[str, Dict[str, float or str]] = {}
         
-        # Current scaling method state
-        self.current_scaling_method = "default"  # "default", "percentile", "arcsinh"
+        # Per-channel scaling method state
+        self.current_scaling_method = "default"  # kept for backward compatibility
+        self.channel_scaling_method: Dict[str, str] = {}  # {channel: "default"|"percentile"|"arcsinh"}
         
         # Segmentation state
         self.segmentation_masks = {}  # {acq_id: mask_array}
@@ -205,23 +221,35 @@ class MainWindow(QtWidgets.QMainWindow):
         color_layout = QtWidgets.QVBoxLayout(self.color_assignment_frame)
         color_layout.addWidget(QtWidgets.QLabel("Color Assignment (for RGB composite):"))
         
-        color_row_layout = QtWidgets.QHBoxLayout()
-        color_row_layout.addWidget(QtWidgets.QLabel("Red:"))
-        self.red_combo = QtWidgets.QComboBox()
-        self.red_combo.setMaximumWidth(120)
-        color_row_layout.addWidget(self.red_combo)
+        # Red channel selection
+        red_layout = QtWidgets.QHBoxLayout()
+        red_layout.addWidget(QtWidgets.QLabel("Red:"))
+        self.red_list = QtWidgets.QListWidget()
+        self.red_list.setMaximumHeight(80)
+        self.red_list.setMaximumWidth(200)
+        self.red_list.itemChanged.connect(lambda _i: self._on_rgb_list_changed())
+        red_layout.addWidget(self.red_list)
+        color_layout.addLayout(red_layout)
         
-        color_row_layout.addWidget(QtWidgets.QLabel("Green:"))
-        self.green_combo = QtWidgets.QComboBox()
-        self.green_combo.setMaximumWidth(120)
-        color_row_layout.addWidget(self.green_combo)
+        # Green channel selection
+        green_layout = QtWidgets.QHBoxLayout()
+        green_layout.addWidget(QtWidgets.QLabel("Green:"))
+        self.green_list = QtWidgets.QListWidget()
+        self.green_list.setMaximumHeight(80)
+        self.green_list.setMaximumWidth(200)
+        self.green_list.itemChanged.connect(lambda _i: self._on_rgb_list_changed())
+        green_layout.addWidget(self.green_list)
+        color_layout.addLayout(green_layout)
         
-        color_row_layout.addWidget(QtWidgets.QLabel("Blue:"))
-        self.blue_combo = QtWidgets.QComboBox()
-        self.blue_combo.setMaximumWidth(120)
-        color_row_layout.addWidget(self.blue_combo)
-        
-        color_layout.addLayout(color_row_layout)
+        # Blue channel selection
+        blue_layout = QtWidgets.QHBoxLayout()
+        blue_layout.addWidget(QtWidgets.QLabel("Blue:"))
+        self.blue_list = QtWidgets.QListWidget()
+        self.blue_list.setMaximumHeight(80)
+        self.blue_list.setMaximumWidth(200)
+        self.blue_list.itemChanged.connect(lambda _i: self._on_rgb_list_changed())
+        blue_layout.addWidget(self.blue_list)
+        color_layout.addLayout(blue_layout)
 
         self.ann_combo = QtWidgets.QComboBox()
         self.ann_combo.addItems(self.annotation_labels)
@@ -287,7 +315,13 @@ class MainWindow(QtWidgets.QMainWindow):
         leftw = QtWidgets.QWidget()
         leftw.setLayout(v)
         splitter.addWidget(leftw)
-        splitter.addWidget(self.canvas)
+        # Right pane with toolbar + canvas
+        rightw = QtWidgets.QWidget()
+        right_layout = QtWidgets.QVBoxLayout(rightw)
+        self.nav_toolbar = NavigationToolbar(self.canvas, self)
+        right_layout.addWidget(self.nav_toolbar)
+        right_layout.addWidget(self.canvas, 1)
+        splitter.addWidget(rightw)
         splitter.setStretchFactor(1, 1)
         self.setCentralWidget(splitter)
 
@@ -331,7 +365,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.deselect_all_btn.clicked.connect(self._deselect_all_channels)
         self.channel_list.itemChanged.connect(self._on_channel_selection_changed)
         self.channel_search.textChanged.connect(self._filter_channels)
-        self.view_btn.clicked.connect(self._view_selected)
+        # Auto-refresh: no manual 'View selected' action
+        try:
+            self.view_btn.clicked.disconnect()
+        except Exception:
+            pass
         self.comparison_btn.clicked.connect(self._comparison)
         self.segment_btn.clicked.connect(self._run_segmentation)
         self.extract_features_btn.clicked.connect(self._extract_features)
@@ -343,6 +381,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.loader = MCDLoader()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Missing dependency", str(e))
+
+        # Ensure RGB controls are hidden when grid view is enabled on startup
+        try:
+            self._update_rgb_controls_visibility()
+        except Exception:
+            pass
 
     # ---------- File open ----------
     def _open_dialog(self):
@@ -365,6 +409,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Open failed", f"Failed to open {path}\n\n{e}")
             return
         self.current_path = path
+        try:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            self.setWindowTitle(f"IMC .mcd File Viewer - {stem}")
+        except Exception:
+            # Fallback to default title if something goes wrong
+            self.setWindowTitle("IMC .mcd File Viewer")
         self.acquisitions = self.loader.list_acquisitions()
         self.acq_combo.clear()
         for ai in self.acquisitions:
@@ -382,6 +432,8 @@ class MainWindow(QtWidgets.QMainWindow):
             current_scaling_method = self.current_scaling_method
             
             self._populate_channels(acq_id)
+            # Start background prefetch of all channels for the new acquisition
+            self._start_prefetch_all_channels(acq_id)
             
             # Update scaling channel combo when acquisition changes
             if preserve_scaling:
@@ -414,8 +466,11 @@ class MainWindow(QtWidgets.QMainWindow):
             
             self.channel_list.addItem(item)
         
-        # Update color assignment dropdowns
-        self._populate_color_assignments(chans)
+        # Kick off prefetch if not already running for this acq
+        self._start_prefetch_all_channels(acq_id)
+
+        # Update RGB color assignment lists with only currently selected channels
+        self._populate_color_assignments(selected_channels)
         
         # Auto-load image if channels were pre-selected
         if selected_channels:
@@ -454,57 +509,82 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update scaling channel combo to reflect current selection
         if self.custom_scaling_chk.isChecked():
             self._update_scaling_channel_combo()
+        # Auto-refresh view when channels change
+        self._view_selected()
+
+        # Update RGB control visibility and selections on change
+        self._update_rgb_controls_visibility()
 
     def _populate_color_assignments(self, channels: List[str]):
         """Populate the color assignment dropdowns with selected channels only."""
         # Clear existing items
-        self.red_combo.clear()
-        self.green_combo.clear()
-        self.blue_combo.clear()
+        # Preserve current checks
+        prev_red = {self.red_list.item(i).text(): self.red_list.item(i).checkState() == Qt.Checked for i in range(self.red_list.count())}
+        prev_green = {self.green_list.item(i).text(): self.green_list.item(i).checkState() == Qt.Checked for i in range(self.green_list.count())}
+        prev_blue = {self.blue_list.item(i).text(): self.blue_list.item(i).checkState() == Qt.Checked for i in range(self.blue_list.count())}
+
+        self.red_list.clear()
+        self.green_list.clear()
+        self.blue_list.clear()
         
-        # Add "None" option
-        self.red_combo.addItem("None", None)
-        self.green_combo.addItem("None", None)
-        self.blue_combo.addItem("None", None)
-        
-        # Add only selected channels
+        # Only add selected channels; if none, keep lists empty
         for ch in channels:
-            self.red_combo.addItem(ch, ch)
-            self.green_combo.addItem(ch, ch)
-            self.blue_combo.addItem(ch, ch)
-        
-        # Set default assignments to None
-        self.red_combo.setCurrentIndex(0)  # "None" is at index 0
-        self.green_combo.setCurrentIndex(0)  # "None" is at index 0
-        self.blue_combo.setCurrentIndex(0)  # "None" is at index 0
+            for lst, prev in [(self.red_list, prev_red), (self.green_list, prev_green), (self.blue_list, prev_blue)]:
+                it = QtWidgets.QListWidgetItem(ch)
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                # Restore previous check state if present
+                checked = prev.get(ch, False)
+                it.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                lst.addItem(it)
+
+        # Do not auto-select by default; leave empty if no channels are selected
 
     def _clear_invalid_color_assignments(self, selected_channels: List[str]):
         """Clear color assignments that are no longer in the selected channels."""
-        # Check each color assignment and clear if not in selected channels
-        red_channel = self.red_combo.currentData()
-        green_channel = self.green_combo.currentData()
-        blue_channel = self.blue_combo.currentData()
+        # For list-based multi-select, deselect any items not in current selection list
+        def _prune_list(lst: QtWidgets.QListWidget):
+            for i in range(lst.count()):
+                item = lst.item(i)
+                if item.text() not in selected_channels:
+                    item.setCheckState(Qt.Unchecked)
+    def _on_rgb_list_changed(self):
+        # Ensure lists only keep checks for currently selected channels
+        selected_channels = self._selected_channels()
+        def _prune(lst: QtWidgets.QListWidget):
+            for i in range(lst.count()):
+                item = lst.item(i)
+                if item.text() not in selected_channels:
+                    item.setCheckState(Qt.Unchecked)
+        _prune(self.red_list)
+        _prune(self.green_list)
+        _prune(self.blue_list)
         
-        if red_channel and red_channel not in selected_channels:
-            # Find "None" option and select it
-            for i in range(self.red_combo.count()):
-                if self.red_combo.itemData(i) is None:
-                    self.red_combo.setCurrentIndex(i)
-                    break
+        # Update arcsinh button state based on new RGB assignments
+        self._update_minmax_controls_state()
         
-        if green_channel and green_channel not in selected_channels:
-            # Find "None" option and select it
-            for i in range(self.green_combo.count()):
-                if self.green_combo.itemData(i) is None:
-                    self.green_combo.setCurrentIndex(i)
-                    break
+        # Refresh view
+        self._view_selected()
+
+    def _on_grid_view_toggled(self):
+        self._update_rgb_controls_visibility()
         
-        if blue_channel and blue_channel not in selected_channels:
-            # Find "None" option and select it
-            for i in range(self.blue_combo.count()):
-                if self.blue_combo.itemData(i) is None:
-                    self.blue_combo.setCurrentIndex(i)
-                    break
+        # Handle arcsinh/percentile state when switching between RGB and grid view
+        if self.grid_view_chk.isChecked():
+            # Switching to grid view - arcsinh/percentile becomes available for all channels
+            self._enable_auto_scaling_for_grid_view()
+        else:
+            # Switching to RGB view - revert channels that had arcsinh/percentile applied in grid view
+            self._revert_auto_scaling_for_rgb_view()
+        
+        self._view_selected()
+
+    def _update_rgb_controls_visibility(self):
+        """Show RGB assignment panel only when grid view is off."""
+        # Guard if called before widgets are constructed
+        if not hasattr(self, 'color_assignment_frame'):
+            return
+        show_rgb = not self.grid_view_chk.isChecked()
+        self.color_assignment_frame.setVisible(show_rgb)
 
     def _deselect_all_channels(self):
         """Deselect all channels in the channel list."""
@@ -551,6 +631,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_channel_scaling()
             # Initialize controls state
             self._update_minmax_controls_state()
+        # Auto-refresh when toggled
+        self._view_selected()
 
     def _update_scaling_channel_combo(self):
         """Update the scaling channel combo box with selected channels only."""
@@ -574,12 +656,19 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_channel_scaling()
             # Update controls state based on current scaling method
             self._update_minmax_controls_state()
+        else:
+            # Even if custom scaling is off, ensure controls reflect per-channel method
+            self._update_minmax_controls_state()
+        # Auto-refresh
+        self._view_selected()
 
     def _on_scaling_changed(self):
         """Handle changes to the min/max spinboxes."""
         if self.custom_scaling_chk.isChecked():
-            # Don't auto-refresh display - user must click Apply
-            pass
+            # Save current values
+            self._save_channel_scaling()
+            # Auto-refresh display
+            self._view_selected()
     
     def _filter_channels(self):
         """Filter channels based on search text."""
@@ -592,7 +681,14 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def _update_minmax_controls_state(self):
         """Enable/disable min/max controls based on scaling method."""
-        if self.current_scaling_method in ["percentile", "arcsinh"]:
+        # Determine current channel's method
+        current_channel = self.scaling_channel_combo.currentText()
+        method = self.channel_scaling_method.get(current_channel, "default")
+        
+        # Check if automatic scaling should be disabled for this channel
+        auto_scaling_disabled = self._is_auto_scaling_disabled_for_channel(current_channel)
+        
+        if method in ["percentile", "arcsinh"]:
             # Disable min/max controls for automatic scaling methods
             self.min_spinbox.setEnabled(False)
             self.max_spinbox.setEnabled(False)
@@ -604,6 +700,121 @@ class MainWindow(QtWidgets.QMainWindow):
             self.max_spinbox.setEnabled(True)
             self.min_spinbox.setStyleSheet("")
             self.max_spinbox.setStyleSheet("")
+        
+        # Update arcsinh and percentile button states
+        if auto_scaling_disabled:
+            self.arcsinh_btn.setEnabled(False)
+            self.arcsinh_btn.setToolTip("Arcsinh disabled: Multiple markers assigned to same RGB color")
+            self.cofactor_spinbox.setEnabled(False)
+            self.percentile_btn.setEnabled(False)
+            self.percentile_btn.setToolTip("Percentile scaling disabled: Multiple markers assigned to same RGB color")
+        else:
+            self.arcsinh_btn.setEnabled(True)
+            self.arcsinh_btn.setToolTip("Apply arcsinh normalization to current channel")
+            self.cofactor_spinbox.setEnabled(True)
+            self.percentile_btn.setEnabled(True)
+            self.percentile_btn.setToolTip("Apply percentile scaling to current channel")
+
+    def _is_auto_scaling_disabled_for_channel(self, channel: str) -> bool:
+        """Check if automatic scaling (arcsinh/percentile) should be disabled for a channel because multiple markers are assigned to the same RGB color."""
+        if not channel:
+            return False
+        
+        # In grid view, all channels are displayed individually, so arcsinh/percentile is always available
+        if self.grid_view_chk.isChecked():
+            return False
+        
+        # Get current RGB color assignments
+        def _checked(lst: QtWidgets.QListWidget) -> List[str]:
+            vals: List[str] = []
+            for i in range(lst.count()):
+                item = lst.item(i)
+                if item.checkState() == Qt.Checked:
+                    vals.append(item.text())
+            return vals
+        
+        red_selection = _checked(self.red_list)
+        green_selection = _checked(self.green_list)
+        blue_selection = _checked(self.blue_list)
+        
+        # Check if this channel is assigned to any RGB color that has multiple channels
+        if channel in red_selection and len(red_selection) > 1:
+            return True
+        if channel in green_selection and len(green_selection) > 1:
+            return True
+        if channel in blue_selection and len(blue_selection) > 1:
+            return True
+        
+        return False
+
+    def _enable_auto_scaling_for_grid_view(self):
+        """Enable arcsinh/percentile for all channels when switching to grid view."""
+        # In grid view, all channels are displayed individually, so arcsinh/percentile is always available
+        # No special action needed - the _update_minmax_controls_state will handle enabling the buttons
+        pass
+
+    def _revert_auto_scaling_for_rgb_view(self):
+        """Revert channels to default range when switching back to RGB view if they had arcsinh/percentile applied in grid view."""
+        # Get current RGB color assignments
+        def _checked(lst: QtWidgets.QListWidget) -> List[str]:
+            vals: List[str] = []
+            for i in range(lst.count()):
+                item = lst.item(i)
+                if item.checkState() == Qt.Checked:
+                    vals.append(item.text())
+            return vals
+        
+        red_selection = _checked(self.red_list)
+        green_selection = _checked(self.green_list)
+        blue_selection = _checked(self.blue_list)
+        
+        # Find channels that have multiple assignments and had arcsinh/percentile applied
+        channels_to_revert = []
+        
+        # Check red channels
+        if len(red_selection) > 1:
+            for channel in red_selection:
+                if (channel in self.channel_scaling_method and 
+                    self.channel_scaling_method[channel] in ["arcsinh", "percentile"]):
+                    channels_to_revert.append(channel)
+        
+        # Check green channels
+        if len(green_selection) > 1:
+            for channel in green_selection:
+                if (channel in self.channel_scaling_method and 
+                    self.channel_scaling_method[channel] in ["arcsinh", "percentile"]):
+                    channels_to_revert.append(channel)
+        
+        # Check blue channels
+        if len(blue_selection) > 1:
+            for channel in blue_selection:
+                if (channel in self.channel_scaling_method and 
+                    self.channel_scaling_method[channel] in ["arcsinh", "percentile"]):
+                    channels_to_revert.append(channel)
+        
+        # Revert each channel to default range
+        for channel in channels_to_revert:
+            try:
+                if self.current_acq_id:
+                    img = self.loader.get_image(self.current_acq_id, channel)
+                    min_val = float(np.min(img))
+                    max_val = float(np.max(img))
+                    
+                    # Update scaling method to default
+                    self.channel_scaling_method[channel] = "default"
+                    
+                    # Clear normalization settings
+                    if channel in self.channel_normalization:
+                        self.channel_normalization.pop(channel, None)
+                    
+                    # Update scaling values
+                    self.channel_scaling[channel] = {'min': min_val, 'max': max_val}
+                    
+            except Exception as e:
+                print(f"Error reverting channel {channel} to default range: {e}")
+        
+        # Update UI controls to reflect the reverted state
+        self._update_minmax_controls_state()
 
     def _load_channel_scaling(self):
         """Load scaling values for the currently selected channel."""
@@ -629,6 +840,13 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Update spinboxes based on actual values
         self._update_spinboxes_from_values(min_val, max_val)
+        
+        # Load per-channel arcsinh cofactor if available
+        if current_channel in self.channel_normalization:
+            norm_cfg = self.channel_normalization[current_channel]
+            if norm_cfg.get("method") == "arcsinh":
+                cofactor = norm_cfg.get("cofactor", 5.0)
+                self.cofactor_spinbox.setValue(float(cofactor))
 
     def _save_channel_scaling(self):
         """Save current scaling values for the selected channel."""
@@ -661,6 +879,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if not current_channel:
             return
         
+        # Check if automatic scaling is disabled for this channel
+        if self._is_auto_scaling_disabled_for_channel(current_channel):
+            QtWidgets.QMessageBox.warning(self, "Percentile Scaling Disabled", 
+                f"Percentile scaling is disabled for '{current_channel}' because multiple markers are assigned to the same RGB color.")
+            return
+        
         try:
             img = self.loader.get_image(self.current_acq_id, current_channel)
             # Use robust percentile scaling function
@@ -674,6 +898,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Update scaling method state
             self.current_scaling_method = "percentile"
+            self.channel_scaling_method[current_channel] = "percentile"
             self.arcsinh_enabled = False
             self._update_minmax_controls_state()
             
@@ -692,6 +917,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if not current_channel:
             return
         
+        # Check if automatic scaling is disabled for this channel
+        if self._is_auto_scaling_disabled_for_channel(current_channel):
+            QtWidgets.QMessageBox.warning(self, "Arcsinh Disabled", 
+                f"Arcsinh normalization is disabled for '{current_channel}' because multiple markers are assigned to the same RGB color.")
+            return
+        
         try:
             img = self.loader.get_image(self.current_acq_id, current_channel)
             cofactor = self.cofactor_spinbox.value()
@@ -707,7 +938,9 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Update scaling method state
             self.current_scaling_method = "arcsinh"
-            self.arcsinh_enabled = True
+            self.channel_scaling_method[current_channel] = "arcsinh"
+            # Only set normalization for the selected channel
+            self.channel_normalization[current_channel] = {"method": "arcsinh", "cofactor": cofactor}
             self._update_minmax_controls_state()
             
             # Auto-apply the scaling
@@ -734,7 +967,10 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Update scaling method state
             self.current_scaling_method = "default"
-            self.arcsinh_enabled = False
+            self.channel_scaling_method[current_channel] = "default"
+            # Clear per-channel normalization for this channel
+            if current_channel in self.channel_normalization:
+                self.channel_normalization.pop(current_channel, None)
             self._update_minmax_controls_state()
             
             # Auto-apply the scaling and reload image in original range
@@ -745,13 +981,53 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_image_with_normalization(self, acq_id: str, channel: str) -> np.ndarray:
         """Load image and apply arcsinh normalization if enabled."""
-        img = self.loader.get_image(acq_id, channel)
+        # Try cache first
+        cache_key = (acq_id, channel)
+        with self._cache_lock:
+            img = self.image_cache.get(cache_key)
+        if img is None:
+            img = self.loader.get_image(acq_id, channel)
+            with self._cache_lock:
+                self.image_cache[cache_key] = img
         
-        if self.arcsinh_enabled:
-            cofactor = self.cofactor_spinbox.value()
+        # Apply per-channel normalization (if configured)
+        norm_cfg = self.channel_normalization.get(channel)
+        if norm_cfg and norm_cfg.get("method") == "arcsinh":
+            cofactor = float(norm_cfg.get("cofactor", 5.0))
             img = arcsinh_normalize(img, cofactor=cofactor)
         
         return img
+
+    def _start_prefetch_all_channels(self, acq_id: str):
+        """Prefetch all channels for the given acquisition in the background (non-blocking)."""
+        if self.loader is None or not acq_id:
+            return
+        # If a previous prefetch is running, let it finish; avoid stacking tasks
+        if self._prefetch_future and not self._prefetch_future.done():
+            return
+
+        channels = []
+        try:
+            channels = self.loader.get_channels(acq_id)
+        except Exception:
+            return
+
+        def _prefetch():
+            try:
+                # Load the full stack once, then split into channels for faster access
+                stack = self.loader.get_all_channels(acq_id)
+                # Store in cache
+                with self._cache_lock:
+                    for i, ch in enumerate(channels):
+                        try:
+                            self.image_cache[(acq_id, ch)] = stack[..., i]
+                        except Exception:
+                            continue
+            except Exception:
+                # Swallow errors silently to avoid UI disruption
+                return
+
+        self._prefetch_future = self._executor.submit(_prefetch)
 
     def _apply_scaling(self):
         """Apply the current scaling settings to the selected channel and refresh display."""
@@ -772,11 +1048,11 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---------- View ----------
     def _view_selected(self):
         if self.current_acq_id is None:
-            QtWidgets.QMessageBox.information(self, "No acquisition", "Open a .mcd and select an acquisition.")
+            # Silent no-op during auto-refresh before an acquisition is selected
             return
         chans = self._selected_channels()
         if not chans:
-            QtWidgets.QMessageBox.information(self, "No channels", "Select one or more channels.")
+            # Silent no-op during auto-refresh when no channels are selected
             return
         
         # Store selected channels for auto-selection in next acquisition
@@ -798,25 +1074,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 custom_max = self.channel_scaling[channel]['max']
         
         try:
-            if len(chans) == 1 and not grid_view:
-                # Single channel view
-                img = self._load_image_with_normalization(self.current_acq_id, chans[0])
-                
-                # Apply segmentation overlay if enabled
-                if self.segmentation_overlay:
-                    img = self._get_segmentation_overlay(img)
-                
-                # Get acquisition subtitle
-                acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
-                title = f"{chans[0]}\n{acq_subtitle}"
-                if self.segmentation_overlay:
-                    title += " (with segmentation overlay)"
-                self.canvas.show_image(img, title, grayscale=grayscale, raw_img=img, custom_min=custom_min, custom_max=custom_max)
-            elif len(chans) <= 3 and not grid_view:
-                # RGB composite view using user-selected color assignments
+            if not grid_view:
+                # RGB composite view using user-selected color assignments (supports single or multiple channels per RGB)
                 self._show_rgb_composite(chans, grayscale)
             else:
-                # Grid view for multiple channels (when grid_view is True or >3 channels)
+                # Grid view for multiple channels (when grid_view is True)
                 images = [self._load_image_with_normalization(self.current_acq_id, c) for c in chans]
                 
                 # Apply segmentation overlay to all images if enabled
@@ -851,25 +1113,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     custom_min = self.channel_scaling[channel]['min']
                     custom_max = self.channel_scaling[channel]['max']
             
-            if len(selected_channels) == 1 and not grid_view:
-                # Single channel view
-                img = self._load_image_with_normalization(self.current_acq_id, selected_channels[0])
-                
-                # Apply segmentation overlay if enabled
-                if self.segmentation_overlay:
-                    img = self._get_segmentation_overlay(img)
-                
-                # Get acquisition subtitle
-                acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
-                title = f"{selected_channels[0]}\n{acq_subtitle}"
-                if self.segmentation_overlay:
-                    title += " (with segmentation overlay)"
-                self.canvas.show_image(img, title, grayscale=grayscale, raw_img=img, custom_min=custom_min, custom_max=custom_max)
-            elif len(selected_channels) <= 3 and not grid_view:
-                # RGB composite view using user-selected color assignments
+            if not grid_view:
+                # RGB composite view using user-selected color assignments (supports single or multiple channels per RGB)
                 self._show_rgb_composite(selected_channels, grayscale)
             else:
-                # Grid view for multiple channels (when grid_view is True or >3 channels)
+                # Grid view for multiple channels (when grid_view is True)
                 images = [self._load_image_with_normalization(self.current_acq_id, c) for c in selected_channels]
                 
                 # Apply segmentation overlay to all images if enabled
@@ -891,26 +1139,22 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_rgb_composite(self, selected_channels: List[str], grayscale: bool):
         """Show RGB composite using user-selected color assignments."""
         # Get user-selected color assignments
-        red_channel = self.red_combo.currentData()
-        green_channel = self.green_combo.currentData()
-        blue_channel = self.blue_combo.currentData()
+        # Read multi-selections for each color
+        def _checked(lst: QtWidgets.QListWidget) -> List[str]:
+            vals: List[str] = []
+            for i in range(lst.count()):
+                item = lst.item(i)
+                if item.checkState() == Qt.Checked:
+                    vals.append(item.text())
+            return vals
+        red_selection = _checked(self.red_list)
+        green_selection = _checked(self.green_list)
+        blue_selection = _checked(self.blue_list)
         
-        # If currentData() returns None, try currentText()
-        if red_channel is None:
-            red_channel = self.red_combo.currentText() if self.red_combo.currentText() != "None" else None
-        if green_channel is None:
-            green_channel = self.green_combo.currentText() if self.green_combo.currentText() != "None" else None
-        if blue_channel is None:
-            blue_channel = self.blue_combo.currentText() if self.blue_combo.currentText() != "None" else None
-        
-        # If no color assignments are made, use the first 1-3 selected channels as default
-        if not red_channel and not green_channel and not blue_channel:
-            if len(selected_channels) >= 1:
-                red_channel = selected_channels[0]
-            if len(selected_channels) >= 2:
-                green_channel = selected_channels[1]
-            if len(selected_channels) >= 3:
-                blue_channel = selected_channels[2]
+        # If only one channel is selected and no RGB assignments are made, assign it to red
+        if (len(selected_channels) == 1 and 
+            not red_selection and not green_selection and not blue_selection):
+            red_selection = selected_channels.copy()
         
         # Create RGB stack based on user selections
         rgb_channels = []
@@ -927,21 +1171,36 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         # Always create 3 channels (R, G, B) even if some are empty
-        for color, channel, color_name in [(red_channel, red_channel, 'Red'), (green_channel, green_channel, 'Green'), (blue_channel, blue_channel, 'Blue')]:
-            # Convert both to strings for comparison to handle any type mismatches
-            channel_str = str(channel) if channel else None
-            selected_channels_str = [str(c) for c in selected_channels]
-            
-            if channel and channel_str in selected_channels_str:
-                img = self._load_image_with_normalization(self.current_acq_id, channel)
-                rgb_channels.append(img)
-                raw_channels.append(img)
-                rgb_titles.append(f"{channel} ({color_name})")
-            else:
-                # Add zero-filled channel if not selected
-                rgb_channels.append(np.zeros_like(first_img))
-                raw_channels.append(np.zeros_like(first_img))
-                rgb_titles.append(f"None ({color_name})")
+        def _sum_channels(names: List[str]) -> np.ndarray:
+            if not names:
+                return np.zeros_like(first_img)
+            acc = np.zeros_like(first_img, dtype=np.float32)
+            for ch_name in names:
+                try:
+                    img = self._load_image_with_normalization(self.current_acq_id, ch_name)
+                except Exception:
+                    img = np.zeros_like(first_img)
+                acc += img.astype(np.float32)
+            # Clip to max of original dtype range
+            acc = np.clip(acc, 0, np.max(acc))
+            return acc.astype(first_img.dtype)
+
+        # Build R, G, B channels by summing selections per color
+        r_img = _sum_channels(red_selection)
+        g_img = _sum_channels(green_selection)
+        b_img = _sum_channels(blue_selection)
+
+        rgb_channels.append(r_img)
+        raw_channels.append(r_img)
+        rgb_titles.append(f"{'+'.join(red_selection) if red_selection else 'None'} (Red)")
+
+        rgb_channels.append(g_img)
+        raw_channels.append(g_img)
+        rgb_titles.append(f"{'+'.join(green_selection) if green_selection else 'None'} (Green)")
+
+        rgb_channels.append(b_img)
+        raw_channels.append(b_img)
+        rgb_titles.append(f"{'+'.join(blue_selection) if blue_selection else 'None'} (Blue)")
         
         # Ensure we have exactly 3 channels
         while len(rgb_channels) < 3:
@@ -949,16 +1208,64 @@ class MainWindow(QtWidgets.QMainWindow):
             raw_channels.append(np.zeros_like(first_img))
             rgb_titles.append(f"None ({['Red', 'Green', 'Blue'][len(rgb_channels)-1]})")
         
+        # Apply per-channel custom scaling before stacking (for RGB display)
+        if self.custom_scaling_chk.isChecked():
+            scaled_channels = []
+            color_selections = [red_selection, green_selection, blue_selection]
+            
+            for i, ch_img in enumerate(rgb_channels):
+                # Skip empty channels (all zeros)
+                if np.all(ch_img == 0):
+                    scaled_channels.append(ch_img)
+                    continue
+                
+                # Get the channels assigned to this RGB color
+                assigned_channels = color_selections[i] if i < len(color_selections) else []
+                
+                # For custom scaling, we need to determine which channel's scaling to use
+                # If multiple channels are assigned to this color, we'll use the first one that has scaling
+                scaling_channel = None
+                for ch_name in assigned_channels:
+                    if ch_name in self.channel_scaling:
+                        scaling_channel = ch_name
+                        break
+                
+                if scaling_channel:
+                    vmin = self.channel_scaling[scaling_channel]['min']
+                    vmax = self.channel_scaling[scaling_channel]['max']
+                    if vmax <= vmin:
+                        vmax = vmin + 1e-6
+                    
+                    # For multiple channels with different arcsinh settings, we need to be more careful
+                    # about the scaling range. The summed result might have a different range than
+                    # any individual channel's scaling range.
+                    if len(assigned_channels) > 1:
+                        # When multiple channels are summed, use the actual range of the summed result
+                        # but still apply the custom scaling logic
+                        actual_min = float(np.min(ch_img))
+                        actual_max = float(np.max(ch_img))
+                        
+                        # If the custom range is within the actual range, use it
+                        if vmin >= actual_min and vmax <= actual_max:
+                            ch_img = np.clip((ch_img.astype(np.float32) - vmin) / (vmax - vmin), 0.0, 1.0)
+                        else:
+                            # Otherwise, use the actual range but still normalize to 0-1
+                            if actual_max > actual_min:
+                                ch_img = (ch_img.astype(np.float32) - actual_min) / (actual_max - actual_min)
+                            else:
+                                ch_img = np.zeros_like(ch_img)
+                    else:
+                        # Single channel case - use the custom range directly
+                        ch_img = np.clip((ch_img.astype(np.float32) - vmin) / (vmax - vmin), 0.0, 1.0)
+                
+                scaled_channels.append(ch_img)
+            rgb_channels = scaled_channels
+
         # Stack channels
         stack = np.dstack(rgb_channels)
         raw_stack = np.dstack(raw_channels)
         
-        # Apply segmentation overlay if enabled
-        if self.segmentation_overlay:
-            # Apply overlay to each channel in the stack
-            for i in range(stack.shape[2]):
-                if not np.all(rgb_channels[i] == 0):  # Only apply to non-zero channels
-                    stack[..., i] = self._get_segmentation_overlay(stack[..., i])
+        # Note: Do NOT apply overlay per-channel (will be 3-channel) — apply to final RGB image below
         
         # Get acquisition subtitle
         acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
@@ -970,35 +1277,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.fig.clear()
         
         if grayscale:
-            # Single grayscale image with colorbar
+            # Grayscale background from assigned channels (mean of non-empty channels)
             ax = self.canvas.fig.add_subplot(111)
-            
-            # Get per-channel scaling for the first channel
-            vmin, vmax = None, None
-            if self.custom_scaling_chk.isChecked() and selected_channels and len(selected_channels) > 0:
-                first_channel = selected_channels[0]
-                if first_channel in self.channel_scaling:
-                    vmin = self.channel_scaling[first_channel]['min']
-                    vmax = self.channel_scaling[first_channel]['max']
-            
-            if vmin is None or vmax is None:
-                vmin, vmax = np.min(stack[..., 0]), np.max(stack[..., 0])
-            
-            im = ax.imshow(stack[..., 0], interpolation="nearest", cmap='gray', vmin=vmin, vmax=vmax)
-            # Add colorbar for grayscale
-            cbar = self.canvas.fig.colorbar(im, ax=ax, shrink=0.8, aspect=20)
-            cbar.set_ticks([vmin, vmax])
-            cbar.set_ticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
-            ax.set_title(title)
-            ax.axis("off")
+
+            nonzero_channels = [ch for ch in rgb_channels if not np.all(ch == 0)]
+            if len(nonzero_channels) == 0:
+                gray_base = stack[..., 0]
+            elif len(nonzero_channels) == 1:
+                gray_base = nonzero_channels[0]
+            else:
+                gray_base = np.mean(np.dstack(nonzero_channels), axis=2)
+
+            if self.segmentation_overlay:
+                # Apply colored overlay on top of grayscale background
+                blended = self._get_segmentation_overlay(gray_base)
+                ax.imshow(blended, interpolation="nearest")
+                ax.set_title(title)
+                ax.axis("off")
+            else:
+                # Show pure grayscale with colorbar
+                vmin, vmax = np.min(gray_base), np.max(gray_base)
+                im = ax.imshow(gray_base, interpolation="nearest", cmap='gray', vmin=vmin, vmax=vmax)
+                cbar = self.canvas.fig.colorbar(im, ax=ax, shrink=0.8, aspect=20)
+                cbar.set_ticks([vmin, vmax])
+                cbar.set_ticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
+                ax.set_title(title)
+                ax.axis("off")
         else:
-            # RGB composite with individual channel colorbars
-            # Create a 2x2 grid: main image (top), colorbars (bottom)
-            gs = self.canvas.fig.add_gridspec(2, 3, height_ratios=[3, 1], hspace=0.3, wspace=0.3)
+            # RGB composite with slimmer individual channel colorbars
+            # Create a grid with a much shorter bottom row
+            gs = self.canvas.fig.add_gridspec(2, 3, height_ratios=[10, 1], hspace=0.12, wspace=0.2)
             
             # Main RGB composite image (spans top row)
             ax_main = self.canvas.fig.add_subplot(gs[0, :])
-            im = ax_main.imshow(stack_to_rgb(stack), interpolation="nearest")
+            rgb_img = stack_to_rgb(stack)
+            if self.segmentation_overlay:
+                rgb_img = self._get_segmentation_overlay(rgb_img)
+            im = ax_main.imshow(rgb_img, interpolation="nearest")
             ax_main.set_title(title)
             ax_main.axis("off")
             
@@ -1024,18 +1339,21 @@ class MainWindow(QtWidgets.QMainWindow):
                         ax_cbar.imshow(gradient, aspect='auto', cmap='gray' if grayscale else ['Reds', 'Greens', 'Blues'][i])
                         ax_cbar.set_xticks([0, 255])
                         ax_cbar.set_xticklabels([f'{raw_min:.1f}', f'{raw_max:.1f}'])
+                        ax_cbar.tick_params(axis='x', labelsize=8, pad=1)
                         ax_cbar.set_yticks([])
-                        ax_cbar.set_title(f"{channel_name}", fontsize=10)
+                        ax_cbar.set_title(f"{channel_name}", fontsize=8, pad=2)
                     else:
                         # No data
-                        ax_cbar.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax_cbar.transAxes)
-                        ax_cbar.set_title(f"{channel_name}", fontsize=10)
+                        ax_cbar.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax_cbar.transAxes, fontsize=8)
+                        ax_cbar.set_title(f"{channel_name}", fontsize=8, pad=2)
                 else:
                     # No data for this channel
-                    ax_cbar.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax_cbar.transAxes)
-                    ax_cbar.set_title(f"{channel_name}", fontsize=10)
+                    ax_cbar.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax_cbar.transAxes, fontsize=8)
+                    ax_cbar.set_title(f"{channel_name}", fontsize=8, pad=2)
                 
                 ax_cbar.set_xlim(0, 255)
+                for spine in ax_cbar.spines.values():
+                    spine.set_visible(False)
         
         self.canvas.draw()
 
@@ -2264,44 +2582,46 @@ class MainWindow(QtWidgets.QMainWindow):
                         {"channels": current_acq_info.channels if hasattr(current_acq_info, 'channels') else current_acq_info.get('channels', [])},
                         acq_label,
                         self.current_path or "",
-                        arcsinh_enabled,
-                        cofactor,
+                        self.channel_normalization is not None and len(self.channel_normalization) > 0,  # arcsinh_enabled (approx)
+                        self.cofactor_spinbox.value() if hasattr(self, 'cofactor_spinbox') else 5.0,
                     ))
-                with mp.Pool(max_workers) as pool:
-                    # Process acquisitions in parallel using module-level worker
-                    results = pool.starmap(extract_features_for_acquisition, safe_args)
-                    
-                    # Collect results and update progress
-                    for i, result in enumerate(results):
+
+                # Use threads instead of multiprocessing to avoid hangs in some environments
+                progress_dlg.update_progress(0, "Starting feature extraction", f"Using up to {max_workers} threads")
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_idx = {executor.submit(extract_features_for_acquisition, *args): idx for idx, args in enumerate(safe_args)}
+                    completed = 0
+                    total = len(safe_args)
+                    for future in as_completed(future_to_idx):
                         if progress_dlg.is_cancelled():
                             break
-                        
+                        try:
+                            result = future.result()
+                        except Exception as e:
+                            print(f"Feature extraction task failed: {e}")
+                            result = None
                         if result is not None and not result.empty:
                             all_features.append(result)
-                        
-                        # Update progress
+                        completed += 1
                         progress_dlg.update_progress(
-                            i + 1, 
-                            f"Processed acquisition {i+1}/{len(results)}", 
+                            completed,
+                            f"Processed acquisition {completed}/{total}",
                             f"Extracted features from {len(all_features)} acquisitions"
                         )
-            except Exception as mp_error:
-                print(f"Multiprocessing failed, falling back to single-threaded processing: {mp_error}")
-                progress_dlg.update_progress(0, "Multiprocessing failed, using single-threaded processing", "Processing acquisitions sequentially")
-                
+            except Exception as thread_error:
+                print(f"Threaded execution failed, falling back to single-threaded processing: {thread_error}")
+                progress_dlg.update_progress(0, "Threading failed, using single-threaded processing", "Processing acquisitions sequentially")
                 # Fallback to single-threaded processing
                 for i, args in enumerate(mp_args):
                     if progress_dlg.is_cancelled():
                         break
-                    
                     result = self._extract_features_worker(args)
                     if result is not None and not result.empty:
                         all_features.append(result)
-                    
-                    # Update progress
                     progress_dlg.update_progress(
-                        i + 1, 
-                        f"Processed acquisition {i+1}/{len(mp_args)}", 
+                        i + 1,
+                        f"Processed acquisition {i+1}/{len(mp_args)}",
                         f"Extracted features from {len(all_features)} acquisitions"
                     )
             

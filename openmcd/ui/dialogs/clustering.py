@@ -64,14 +64,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # (Aggregation and morphometric inclusion moved to Feature Selector dialog)
         
-        # Number of clusters
-        options_layout.addWidget(QtWidgets.QLabel("Number of clusters:"))
-        self.n_clusters = QtWidgets.QSpinBox()
-        self.n_clusters.setRange(2, 20)
-        self.n_clusters.setValue(5)
-        options_layout.addWidget(self.n_clusters)
-        
-        # Clustering method type
+        # Clustering method type (first)
         options_layout.addWidget(QtWidgets.QLabel("Clustering Method:"))
         self.clustering_type = QtWidgets.QComboBox()
         clustering_types = ["Hierarchical"]
@@ -81,6 +74,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.clustering_type.setCurrentText("Hierarchical")
         self.clustering_type.currentTextChanged.connect(self._on_clustering_type_changed)
         options_layout.addWidget(self.clustering_type)
+        
+        # Number of clusters (only for hierarchical)
+        self.n_clusters_label = QtWidgets.QLabel("Number of clusters:")
+        options_layout.addWidget(self.n_clusters_label)
+        self.n_clusters = QtWidgets.QSpinBox()
+        self.n_clusters.setRange(2, 20)
+        self.n_clusters.setValue(5)
+        options_layout.addWidget(self.n_clusters)
         
         # Hierarchical method selection (initially visible)
         self.hierarchical_label = QtWidgets.QLabel("Linkage Method:")
@@ -129,7 +130,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # Control buttons
         button_layout = QtWidgets.QHBoxLayout()
-        
+        # Color-by control
+        button_layout.addWidget(QtWidgets.QLabel("Color by:"))
+        self.color_by_combo = QtWidgets.QComboBox()
+        self.color_by_combo.addItem("Cluster")
+        self.color_by_combo.currentTextChanged.connect(self._on_color_by_changed)
+        button_layout.addWidget(self.color_by_combo)
+
         self.umap_btn = QtWidgets.QPushButton("UMAP Plot")
         self.umap_btn.clicked.connect(self._run_umap)
         self.umap_btn.setEnabled(True)
@@ -149,6 +156,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.save_btn.clicked.connect(self._save_heatmap)
         self.save_btn.setEnabled(False)
         button_layout.addWidget(self.save_btn)
+
+        # Save UMAP button
+        self.save_umap_btn = QtWidgets.QPushButton("Save UMAP")
+        self.save_umap_btn.clicked.connect(self._save_umap)
+        self.save_umap_btn.setEnabled(False)
+        button_layout.addWidget(self.save_umap_btn)
         
         button_layout.addStretch()
         
@@ -180,6 +193,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Show/hide hierarchical method selection
         self.hierarchical_label.setVisible(is_hierarchical)
         self.hierarchical_method.setVisible(is_hierarchical)
+        # Show/hide number of clusters only for hierarchical
+        if hasattr(self, 'n_clusters_label'):
+            self.n_clusters_label.setVisible(is_hierarchical)
+        if hasattr(self, 'n_clusters'):
+            self.n_clusters.setVisible(is_hierarchical)
         
         # Show/hide dendrogram controls for hierarchical methods
         self.dendro_label.setVisible(is_hierarchical)
@@ -327,8 +345,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # Perform Leiden clustering
         resolution = self.resolution_spinbox.value()
-        partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition, 
-                                           resolution_parameter=resolution, seed=42)
+        # Use RBConfiguration partition which supports resolution_parameter
+        partition = leidenalg.find_partition(
+            g,
+            leidenalg.RBConfigurationVertexPartition,
+            weights='weight',
+            resolution_parameter=resolution,
+            seed=42,
+        )
         
         # Get cluster labels
         cluster_labels = np.array(partition.membership) + 1  # Start from 1
@@ -366,10 +390,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Create heatmap
         im = ax_heatmap.imshow(heatmap_data.T, aspect='auto', cmap='viridis', interpolation='nearest')
 
-        # Set labels and ticks
+        # Set labels only; tick order should follow row order in clustered_data
         ax_heatmap.set_xlabel('Cells')
         ax_heatmap.set_ylabel('Features')
-        print(f"Setting y-ticks for {len(feature_cols)} features")
         ax_heatmap.set_yticks(np.arange(len(feature_cols)))
         ax_heatmap.set_yticklabels(feature_cols, fontsize=6, rotation=0)
         
@@ -449,15 +472,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 col_colors=cluster_colors_series  # This creates the color bar
             )
             
-            # Set labels and feature names
+            # Labels – let seaborn manage tick order after clustering; just style
             g.ax_heatmap.set_xlabel('Cells')
             g.ax_heatmap.set_ylabel('Features')
-            
-            # Ensure all feature names are shown with small font
-            print(f"Setting y-ticks for {len(feature_cols)} features")
-            g.ax_heatmap.set_yticks(np.arange(len(feature_cols)))
-            g.ax_heatmap.set_yticklabels(feature_cols, fontsize=6, rotation=0)
-            g.ax_heatmap.set_ylim(-0.5, len(feature_cols) - 0.5)
+            for lbl in g.ax_heatmap.get_yticklabels():
+                lbl.set_fontsize(6)
+                lbl.set_rotation(0)
             
             # Add cluster legend
             self._add_cluster_legend(g, cluster_color_map)
@@ -567,8 +587,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.warning(self, "No Features", "Please select at least one feature for UMAP analysis.")
                 return
             
-            # Prepare data for UMAP
-            data = self.feature_dataframe[selected_columns].copy()
+            # Prepare data for UMAP, align with clustered order if available
+            if self.clustered_data is not None:
+                ordered_index = self.clustered_data.index
+                data = self.feature_dataframe.loc[ordered_index, selected_columns].copy()
+            else:
+                data = self.feature_dataframe[selected_columns].copy()
             
             # Handle missing values and infinite values
             data = data.replace([np.inf, -np.inf], np.nan)
@@ -582,13 +606,21 @@ class CellClusteringDialog(QtWidgets.QDialog):
             print(f"Running UMAP on {data.shape[0]} cells with {data.shape[1]} features...")
             reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
             self.umap_embedding = reducer.fit_transform(data.values)
+            # Persist for coloring
+            self.umap_index = data.index.to_list()
+            self.umap_selected_columns = list(selected_columns)
+            self.umap_raw_data = data.copy()
             
             # Create UMAP plot
             self._create_umap_plot()
             
+            # Populate color-by options
+            self._populate_color_by_options()
             # Enable heatmap button if clustering was done
             if self.clustered_data is not None:
                 self.heatmap_btn.setEnabled(True)
+            # Enable save UMAP button on success
+            self.save_umap_btn.setEnabled(True)
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "UMAP Error", f"Error during UMAP analysis: {str(e)}")
@@ -609,26 +641,33 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax = self.figure.add_subplot(111)
         
         # Determine coloring
-        if self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
-            # Color by cluster
-            cluster_labels = self.clustered_data['cluster'].values
+        color_by = self.color_by_combo.currentText() if hasattr(self, 'color_by_combo') else 'Cluster'
+        if color_by == 'Cluster' and self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
+            # Align cluster labels to UMAP order
+            if hasattr(self, 'umap_index') and self.umap_index is not None:
+                cluster_labels_series = self.clustered_data['cluster']
+                cluster_labels = cluster_labels_series.reindex(self.umap_index).values
+            else:
+                cluster_labels = self.clustered_data['cluster'].values
             unique_clusters = sorted(np.unique(cluster_labels))
             colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
             cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
-            
-            # Create scatter plot with cluster colors
             for cluster_id in unique_clusters:
                 mask = cluster_labels == cluster_id
-                ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1], 
-                          c=[cluster_color_map[cluster_id]], label=f'Cluster {cluster_id}', 
-                          alpha=0.7, s=20)
-            
-            # Add legend
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
+                          c=[cluster_color_map[cluster_id]], label=f'Cluster {cluster_id}',
+                          alpha=0.8, s=18, edgecolors='none')
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+        elif hasattr(self, 'umap_raw_data') and color_by in getattr(self, 'umap_selected_columns', []):
+            # Continuous coloring by selected feature (aligned to UMAP order)
+            vals = self.umap_raw_data[color_by].values
+            sc = ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], c=vals,
+                            cmap='viridis', alpha=0.85, s=16, edgecolors='none')
+            cbar = self.figure.colorbar(sc, ax=ax)
+            cbar.set_label(color_by)
         else:
-            # No clustering - use single color
-            ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], 
-                      c='blue', alpha=0.7, s=20)
+            # Fallback single color
+            ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], c='blue', alpha=0.7, s=16, edgecolors='none')
         
         ax.set_xlabel('UMAP 1')
         ax.set_ylabel('UMAP 2')
@@ -636,6 +675,25 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax.grid(True, alpha=0.3)
         
         self.canvas.draw()
+
+    def _populate_color_by_options(self):
+        """Populate the color-by combo with Cluster + used features."""
+        if not hasattr(self, 'color_by_combo'):
+            return
+        current = self.color_by_combo.currentText() if self.color_by_combo.count() > 0 else 'Cluster'
+        self.color_by_combo.blockSignals(True)
+        self.color_by_combo.clear()
+        self.color_by_combo.addItem('Cluster')
+        for col in getattr(self, 'umap_selected_columns', []) or []:
+            self.color_by_combo.addItem(col)
+        idx = self.color_by_combo.findText(current)
+        if idx >= 0:
+            self.color_by_combo.setCurrentIndex(idx)
+        self.color_by_combo.blockSignals(False)
+
+    def _on_color_by_changed(self, _text: str):
+        if getattr(self, 'umap_embedding', None) is not None:
+            self._create_umap_plot()
     
     def _explore_clusters(self):
         """Open cluster explorer window."""
@@ -663,7 +721,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save Heatmap", "cell_clustering_heatmap.png", 
-            "PNG Files (*.png);;PDF Files (*.pdf);;SVG Files (*.svg)"
+            "PNG Files (*.png)"
         )
         
         if file_path:
@@ -672,6 +730,23 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.information(self, "Success", f"Heatmap saved to: {file_path}")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving heatmap: {str(e)}")
+
+    def _save_umap(self):
+        """Save the current UMAP plot as a PNG image."""
+        if self.umap_embedding is None:
+            QtWidgets.QMessageBox.warning(self, "No UMAP", "Please run UMAP before saving.")
+            return
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save UMAP", "umap_plot.png",
+            "PNG Files (*.png)"
+        )
+        if file_path:
+            try:
+                # Save current figure which was drawn by _create_umap_plot
+                self.figure.savefig(file_path, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"UMAP saved to: {file_path}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving UMAP: {str(e)}")
 
 # --------------------------
 # Cluster Explorer Dialog
@@ -897,7 +972,8 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
                                     
                                     # Create image widget with acquisition and cell info
                                     acq_label = self._get_acquisition_label(acq_id)
-                                    img_widget = self._create_image_widget(cropped_channel, f"{acq_label} - Cell {cell_id}", is_rgb=False, channel=channel, acq_id=acq_id)
+                                    # Include channel/acquisition info in title; do not pass unsupported kwargs
+                                    img_widget = self._create_image_widget(cropped_channel, f"{acq_label} - {channel} - Cell {cell_id}", is_rgb=False)
                                     grid_layout.addWidget(img_widget, i // 4, i % 4)
                                     
                                     self.cell_images.append({
