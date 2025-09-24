@@ -58,6 +58,9 @@ def extract_features_for_acquisition(
             props_to_compute.append("major_axis_length")
         if selected_features.get("minor_axis_len_um", False):
             props_to_compute.append("minor_axis_length")
+        # Add centroid coordinates if requested
+        if selected_features.get("centroid_x", False) or selected_features.get("centroid_y", False):
+            props_to_compute.append("centroid")
 
         print(f"[feature_worker] Computing morph props: {props_to_compute}")
         morph_df = pd.DataFrame(regionprops_table(label_image, properties=tuple(props_to_compute)))
@@ -76,6 +79,17 @@ def extract_features_for_acquisition(
         if 'minor_axis_length' in morph_df.columns:
             rename_map['minor_axis_length'] = 'minor_axis_len_um'
         morph_df.rename(columns=rename_map, inplace=True)
+
+        # Extract centroid coordinates if requested
+        if 'centroid-0' in morph_df.columns and 'centroid-1' in morph_df.columns:
+            # regionprops_table returns centroid as separate columns
+            if selected_features.get("centroid_x", False):
+                morph_df['centroid_x'] = morph_df['centroid-1']  # x coordinate (column)
+            if selected_features.get("centroid_y", False):
+                morph_df['centroid_y'] = morph_df['centroid-0']  # y coordinate (row)
+            
+            # Remove the original centroid columns
+            morph_df.drop(columns=['centroid-0', 'centroid-1'], inplace=True)
 
         # Derived: aspect_ratio (major/minor) if available
         if {'major_axis_len_um', 'minor_axis_len_um'}.issubset(set(morph_df.columns)):

@@ -116,7 +116,9 @@ class PreprocessingDialog(QtWidgets.QDialog):
         nuclear_weights_layout.addWidget(self.nuclear_weights_edit)
         combo_layout.addWidget(self.nuclear_weights_frame)
 
-        # Cytoplasm channels section
+        # Cytoplasm channels section wrapped in a frame for easy show/hide
+        self.cyto_section_frame = QtWidgets.QFrame()
+        cyto_section_v = QtWidgets.QVBoxLayout(self.cyto_section_frame)
         cyto_layout = QtWidgets.QVBoxLayout()
         cyto_layout.addWidget(QtWidgets.QLabel("Cytoplasm channels:"))
         
@@ -131,12 +133,12 @@ class PreprocessingDialog(QtWidgets.QDialog):
         for channel in self.channels:
             self.cyto_list.addItem(channel)
         cyto_layout.addWidget(self.cyto_list)
-        combo_layout.addLayout(cyto_layout)
+        cyto_section_v.addLayout(cyto_layout)
 
         self.cyto_auto_info = QtWidgets.QLabel("")
         self.cyto_auto_info.setStyleSheet("QLabel { color: #0066cc; font-style: italic; font-size: 11px; }")
         self.cyto_auto_info.setWordWrap(True)
-        combo_layout.addWidget(self.cyto_auto_info)
+        cyto_section_v.addWidget(self.cyto_auto_info)
 
         cyto_combo_layout = QtWidgets.QHBoxLayout()
         cyto_combo_layout.addWidget(QtWidgets.QLabel("Cytoplasm combination:"))
@@ -145,7 +147,7 @@ class PreprocessingDialog(QtWidgets.QDialog):
         self.cyto_combo_method.currentTextChanged.connect(self._on_cyto_combo_changed)
         cyto_combo_layout.addWidget(self.cyto_combo_method)
         cyto_combo_layout.addStretch()
-        combo_layout.addLayout(cyto_combo_layout)
+        cyto_section_v.addLayout(cyto_combo_layout)
         self.cyto_list.itemSelectionChanged.connect(self._on_cyto_channels_changed)
 
         self.cyto_weights_frame = QtWidgets.QFrame()
@@ -154,7 +156,9 @@ class PreprocessingDialog(QtWidgets.QDialog):
         self.cyto_weights_edit = QtWidgets.QLineEdit()
         self.cyto_weights_edit.setPlaceholderText("e.g., 0.5,0.3,0.2")
         cyto_weights_layout.addWidget(self.cyto_weights_edit)
-        combo_layout.addWidget(self.cyto_weights_frame)
+        cyto_section_v.addWidget(self.cyto_weights_frame)
+
+        combo_layout.addWidget(self.cyto_section_frame)
 
         layout.addWidget(combo_group)
 
@@ -171,6 +175,24 @@ class PreprocessingDialog(QtWidgets.QDialog):
         self._on_nuclear_combo_changed()
         self._on_cyto_combo_changed()
         self._auto_parse_channels()
+
+    # Programmatic setters and visibility controls
+    def set_nuclear_channels(self, channel_names: List[str]):
+        names = set(channel_names or [])
+        for i in range(self.nuclear_list.count()):
+            item = self.nuclear_list.item(i)
+            item.setSelected(item.text() in names)
+        self._on_nuclear_channels_changed()
+
+    def set_cyto_channels(self, channel_names: List[str]):
+        names = set(channel_names or [])
+        for i in range(self.cyto_list.count()):
+            item = self.cyto_list.item(i)
+            item.setSelected(item.text() in names)
+        self._on_cyto_channels_changed()
+
+    def set_cytoplasm_visible(self, visible: bool):
+        self.cyto_section_frame.setVisible(visible)
 
     def _on_norm_method_changed(self):
         method = self.norm_method_combo.currentText()

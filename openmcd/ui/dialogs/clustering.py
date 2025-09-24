@@ -1,4 +1,5 @@
 from typing import List
+import pandas as pd
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,10 +46,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.cluster_labels = None
         self.clustered_data = None
         self.umap_embedding = None
+        self.cluster_annotation_map = {}
+        self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
         
         self._create_ui()
         self._setup_plot()
         self._on_clustering_type_changed()  # Initialize UI state
+        self._on_leiden_mode_changed()  # Initialize Leiden mode state
         
     def _create_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -91,17 +95,38 @@ class CellClusteringDialog(QtWidgets.QDialog):
         options_layout.addWidget(self.hierarchical_label)
         options_layout.addWidget(self.hierarchical_method)
         
-        # Resolution parameter for Leiden (initially hidden)
+        # Leiden clustering options (initially hidden)
+        self.leiden_options_group = QtWidgets.QGroupBox("Leiden Clustering Options")
+        leiden_options_layout = QtWidgets.QVBoxLayout(self.leiden_options_group)
+        
+        # Resolution vs Modularity choice
+        self.leiden_mode_group = QtWidgets.QButtonGroup()
+        self.resolution_radio = QtWidgets.QRadioButton("Use resolution parameter")
+        self.modularity_radio = QtWidgets.QRadioButton("Use modularity optimization")
+        self.resolution_radio.setChecked(True)
+        self.leiden_mode_group.addButton(self.resolution_radio)
+        self.leiden_mode_group.addButton(self.modularity_radio)
+        leiden_options_layout.addWidget(self.resolution_radio)
+        leiden_options_layout.addWidget(self.modularity_radio)
+        
+        # Resolution parameter
+        resolution_layout = QtWidgets.QHBoxLayout()
         self.resolution_label = QtWidgets.QLabel("Resolution:")
         self.resolution_spinbox = QtWidgets.QDoubleSpinBox()
         self.resolution_spinbox.setRange(0.1, 5.0)
         self.resolution_spinbox.setSingleStep(0.1)
         self.resolution_spinbox.setValue(1.0)
         self.resolution_spinbox.setDecimals(1)
-        self.resolution_label.setVisible(False)
-        self.resolution_spinbox.setVisible(False)
-        options_layout.addWidget(self.resolution_label)
-        options_layout.addWidget(self.resolution_spinbox)
+        resolution_layout.addWidget(self.resolution_label)
+        resolution_layout.addWidget(self.resolution_spinbox)
+        leiden_options_layout.addLayout(resolution_layout)
+        
+        # Connect radio button changes
+        self.resolution_radio.toggled.connect(self._on_leiden_mode_changed)
+        self.modularity_radio.toggled.connect(self._on_leiden_mode_changed)
+        
+        self.leiden_options_group.setVisible(False)
+        options_layout.addWidget(self.leiden_options_group)
 
         # Dendrogram mode (only for hierarchical methods)
         self.dendro_label = QtWidgets.QLabel("Dendrogram:")
@@ -119,8 +144,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         options_layout.addStretch()
         layout.addWidget(options_group)
         
-        # Plot area
-        plot_group = QtWidgets.QGroupBox("Clustering Results")
+        # Plot area (Step 2: Visualization)
+        plot_group = QtWidgets.QGroupBox("Visualization")
         plot_layout = QtWidgets.QVBoxLayout(plot_group)
         
         # Create matplotlib canvas
@@ -128,49 +153,71 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.canvas = FigureCanvas(self.figure)
         plot_layout.addWidget(self.canvas)
         
-        # Control buttons
-        button_layout = QtWidgets.QHBoxLayout()
-        # Color-by control
-        button_layout.addWidget(QtWidgets.QLabel("Color by:"))
+        # Visualization controls
+        viz_layout = QtWidgets.QHBoxLayout()
+        viz_layout.addWidget(QtWidgets.QLabel("View:"))
+        self.view_combo = QtWidgets.QComboBox()
+        self.view_combo.addItems(["Heatmap", "UMAP", "Stacked Bars"])
+        self.view_combo.currentTextChanged.connect(self._on_view_changed)
+        viz_layout.addWidget(self.view_combo)
+
+        # Color-by control (UMAP only)
+        viz_layout.addWidget(QtWidgets.QLabel("Color by:"))
         self.color_by_combo = QtWidgets.QComboBox()
         self.color_by_combo.addItem("Cluster")
         self.color_by_combo.currentTextChanged.connect(self._on_color_by_changed)
-        button_layout.addWidget(self.color_by_combo)
+        viz_layout.addWidget(self.color_by_combo)
 
-        self.umap_btn = QtWidgets.QPushButton("UMAP Plot")
-        self.umap_btn.clicked.connect(self._run_umap)
-        self.umap_btn.setEnabled(True)
-        button_layout.addWidget(self.umap_btn)
-        
-        self.heatmap_btn = QtWidgets.QPushButton("Show Heatmap")
-        self.heatmap_btn.clicked.connect(self._show_heatmap)
-        self.heatmap_btn.setEnabled(False)
-        button_layout.addWidget(self.heatmap_btn)
-        
+        # Group-by for stacked bars (Stacked Bars only)
+        viz_layout.addWidget(QtWidgets.QLabel("Group by:"))
+        self.group_by_combo = QtWidgets.QComboBox()
+        candidate_cols = [
+            'roi', 'ROI', 'slide', 'Slide', 'condition', 'Condition',
+            'acquisition_name', 'well', 'acquisition_id'
+        ]
+        available_group_cols = [c for c in candidate_cols if c in self.feature_dataframe.columns]
+        if not available_group_cols:
+            available_group_cols = ['acquisition_name'] if 'acquisition_name' in self.feature_dataframe.columns else []
+        for col in available_group_cols:
+            self.group_by_combo.addItem(col)
+        viz_layout.addWidget(self.group_by_combo)
+
+        viz_layout.addStretch()
+
+        # Save current plot
+        self.save_plot_btn = QtWidgets.QPushButton("Save Plot")
+        self.save_plot_btn.clicked.connect(self._save_current_plot)
+        self.save_plot_btn.setEnabled(False)
+        viz_layout.addWidget(self.save_plot_btn)
+
+        # Close
+        self.close_btn = QtWidgets.QPushButton("Close")
+        self.close_btn.clicked.connect(self.accept)
+        viz_layout.addWidget(self.close_btn)
+
+        plot_layout.addLayout(viz_layout)
+        layout.addWidget(plot_group)
+
+        # Step 3: Phenotype tools
+        phenotype_group = QtWidgets.QGroupBox("Phenotype Annotation / Exploration")
+        phenotype_layout = QtWidgets.QHBoxLayout(phenotype_group)
+        self.annotate_btn = QtWidgets.QPushButton("Annotate Phenotypes")
+        self.annotate_btn.clicked.connect(self._open_annotation_dialog)
+        self.annotate_btn.setEnabled(False)
+        phenotype_layout.addWidget(self.annotate_btn)
+
         self.explore_btn = QtWidgets.QPushButton("Explore Clusters")
         self.explore_btn.clicked.connect(self._explore_clusters)
         self.explore_btn.setEnabled(False)
-        button_layout.addWidget(self.explore_btn)
-        
-        self.save_btn = QtWidgets.QPushButton("Save Heatmap")
-        self.save_btn.clicked.connect(self._save_heatmap)
-        self.save_btn.setEnabled(False)
-        button_layout.addWidget(self.save_btn)
+        phenotype_layout.addWidget(self.explore_btn)
 
-        # Save UMAP button
-        self.save_umap_btn = QtWidgets.QPushButton("Save UMAP")
-        self.save_umap_btn.clicked.connect(self._save_umap)
-        self.save_umap_btn.setEnabled(False)
-        button_layout.addWidget(self.save_umap_btn)
-        
-        button_layout.addStretch()
-        
-        self.close_btn = QtWidgets.QPushButton("Close")
-        self.close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(self.close_btn)
-        
-        plot_layout.addLayout(button_layout)
-        layout.addWidget(plot_group)
+        # Manual gating entry point (Step 1/3 entry kept here for linear flow)
+        self.gating_btn = QtWidgets.QPushButton("Manual Gating")
+        self.gating_btn.clicked.connect(self._open_gating_dialog)
+        phenotype_layout.addWidget(self.gating_btn)
+
+        phenotype_layout.addStretch()
+        layout.addWidget(phenotype_group)
         
     def _setup_plot(self):
         """Setup the matplotlib plot."""
@@ -179,6 +226,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax.text(0.5, 0.5, "Click 'Run Clustering' to generate heatmap", 
                 ha='center', va='center', transform=ax.transAxes, fontsize=14)
         self.canvas.draw()
+        self._update_viz_controls_visibility()
         
     def _on_clustering_type_changed(self):
         """Handle clustering type change to show/hide relevant controls."""
@@ -186,9 +234,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         is_leiden = clustering_type == "Leiden"
         is_hierarchical = clustering_type == "Hierarchical"
         
-        # Show/hide resolution parameter for Leiden
-        self.resolution_label.setVisible(is_leiden)
-        self.resolution_spinbox.setVisible(is_leiden)
+        # Show/hide Leiden options group
+        self.leiden_options_group.setVisible(is_leiden)
         
         # Show/hide hierarchical method selection
         self.hierarchical_label.setVisible(is_hierarchical)
@@ -202,6 +249,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Show/hide dendrogram controls for hierarchical methods
         self.dendro_label.setVisible(is_hierarchical)
         self.dendro_mode.setVisible(is_hierarchical)
+        self._update_viz_controls_visibility()
+    
+    def _on_leiden_mode_changed(self):
+        """Handle Leiden clustering mode change (resolution vs modularity)."""
+        use_resolution = self.resolution_radio.isChecked()
+        self.resolution_label.setVisible(use_resolution)
+        self.resolution_spinbox.setVisible(use_resolution)
         
     def _run_clustering(self):
         """Run the clustering analysis."""
@@ -237,17 +291,21 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Perform clustering
             self.clustered_data, self.cluster_labels = self._perform_clustering(data, n_clusters, cluster_method)
             
-            # Create heatmap
+            # Default to heatmap view after clustering
             print("Creating heatmap...")
             self._create_heatmap()
             print("Heatmap creation completed")
             
             # Enable buttons
             self.explore_btn.setEnabled(True)
-            self.save_btn.setEnabled(True)
-            # Enable heatmap button if UMAP was run
-            if self.umap_embedding is not None:
-                self.heatmap_btn.setEnabled(True)
+            self.annotate_btn.setEnabled(True)
+            self.save_plot_btn.setEnabled(True)
+            # If UMAP was previously run, keep that available
+            # Otherwise, selecting UMAP will prompt to run
+
+            # Auto-apply annotations if already loaded for these cluster ids
+            if self.cluster_annotation_map:
+                self._apply_cluster_annotations()
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Clustering Error", f"Error during clustering: {str(e)}")
@@ -261,6 +319,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                           if col in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 'eccentricity', 
                                    'solidity', 'extent', 'circularity', 'major_axis_len_um', 'minor_axis_len_um', 
                                    'aspect_ratio', 'bbox_area_um2', 'touches_border', 'holes_count']]
+        # Note: centroid_x and centroid_y are excluded from clustering as they are spatial coordinates
         return sorted(set(marker_cols + morpho_cols))
 
     def _prepare_clustering_data(self, agg_method, include_morpho, selected_columns):
@@ -344,15 +403,24 @@ class CellClusteringDialog(QtWidgets.QDialog):
         g.es['weight'] = weights
         
         # Perform Leiden clustering
-        resolution = self.resolution_spinbox.value()
-        # Use RBConfiguration partition which supports resolution_parameter
-        partition = leidenalg.find_partition(
-            g,
-            leidenalg.RBConfigurationVertexPartition,
-            weights='weight',
-            resolution_parameter=resolution,
-            seed=42,
-        )
+        if self.resolution_radio.isChecked():
+            # Use resolution parameter
+            resolution = self.resolution_spinbox.value()
+            partition = leidenalg.find_partition(
+                g,
+                leidenalg.RBConfigurationVertexPartition,
+                weights='weight',
+                resolution_parameter=resolution,
+                seed=42,
+            )
+        else:
+            # Use modularity optimization
+            partition = leidenalg.find_partition(
+                g,
+                leidenalg.ModularityVertexPartition,
+                weights='weight',
+                seed=42,
+            )
         
         # Get cluster labels
         cluster_labels = np.array(partition.membership) + 1  # Start from 1
@@ -616,11 +684,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             # Populate color-by options
             self._populate_color_by_options()
-            # Enable heatmap button if clustering was done
-            if self.clustered_data is not None:
-                self.heatmap_btn.setEnabled(True)
-            # Enable save UMAP button on success
-            self.save_umap_btn.setEnabled(True)
+            # Enable save button since a plot is shown
+            self.save_plot_btn.setEnabled(True)
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "UMAP Error", f"Error during UMAP analysis: {str(e)}")
@@ -631,6 +696,31 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self._create_heatmap()
         else:
             QtWidgets.QMessageBox.warning(self, "No Clustering", "Please run clustering first to view the heatmap.")
+
+    def _on_view_changed(self, view: str):
+        """Switch visualization based on selected view and manage dependencies."""
+        self._update_viz_controls_visibility()
+        if view == 'Heatmap':
+            self._show_heatmap()
+        elif view == 'UMAP':
+            if getattr(self, 'umap_embedding', None) is None:
+                self._run_umap()
+            else:
+                self._create_umap_plot()
+        elif view == 'Stacked Bars':
+            self._show_stacked_bars()
+        # Enable save if there is content
+        self.save_plot_btn.setEnabled(True)
+
+    def _update_viz_controls_visibility(self):
+        """Show/hide controls depending on selected view."""
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        # Color-by visible only for UMAP
+        for i in range(self.color_by_combo.count()):
+            pass
+        self.color_by_combo.setVisible(view == 'UMAP')
+        # Group-by visible only for Stacked Bars
+        self.group_by_combo.setVisible(view == 'Stacked Bars')
     
     def _create_umap_plot(self):
         """Create UMAP scatter plot."""
@@ -686,6 +776,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.color_by_combo.addItem('Cluster')
         for col in getattr(self, 'umap_selected_columns', []) or []:
             self.color_by_combo.addItem(col)
+        # Add phenotype if available
+        if hasattr(self, 'clustered_data') and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
+            if self.color_by_combo.findText('Phenotype') < 0:
+                self.color_by_combo.addItem('Phenotype')
+        # Add manual phenotype if available
+        if 'manual_phenotype' in self.feature_dataframe.columns:
+            if self.color_by_combo.findText('Manual Phenotype') < 0:
+                self.color_by_combo.addItem('Manual Phenotype')
         idx = self.color_by_combo.findText(current)
         if idx >= 0:
             self.color_by_combo.setCurrentIndex(idx)
@@ -694,6 +792,264 @@ class CellClusteringDialog(QtWidgets.QDialog):
     def _on_color_by_changed(self, _text: str):
         if getattr(self, 'umap_embedding', None) is not None:
             self._create_umap_plot()
+
+    def _show_stacked_bars(self):
+        """Show stacked bar plots of cluster frequencies per selected group (ROI/condition/slide)."""
+        if self.clustered_data is None or 'cluster' not in self.clustered_data.columns:
+            QtWidgets.QMessageBox.warning(self, "No Clustering", "Please run clustering first to view stacked bars.")
+            return
+        group_col = self.group_by_combo.currentText() if hasattr(self, 'group_by_combo') and self.group_by_combo.count() > 0 else None
+        if not group_col or group_col not in self.feature_dataframe.columns:
+            QtWidgets.QMessageBox.warning(self, "No Grouping", "No valid grouping column is available.")
+            return
+
+        try:
+            # Align metadata to clustered_data order
+            meta_series = self.feature_dataframe.loc[self.clustered_data.index, group_col]
+            clusters = self.clustered_data['cluster']
+            # Build counts per group and cluster
+            ct = pd.crosstab(meta_series, clusters).sort_index()
+            # Convert to frequencies
+            freq = ct.div(ct.sum(axis=1).replace(0, np.nan), axis=0).fillna(0.0)
+
+            # Prepare colors consistent with other views
+            unique_clusters = sorted(clusters.unique())
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
+            cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
+
+            # Plot
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+
+            bottom = np.zeros(len(freq))
+            x = np.arange(len(freq))
+            for cluster_id in unique_clusters:
+                vals = freq.get(cluster_id, pd.Series(0, index=freq.index)).values
+                ax.bar(x, vals, bottom=bottom, color=cluster_color_map[cluster_id], label=f"Cluster {cluster_id}")
+                bottom = bottom + vals
+
+            ax.set_xticks(x)
+            ax.set_xticklabels([str(i) for i in freq.index], rotation=45, ha='right')
+            ax.set_ylabel('Fraction of cells')
+            ax.set_title(f'Cluster composition by {group_col}')
+            ax.set_ylim(0, 1)
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+            self.figure.tight_layout()
+            self.canvas.draw()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error creating stacked bars: {str(e)}")
+
+    def _open_gating_dialog(self):
+        """Open gating rules editor and apply on save."""
+        # Allow selection among intensity features by default
+        marker_cols = [col for col in self.feature_dataframe.columns
+                       if any(suffix in col for suffix in ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos'])]
+        dlg = GatingRulesDialog(self.gating_rules, marker_cols, self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.gating_rules = dlg.get_rules()
+            self._apply_gating_rules()
+            QtWidgets.QMessageBox.information(self, "Gating Applied", "Manual phenotypes assigned using gating rules.")
+
+    def _apply_gating_rules(self):
+        """Evaluate gating rules and create/update 'manual_phenotype' column on feature_dataframe."""
+        if not self.gating_rules:
+            return
+        # Initialize column
+        if 'manual_phenotype' not in self.feature_dataframe.columns:
+            self.feature_dataframe['manual_phenotype'] = ''
+        assigned = pd.Series(self.feature_dataframe['manual_phenotype'] != '', index=self.feature_dataframe.index)
+        # Evaluate rules in order
+        for rule in self.gating_rules:
+            name = rule.get('name', '').strip()
+            logic = rule.get('logic', 'AND').upper()
+            conditions = rule.get('conditions', [])
+            if not name or not conditions:
+                continue
+            masks = []
+            for cond in conditions:
+                col = cond.get('column')
+                op = cond.get('op', '>')
+                thr = cond.get('threshold', 0)
+                if col not in self.feature_dataframe.columns:
+                    continue
+                series = self.feature_dataframe[col]
+                if op == '>':
+                    mask = series > thr
+                elif op == '>=':
+                    mask = series >= thr
+                elif op == '<':
+                    mask = series < thr
+                elif op == '<=':
+                    mask = series <= thr
+                elif op == '==':
+                    mask = series == thr
+                elif op == '!=':
+                    mask = series != thr
+                else:
+                    continue
+                masks.append(mask.fillna(False))
+            if not masks:
+                continue
+            if logic == 'OR':
+                rule_mask = masks[0]
+                for m in masks[1:]:
+                    rule_mask = rule_mask | m
+            else:
+                rule_mask = masks[0]
+                for m in masks[1:]:
+                    rule_mask = rule_mask & m
+            # Assign where not already assigned
+            to_assign = rule_mask & (~assigned)
+            self.feature_dataframe.loc[to_assign, 'manual_phenotype'] = name
+            assigned = assigned | to_assign
+        # If clustered_data exists, align and copy manual phenotype into it for plotting
+        if self.clustered_data is not None:
+            if 'manual_phenotype' not in self.clustered_data.columns:
+                self.clustered_data['manual_phenotype'] = ''
+            self.clustered_data.loc[:, 'manual_phenotype'] = self.feature_dataframe.loc[self.clustered_data.index, 'manual_phenotype'].values
+        # Update color options and refresh plot
+        self._populate_color_by_options()
+        if getattr(self, 'umap_embedding', None) is not None:
+            self._create_umap_plot()
+        else:
+            self._create_heatmap()
+
+    def _save_gating_rules(self):
+        """Save current gating rules to JSON."""
+        import json
+        if not self.gating_rules:
+            QtWidgets.QMessageBox.information(self, "No Rules", "There are no gating rules to save.")
+            return
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Gating Rules", "gating_rules.json", "JSON Files (*.json)"
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, 'w') as f:
+                json.dump(self.gating_rules, f, indent=2)
+            QtWidgets.QMessageBox.information(self, "Saved", f"Gating rules saved to: {file_path}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving gating rules: {str(e)}")
+
+    def _load_gating_rules(self):
+        """Load gating rules from JSON and apply."""
+        import json
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load Gating Rules", "", "JSON Files (*.json)"
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, 'r') as f:
+                rules = json.load(f)
+            if isinstance(rules, list):
+                self.gating_rules = rules
+                self._apply_gating_rules()
+                QtWidgets.QMessageBox.information(self, "Loaded", f"Loaded {len(self.gating_rules)} gating rules.")
+            else:
+                raise ValueError("JSON must be a list of rules")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Load Error", f"Error loading gating rules: {str(e)}")
+
+    def _open_annotation_dialog(self):
+        """Open a dialog to annotate clusters with phenotype names. Includes save/load controls."""
+        if self.clustered_data is None:
+            QtWidgets.QMessageBox.warning(self, "No Clusters", "Please run clustering first.")
+            return
+        unique_clusters = sorted(self.clustered_data['cluster'].unique())
+        # Build and show dialog
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Annotate Phenotypes")
+        v = QtWidgets.QVBoxLayout(dlg)
+        form = QtWidgets.QFormLayout()
+        editors = {}
+        for cid in unique_clusters:
+            le = QtWidgets.QLineEdit()
+            if cid in self.cluster_annotation_map:
+                le.setText(self.cluster_annotation_map[cid])
+            form.addRow(f"Cluster {cid}", le)
+            editors[cid] = le
+        v.addLayout(form)
+        # Save/Load inside dialog
+        tools = QtWidgets.QHBoxLayout()
+        load_btn = QtWidgets.QPushButton("Load…")
+        save_btn = QtWidgets.QPushButton("Save…")
+        tools.addWidget(load_btn)
+        tools.addWidget(save_btn)
+        tools.addStretch()
+        v.addLayout(tools)
+        btns = QtWidgets.QHBoxLayout()
+        ok = QtWidgets.QPushButton("Apply")
+        cancel = QtWidgets.QPushButton("Cancel")
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        btns.addStretch()
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        v.addLayout(btns)
+
+        def do_load():
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load Annotations", "", "CSV Files (*.csv)")
+            if not path:
+                return
+            try:
+                df = pd.read_csv(path)
+                if not {'cluster_id', 'phenotype'}.issubset(df.columns):
+                    raise ValueError("CSV must have columns: cluster_id, phenotype")
+                for _, row in df.iterrows():
+                    try:
+                        cid = int(row['cluster_id'])
+                    except Exception:
+                        continue
+                    name = str(row['phenotype']).strip()
+                    if cid in editors:
+                        editors[cid].setText(name)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Load Error", f"Error loading annotations: {str(e)}")
+
+        def do_save():
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Annotations", "cluster_annotations.csv", "CSV Files (*.csv)")
+            if not path:
+                return
+            try:
+                rows = [(cid, editors[cid].text().strip()) for cid in unique_clusters if editors[cid].text().strip()]
+                df = pd.DataFrame(rows, columns=['cluster_id', 'phenotype'])
+                df.to_csv(path, index=False)
+                QtWidgets.QMessageBox.information(self, "Saved", f"Annotations saved to: {path}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving annotations: {str(e)}")
+
+        load_btn.clicked.connect(do_load)
+        save_btn.clicked.connect(do_save)
+
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Save mapping from editors
+            self.cluster_annotation_map = {
+                cid: editors[cid].text().strip() for cid in unique_clusters if editors[cid].text().strip()
+            }
+            self._apply_cluster_annotations()
+            QtWidgets.QMessageBox.information(self, "Annotations Applied", "Cluster annotations have been applied.")
+
+    def _apply_cluster_annotations(self):
+        """Apply current annotation map to clustered_data and feature_dataframe as 'cluster_phenotype'."""
+        if not self.clustered_data is None and self.cluster_annotation_map:
+            # Map on clustered_data
+            self.clustered_data['cluster_phenotype'] = self.clustered_data['cluster'].map(self.cluster_annotation_map).fillna('')
+            # Write back to feature_dataframe aligned by index
+            aligned = self.feature_dataframe.reindex(self.clustered_data.index)
+            if 'cluster_phenotype' not in self.feature_dataframe.columns:
+                self.feature_dataframe['cluster_phenotype'] = ''
+            self.feature_dataframe.loc[self.clustered_data.index, 'cluster_phenotype'] = self.clustered_data['cluster_phenotype'].values
+            # Update color-by options
+            self._populate_color_by_options()
+            # If currently showing heatmap or umap, refresh
+            if hasattr(self, 'umap_embedding') and self.umap_embedding is not None:
+                self._create_umap_plot()
+            else:
+                self._create_heatmap()
+
+    # Top-level save/load removed; handled inside annotation dialog
     
     def _explore_clusters(self):
         """Open cluster explorer window."""
@@ -714,39 +1070,29 @@ class CellClusteringDialog(QtWidgets.QDialog):
         explorer = ClusterExplorerDialog(cluster_info, self.feature_dataframe, self.parent())
         explorer.exec_()
     
-    def _save_heatmap(self):
-        """Save the heatmap as an image."""
+    def _save_current_plot(self):
+        """Save whatever plot is currently shown in the canvas."""
         if self.figure is None:
             return
-        
+        default = "plot.png"
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        if view == 'UMAP':
+            default = 'umap_plot.png'
+        elif view == 'Heatmap':
+            default = 'cell_clustering_heatmap.png'
+        elif view == 'Stacked Bars':
+            default = 'stacked_bars.png'
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Heatmap", "cell_clustering_heatmap.png", 
+            self, "Save Plot", default,
             "PNG Files (*.png)"
         )
-        
-        if file_path:
-            try:
-                self.figure.savefig(file_path, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Heatmap saved to: {file_path}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving heatmap: {str(e)}")
-
-    def _save_umap(self):
-        """Save the current UMAP plot as a PNG image."""
-        if self.umap_embedding is None:
-            QtWidgets.QMessageBox.warning(self, "No UMAP", "Please run UMAP before saving.")
+        if not file_path:
             return
-        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save UMAP", "umap_plot.png",
-            "PNG Files (*.png)"
-        )
-        if file_path:
-            try:
-                # Save current figure which was drawn by _create_umap_plot
-                self.figure.savefig(file_path, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"UMAP saved to: {file_path}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving UMAP: {str(e)}")
+        try:
+            self.figure.savefig(file_path, dpi=300, bbox_inches='tight')
+            QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to: {file_path}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving plot: {str(e)}")
 
 # --------------------------
 # Cluster Explorer Dialog
@@ -1085,3 +1431,227 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         
         layout.addWidget(canvas)
         return widget
+
+
+class GatingRulesDialog(QtWidgets.QDialog):
+    def __init__(self, rules, available_columns, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manual Gating Rules")
+        self.setModal(True)
+        self.setMinimumSize(700, 500)
+        self._available_columns = list(sorted(set(available_columns)))
+        self._rules = [r.copy() for r in (rules or [])]
+        self._create_ui()
+
+    def _create_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        # Existing rules list
+        self.rules_list = QtWidgets.QListWidget()
+        self._refresh_rules_list()
+        layout.addWidget(self.rules_list)
+
+        # Buttons + Save/Load
+        btns = QtWidgets.QHBoxLayout()
+        add_btn = QtWidgets.QPushButton("Add Rule")
+        edit_btn = QtWidgets.QPushButton("Edit")
+        del_btn = QtWidgets.QPushButton("Delete")
+        load_btn = QtWidgets.QPushButton("Load…")
+        save_btn = QtWidgets.QPushButton("Save…")
+        btns.addWidget(add_btn)
+        btns.addWidget(edit_btn)
+        btns.addWidget(del_btn)
+        btns.addSpacing(20)
+        btns.addWidget(load_btn)
+        btns.addWidget(save_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+
+        # OK/Cancel
+        ok_cancel = QtWidgets.QHBoxLayout()
+        ok = QtWidgets.QPushButton("Apply")
+        cancel = QtWidgets.QPushButton("Cancel")
+        ok.clicked.connect(self.accept)
+        cancel.clicked.connect(self.reject)
+        ok_cancel.addStretch()
+        ok_cancel.addWidget(ok)
+        ok_cancel.addWidget(cancel)
+        layout.addLayout(ok_cancel)
+
+        # Wire actions
+        add_btn.clicked.connect(self._on_add)
+        edit_btn.clicked.connect(self._on_edit)
+        del_btn.clicked.connect(self._on_delete)
+        def do_load():
+            from PyQt5 import QtWidgets as _QtW
+            import json
+            path, _ = _QtW.QFileDialog.getOpenFileName(self, "Load Gating Rules", "", "JSON Files (*.json)")
+            if not path:
+                return
+            try:
+                with open(path, 'r') as f:
+                    rules = json.load(f)
+                if isinstance(rules, list):
+                    self._rules = rules
+                    self._refresh_rules_list()
+                else:
+                    raise ValueError("JSON must be a list of rules")
+            except Exception as e:
+                _QtW.QMessageBox.critical(self, "Load Error", f"Error loading gating rules: {str(e)}")
+        def do_save():
+            from PyQt5 import QtWidgets as _QtW
+            import json
+            path, _ = _QtW.QFileDialog.getSaveFileName(self, "Save Gating Rules", "gating_rules.json", "JSON Files (*.json)")
+            if not path:
+                return
+            try:
+                with open(path, 'w') as f:
+                    json.dump(self._rules, f, indent=2)
+                _QtW.QMessageBox.information(self, "Saved", f"Gating rules saved to: {path}")
+            except Exception as e:
+                _QtW.QMessageBox.critical(self, "Save Error", f"Error saving gating rules: {str(e)}")
+        load_btn.clicked.connect(do_load)
+        save_btn.clicked.connect(do_save)
+
+    def _refresh_rules_list(self):
+        self.rules_list.clear()
+        for r in self._rules:
+            name = r.get('name', '(unnamed)')
+            logic = r.get('logic', 'AND')
+            conds = r.get('conditions', [])
+            desc_parts = [f"{c.get('column')} {c.get('op')} {c.get('threshold')}" for c in conds]
+            item = QtWidgets.QListWidgetItem(f"{name}  [{logic}]  ::  " + " AND ".join(desc_parts))
+            self.rules_list.addItem(item)
+
+    def _on_add(self):
+        rule = self._edit_rule_dialog()
+        if rule:
+            self._rules.append(rule)
+            self._refresh_rules_list()
+
+    def _on_edit(self):
+        row = self.rules_list.currentRow()
+        if row < 0 or row >= len(self._rules):
+            return
+        rule = self._edit_rule_dialog(self._rules[row])
+        if rule:
+            self._rules[row] = rule
+            self._refresh_rules_list()
+
+    def _on_delete(self):
+        row = self.rules_list.currentRow()
+        if row < 0 or row >= len(self._rules):
+            return
+        del self._rules[row]
+        self._refresh_rules_list()
+
+    def _edit_rule_dialog(self, existing=None):
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Edit Rule")
+        v = QtWidgets.QVBoxLayout(dlg)
+
+        # Name
+        name_edit = QtWidgets.QLineEdit()
+        if existing and existing.get('name'):
+            name_edit.setText(existing['name'])
+        form = QtWidgets.QFormLayout()
+        form.addRow("Phenotype name:", name_edit)
+        v.addLayout(form)
+
+        # Logic
+        logic_combo = QtWidgets.QComboBox()
+        logic_combo.addItems(["AND", "OR"])
+        if existing and existing.get('logic'):
+            idx = logic_combo.findText(existing['logic'].upper())
+            if idx >= 0:
+                logic_combo.setCurrentIndex(idx)
+        v.addWidget(QtWidgets.QLabel("Combine conditions with:"))
+        v.addWidget(logic_combo)
+
+        # Conditions table
+        table = QtWidgets.QTableWidget(0, 3)
+        table.setHorizontalHeaderLabels(["Feature", "Operator", "Threshold"])
+        table.horizontalHeader().setStretchLastSection(True)
+        v.addWidget(table)
+
+        # Row buttons
+        row_btns = QtWidgets.QHBoxLayout()
+        add_row = QtWidgets.QPushButton("Add Condition")
+        del_row = QtWidgets.QPushButton("Delete Condition")
+        row_btns.addWidget(add_row)
+        row_btns.addWidget(del_row)
+        row_btns.addStretch()
+        v.addLayout(row_btns)
+
+        def add_condition_row(cond=None):
+            r = table.rowCount()
+            table.insertRow(r)
+            # Feature combo
+            feat = QtWidgets.QComboBox()
+            feat.addItems(self._available_columns)
+            if cond and cond.get('column') in self._available_columns:
+                feat.setCurrentText(cond['column'])
+            table.setCellWidget(r, 0, feat)
+            # Operator combo
+            op = QtWidgets.QComboBox()
+            op.addItems(['>', '>=', '<', '<=', '==', '!='])
+            if cond and cond.get('op'):
+                idx = op.findText(cond['op'])
+                if idx >= 0:
+                    op.setCurrentIndex(idx)
+            table.setCellWidget(r, 1, op)
+            # Threshold edit
+            thr = QtWidgets.QDoubleSpinBox()
+            thr.setRange(-1e12, 1e12)
+            thr.setDecimals(6)
+            thr.setSingleStep(0.1)
+            if cond and cond.get('threshold') is not None:
+                try:
+                    thr.setValue(float(cond['threshold']))
+                except Exception:
+                    pass
+            table.setCellWidget(r, 2, thr)
+
+        # Seed from existing
+        if existing and existing.get('conditions'):
+            for cond in existing['conditions']:
+                add_condition_row(cond)
+        else:
+            add_condition_row()
+
+        add_row.clicked.connect(lambda: add_condition_row())
+        def delete_selected_rows():
+            rows = sorted({i.row() for i in table.selectedIndexes()}, reverse=True)
+            for r in rows:
+                table.removeRow(r)
+        del_row.clicked.connect(delete_selected_rows)
+
+        # OK/Cancel
+        okc = QtWidgets.QHBoxLayout()
+        ok = QtWidgets.QPushButton("OK")
+        cancel = QtWidgets.QPushButton("Cancel")
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        okc.addStretch()
+        okc.addWidget(ok)
+        okc.addWidget(cancel)
+        v.addLayout(okc)
+
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Build rule
+            rule = {
+                'name': name_edit.text().strip(),
+                'logic': logic_combo.currentText(),
+                'conditions': []
+            }
+            for r in range(table.rowCount()):
+                feat = table.cellWidget(r, 0).currentText()
+                op = table.cellWidget(r, 1).currentText()
+                thr = table.cellWidget(r, 2).value()
+                rule['conditions'].append({'column': feat, 'op': op, 'threshold': float(thr)})
+            if rule['name'] and rule['conditions']:
+                return rule
+            return None
+        return None
+
+    def get_rules(self):
+        return [r.copy() for r in self._rules]

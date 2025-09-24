@@ -25,6 +25,8 @@ class SegmentationDialog(QtWidgets.QDialog):
         self.setModal(True)
         self.setMinimumSize(500, 400)
         self.channels = channels
+        # Persist selections per MCD file (by path on parent window)
+        self._per_file_channel_prefs = {}
         self.segmentation_result = None
         self.preprocessing_config = None
         
@@ -54,6 +56,12 @@ class SegmentationDialog(QtWidgets.QDialog):
         # Preprocessing button
         preprocess_group = QtWidgets.QGroupBox("Image Preprocessing")
         preprocess_layout = QtWidgets.QVBoxLayout(preprocess_group)
+        
+        # Use viewer denoising toggle
+        self.use_viewer_denoise_chk = QtWidgets.QCheckBox("Use viewer denoising for selected channels")
+        self.use_viewer_denoise_chk.setChecked(False)
+        self.use_viewer_denoise_chk.setToolTip("Apply the current per-channel denoising settings from the main viewer during segmentation preprocessing.")
+        preprocess_layout.addWidget(self.use_viewer_denoise_chk)
         
         preprocess_btn = QtWidgets.QPushButton("Configure Preprocessing...")
         preprocess_btn.clicked.connect(self._open_preprocessing_dialog)
@@ -209,6 +217,8 @@ class SegmentationDialog(QtWidgets.QDialog):
         model = self.model_combo.currentText()
         if model == "nuclei":
             self.model_desc.setText("Nuclei: Segments cell nuclei using nuclear channel")
+            # When using nuclei model, hide cytoplasm selection UI in preprocessing
+            # (actual hiding is applied when dialog is opened)
         else:  # cyto3
             self.model_desc.setText("Cytoplasm: Segments whole cells using cytoplasm + nuclear channels")
     
@@ -304,6 +314,15 @@ class SegmentationDialog(QtWidgets.QDialog):
     def _open_preprocessing_dialog(self):
         """Open the preprocessing configuration dialog."""
         dlg = PreprocessingDialog(self.channels, self)
+        # Apply persisted selections for current MCD file if available
+        mcd_key = getattr(self.parent(), 'mcd_path', None)
+        prefs = self._per_file_channel_prefs.get(mcd_key, {}) if mcd_key else {}
+        if 'nuclear_channels' in prefs:
+            dlg.set_nuclear_channels(prefs['nuclear_channels'])
+        if 'cyto_channels' in prefs:
+            dlg.set_cyto_channels(prefs['cyto_channels'])
+        # Hide cytoplasm section when using nuclei-only model
+        dlg.set_cytoplasm_visible(self.model_combo.currentText() != 'nuclei')
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self.preprocessing_config = {
                 'normalization_method': dlg.get_normalization_method(),
@@ -316,6 +335,12 @@ class SegmentationDialog(QtWidgets.QDialog):
                 'nuclear_weights': dlg.get_nuclear_weights(),
                 'cyto_weights': dlg.get_cyto_weights()
             }
+            # Persist per-file preferences after successful configuration
+            if mcd_key:
+                self._per_file_channel_prefs[mcd_key] = {
+                    'nuclear_channels': self.preprocessing_config.get('nuclear_channels', []),
+                    'cyto_channels': self.preprocessing_config.get('cyto_channels', [])
+                }
             self._update_preprocess_info()
     
     def _update_preprocess_info(self):
@@ -352,6 +377,14 @@ class SegmentationDialog(QtWidgets.QDialog):
     def get_preprocessing_config(self):
         """Get the preprocessing configuration."""
         return self.preprocessing_config
+
+    def set_use_viewer_denoising(self, enabled: bool):
+        """Initialize the 'use viewer denoising' toggle state."""
+        self.use_viewer_denoise_chk.setChecked(bool(enabled))
+
+    def get_use_viewer_denoising(self) -> bool:
+        """Return whether to use viewer denoising during segmentation."""
+        return self.use_viewer_denoise_chk.isChecked()
     
     def _on_segment_all_toggled(self):
         """Update UI when segment all checkbox is toggled."""

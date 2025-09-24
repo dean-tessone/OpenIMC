@@ -12,6 +12,7 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         self.resize(700, 520)
 
         # Split features into morphometric and intensity
+        # Note: centroid_x and centroid_y are excluded as they are spatial coordinates, not biological features
         self._morpho_names = {
             'area_um2', 'perimeter_um', 'equivalent_diameter_um', 'eccentricity',
             'solidity', 'extent', 'circularity', 'major_axis_len_um', 'minor_axis_len_um',

@@ -164,7 +164,9 @@ python main.py
 - **Feature Selection**: Choose from morphometric features (area, perimeter, eccentricity, etc.) and intensity features (mean, median, std, etc.)
 - **Clustering Methods**: 
   - Hierarchical clustering with customizable linkage methods (ward, complete, average, single)
-  - Leiden community detection for graph-based clustering
+  - Leiden community detection for graph-based clustering with two modes:
+    - **Resolution parameter**: Control cluster granularity (0.1-5.0, default 1.0)
+    - **Modularity optimization**: Automatically optimize for best modularity score
 - **Visualization**: View results as heatmaps, dendrograms, and cluster statistics
 - **Cluster Explorer**: Examine individual clusters with cell image visualization and channel-specific analysis
 

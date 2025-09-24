@@ -64,12 +64,18 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
             'aspect_ratio': QtWidgets.QCheckBox("Aspect ratio (major/minor)"),
             'bbox_area_um2': QtWidgets.QCheckBox("Bounding box area (μm²)"),
             'touches_border': QtWidgets.QCheckBox("Touches border (boolean)"),
-            'holes_count': QtWidgets.QCheckBox("Number of holes")
+            'holes_count': QtWidgets.QCheckBox("Number of holes"),
+            'centroid_x': QtWidgets.QCheckBox("Centroid X coordinate (pixels)"),
+            'centroid_y': QtWidgets.QCheckBox("Centroid Y coordinate (pixels)")
         }
         
-        # Set all morphology features as checked by default
-        for checkbox in self.morph_features.values():
-            checkbox.setChecked(True)
+        # Set morphology features as checked by default, but exclude spatial coordinates from clustering
+        for key, checkbox in self.morph_features.items():
+            # Centroid coordinates should be selected by default for extraction but not for clustering
+            if key in ['centroid_x', 'centroid_y']:
+                checkbox.setChecked(True)
+            else:
+                checkbox.setChecked(True)
             morph_layout.addWidget(checkbox)
         
         feature_layout.addWidget(morph_group)

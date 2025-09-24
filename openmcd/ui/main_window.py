@@ -57,6 +57,24 @@ else:
     # Import models under the expected name when available
     from cellpose import models  # type: ignore
 
+# Optional image processing deps (scikit-image, scipy)
+_HAVE_SCIKIT_IMAGE = False
+try:
+    from skimage import morphology
+    from skimage.filters import median, gaussian
+    from skimage.morphology import disk, footprint_rectangle
+    from skimage.restoration import denoise_nl_means, estimate_sigma
+    try:
+        from skimage.restoration import rolling_ball as _sk_rolling_ball  # type: ignore
+        _HAVE_ROLLING_BALL = True
+    except Exception:
+        _HAVE_ROLLING_BALL = False
+    import scipy.ndimage as ndi  # type: ignore
+    _HAVE_SCIKIT_IMAGE = True
+except Exception:
+    _HAVE_SCIKIT_IMAGE = False
+    _HAVE_ROLLING_BALL = False
+
 # --------------------------
 # Main Window
 # --------------------------
@@ -111,6 +129,108 @@ class MainWindow(QtWidgets.QMainWindow):
         self.grid_view_chk.setChecked(True)
         self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
         self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
+
+        # Denoising enable + options panel
+        self.denoise_enable_chk = QtWidgets.QCheckBox("Enable denoising")
+        self.denoise_enable_chk.toggled.connect(self._on_denoise_toggled)
+        self.denoise_frame = QtWidgets.QFrame()
+        self.denoise_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        denoise_layout = QtWidgets.QVBoxLayout(self.denoise_frame)
+        denoise_layout.addWidget(QtWidgets.QLabel("Denoising (apply per selected channel):"))
+
+        # Channel dropdown (apply per-channel like custom scaling)
+        denoise_channel_row = QtWidgets.QHBoxLayout()
+        denoise_channel_row.addWidget(QtWidgets.QLabel("Channel:"))
+        self.denoise_channel_combo = QtWidgets.QComboBox()
+        self.denoise_channel_combo.currentTextChanged.connect(self._on_denoise_channel_changed)
+        denoise_channel_row.addWidget(self.denoise_channel_combo, 1)
+        denoise_layout.addLayout(denoise_channel_row)
+
+        # Hot pixel removal
+        self.hot_pixel_chk = QtWidgets.QCheckBox("Hot pixel removal")
+        self.hot_pixel_method_combo = QtWidgets.QComboBox()
+        self.hot_pixel_method_combo.addItems(["Median 3x3", ">N SD above local median"])
+        self.hot_pixel_n_spin = QtWidgets.QDoubleSpinBox()
+        self.hot_pixel_n_spin.setRange(0.5, 10.0)
+        self.hot_pixel_n_spin.setDecimals(1)
+        self.hot_pixel_n_spin.setValue(5.0)
+        hot_row = QtWidgets.QHBoxLayout()
+        hot_row.addWidget(self.hot_pixel_chk)
+        hot_row.addWidget(self.hot_pixel_method_combo)
+        self.hot_pixel_n_label = QtWidgets.QLabel("N:")
+        hot_row.addWidget(self.hot_pixel_n_label)
+        hot_row.addWidget(self.hot_pixel_n_spin)
+        hot_row.addStretch()
+        denoise_layout.addLayout(hot_row)
+
+        # Speckle / background smoothing
+        self.speckle_chk = QtWidgets.QCheckBox("Speckle smoothing")
+        self.speckle_method_combo = QtWidgets.QComboBox()
+        self.speckle_method_combo.addItems(["Gaussian", "Non-local means (slow)"])
+        self.gaussian_sigma_spin = QtWidgets.QDoubleSpinBox()
+        self.gaussian_sigma_spin.setRange(0.1, 5.0)
+        self.gaussian_sigma_spin.setDecimals(2)
+        self.gaussian_sigma_spin.setValue(0.8)
+        self.gaussian_sigma_spin.setSingleStep(0.1)
+        speckle_row = QtWidgets.QHBoxLayout()
+        speckle_row.addWidget(self.speckle_chk)
+        speckle_row.addWidget(self.speckle_method_combo)
+        speckle_row.addWidget(QtWidgets.QLabel("σ:"))
+        speckle_row.addWidget(self.gaussian_sigma_spin)
+        speckle_row.addStretch()
+        denoise_layout.addLayout(speckle_row)
+
+        # Background subtraction
+        self.bg_subtract_chk = QtWidgets.QCheckBox("Background subtraction")
+        self.bg_method_combo = QtWidgets.QComboBox()
+        self.bg_method_combo.addItems(["White top-hat", "Black top-hat", "Rolling ball (approx)"])
+        self.bg_radius_spin = QtWidgets.QSpinBox()
+        self.bg_radius_spin.setRange(1, 100)
+        self.bg_radius_spin.setValue(15)
+        bg_row = QtWidgets.QHBoxLayout()
+        bg_row.addWidget(self.bg_subtract_chk)
+        bg_row.addWidget(self.bg_method_combo)
+        bg_row.addWidget(QtWidgets.QLabel("radius:"))
+        bg_row.addWidget(self.bg_radius_spin)
+        bg_row.addStretch()
+        denoise_layout.addLayout(bg_row)
+
+        # Preprocessing order controls
+        order_frame = QtWidgets.QFrame()
+        order_frame.setFrameStyle(QtWidgets.QFrame.Plain)
+        order_layout = QtWidgets.QHBoxLayout(order_frame)
+        order_layout.addWidget(QtWidgets.QLabel("Order:"))
+        self.step_names = ["Hot pixel", "Speckle", "Background"]
+        self.order_combo_1 = QtWidgets.QComboBox(); self.order_combo_1.addItems(self.step_names)
+        self.order_combo_2 = QtWidgets.QComboBox(); self.order_combo_2.addItems(self.step_names)
+        self.order_combo_3 = QtWidgets.QComboBox(); self.order_combo_3.addItems(self.step_names)
+        order_layout.addWidget(self.order_combo_1)
+        order_layout.addWidget(QtWidgets.QLabel("→"))
+        order_layout.addWidget(self.order_combo_2)
+        order_layout.addWidget(QtWidgets.QLabel("→"))
+        order_layout.addWidget(self.order_combo_3)
+        order_layout.addStretch()
+        denoise_layout.addWidget(order_frame)
+
+        # Default order: Hot → Speckle → Background
+        self.order_combo_1.setCurrentText("Hot pixel")
+        self.order_combo_2.setCurrentText("Speckle")
+        self.order_combo_3.setCurrentText("Background")
+
+        # Disable panel if scikit-image is missing
+        if not _HAVE_SCIKIT_IMAGE:
+            self.denoise_frame.setEnabled(False)
+            denoise_layout.addWidget(QtWidgets.QLabel("scikit-image not available; install to enable denoising."))
+        # Hidden by default until enabled
+        self.denoise_frame.setVisible(False)
+        # Ensure proper initial visibility of hot-pixel controls
+        # (Show N only for threshold method)
+        # Create after widgets exist
+        QtWidgets.QApplication.processEvents()
+        try:
+            self._sync_hot_controls_visibility()
+        except Exception:
+            pass
         
         # Custom scaling controls
         self.custom_scaling_chk = QtWidgets.QCheckBox("Custom scaling")
@@ -211,6 +331,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segmentation_colors = {}  # {acq_id: colors_array}
         self.segmentation_overlay = False
         self.preprocessing_cache = PreprocessingCache()
+        # Per-channel denoise config {channel: {"hot": {...}, "speckle": {...}, "background": {...}}}
+        self.channel_denoise: Dict[str, Dict[str, dict]] = {}
         
         # Feature extraction state
         self.feature_dataframe = None  # Store extracted features in memory
@@ -274,6 +396,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.channel_search = QtWidgets.QLineEdit()
         self.channel_search.setPlaceholderText("Search channels...")
         self.channel_search.textChanged.connect(self._filter_channels)
+        # Denoise controls auto-refresh
+        self.hot_pixel_chk.toggled.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.hot_pixel_method_combo.currentIndexChanged.connect(lambda _: self._on_hot_method_changed())
+        self.hot_pixel_n_spin.valueChanged.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.speckle_chk.toggled.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.speckle_method_combo.currentIndexChanged.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.gaussian_sigma_spin.valueChanged.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.bg_subtract_chk.toggled.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.bg_method_combo.currentIndexChanged.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.bg_radius_spin.valueChanged.connect(lambda _: self._apply_denoise_settings_and_refresh())
+        self.denoise_channel_combo.currentTextChanged.connect(lambda _: self._load_denoise_settings())
+        # Order change handlers
+        self.order_combo_1.currentIndexChanged.connect(lambda _: self._on_order_changed())
+        self.order_combo_2.currentIndexChanged.connect(lambda _: self._on_order_changed())
+        self.order_combo_3.currentIndexChanged.connect(lambda _: self._on_order_changed())
         v.addWidget(self.channel_search)
         
         v.addWidget(self.channel_list, 1)
@@ -288,6 +425,8 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.grayscale_chk)
         v.addWidget(self.grid_view_chk)
         v.addWidget(self.segmentation_overlay_chk)
+        v.addWidget(self.denoise_enable_chk)
+        v.addWidget(self.denoise_frame)
         v.addWidget(self.custom_scaling_chk)
         v.addWidget(self.scaling_frame)
         v.addWidget(self.color_assignment_frame)
@@ -471,6 +610,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update RGB color assignment lists with only currently selected channels
         self._populate_color_assignments(selected_channels)
+        # Update denoise channel list
+        self._populate_denoise_channel_list(selected_channels)
+        # Sync hot controls visibility
+        self._sync_hot_controls_visibility()
         
         # Auto-load image if channels were pre-selected
         if selected_channels:
@@ -502,6 +645,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Update color assignment dropdowns when channel selection changes."""
         selected_channels = self._selected_channels()
         self._populate_color_assignments(selected_channels)
+        self._populate_denoise_channel_list(selected_channels)
         
         # Clear any color assignments that are no longer in the selected channels
         self._clear_invalid_color_assignments(selected_channels)
@@ -538,6 +682,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 lst.addItem(it)
 
         # Do not auto-select by default; leave empty if no channels are selected
+
+    def _populate_denoise_channel_list(self, channels: List[str]):
+        """Populate the denoise channel combo with currently selected channels."""
+        self.denoise_channel_combo.blockSignals(True)
+        self.denoise_channel_combo.clear()
+        for ch in channels:
+            self.denoise_channel_combo.addItem(ch)
+        self.denoise_channel_combo.blockSignals(False)
+        if channels:
+            self.denoise_channel_combo.setCurrentIndex(0)
+            self._load_denoise_settings()
 
     def _clear_invalid_color_assignments(self, selected_channels: List[str]):
         """Clear color assignments that are no longer in the selected channels."""
@@ -678,6 +833,252 @@ class MainWindow(QtWidgets.QMainWindow):
             item = self.channel_list.item(i)
             channel_name = item.text().lower()
             item.setHidden(search_text not in channel_name)
+
+    # ---------- Denoising ----------
+    def _on_denoise_toggled(self):
+        self.denoise_frame.setVisible(self.denoise_enable_chk.isChecked())
+        self._view_selected()
+        # Ensure N control visibility is synced with method
+        self._sync_hot_controls_visibility()
+
+    def _on_order_changed(self):
+        # Enforce uniqueness: if duplicates, rotate to next available
+        combos = [self.order_combo_1, self.order_combo_2, self.order_combo_3]
+        chosen = []
+        for i, c in enumerate(combos):
+            t = c.currentText()
+            if t in chosen:
+                # pick first not chosen
+                for name in self.step_names:
+                    if name not in chosen:
+                        c.setCurrentText(name)
+                        t = name
+                        break
+            chosen.append(t)
+        # Refresh view to apply new order
+        self._view_selected()
+
+    def _apply_denoise_settings_and_refresh(self):
+        """Capture current denoise UI settings, assign to selected channels in denoise list, refresh view."""
+        try:
+            # Target single channel from combo
+            target_channel = self.denoise_channel_combo.currentText()
+            if not target_channel:
+                return
+
+            # Build config from UI
+            cfg_hot = None
+            if self.hot_pixel_chk.isChecked():
+                cfg_hot = {
+                    "method": "median3" if self.hot_pixel_method_combo.currentIndex() == 0 else "n_sd_local_median",
+                    "n_sd": float(self.hot_pixel_n_spin.value()),
+                }
+
+            cfg_speckle = None
+            if self.speckle_chk.isChecked():
+                cfg_speckle = {
+                    "method": "gaussian" if self.speckle_method_combo.currentIndex() == 0 else "nl_means",
+                    "sigma": float(self.gaussian_sigma_spin.value()),
+                }
+
+            cfg_bg = None
+            if self.bg_subtract_chk.isChecked():
+                cfg_bg = {
+                    "method": "white_tophat" if self.bg_method_combo.currentIndex() == 0 else "rolling_ball",
+                    "radius": int(self.bg_radius_spin.value()),
+                }
+
+            self.channel_denoise.setdefault(target_channel, {})
+            self.channel_denoise[target_channel]["hot"] = cfg_hot
+            self.channel_denoise[target_channel]["speckle"] = cfg_speckle
+            self.channel_denoise[target_channel]["background"] = cfg_bg
+
+            # Refresh
+            self._view_selected()
+        except Exception:
+            pass
+
+    def _apply_denoise(self, channel: str, img: np.ndarray) -> np.ndarray:
+        """Apply configured denoise steps for a channel in raw domain."""
+        if not _HAVE_SCIKIT_IMAGE or not self.denoise_enable_chk.isChecked():
+            return img
+        cfg = self.channel_denoise.get(channel)
+        if not cfg:
+            return img
+        out = img.astype(np.float32, copy=False)
+
+        # Build ordered steps based on UI order selection
+        order_map = {"Hot pixel": "hot", "Speckle": "speckle", "Background": "background"}
+        chosen_order = [self.order_combo_1.currentText(), self.order_combo_2.currentText(), self.order_combo_3.currentText()]
+        seen = set()
+        exec_steps = []
+        for name in chosen_order:
+            key = order_map.get(name)
+            if key and key not in seen:
+                exec_steps.append(key)
+                seen.add(key)
+
+        for step in exec_steps:
+            if step == "hot":
+                hot = cfg.get("hot")
+                if hot:
+                    method = hot.get("method")
+                    if method == "median3":
+                        try:
+                            out = median(out, footprint=footprint_rectangle(3, 3).astype(bool))
+                        except Exception:
+                            out = ndi.median_filter(out, size=3)
+                    elif method == "n_sd_local_median":
+                        n_sd = float(hot.get("n_sd", 5.0))
+                        try:
+                            local_median = median(out, footprint=footprint_rectangle(3, 3).astype(bool))
+                        except Exception:
+                            local_median = ndi.median_filter(out, size=3)
+                        diff = out - local_median
+                        local_var = ndi.uniform_filter(diff * diff, size=3)
+                        local_std = np.sqrt(np.maximum(local_var, 1e-8))
+                        mask_hot = diff > (n_sd * local_std)
+                        out = np.where(mask_hot, local_median, out)
+            elif step == "speckle":
+                speckle = cfg.get("speckle")
+                if speckle:
+                    method = speckle.get("method")
+                    if method == "gaussian":
+                        sigma = float(speckle.get("sigma", 0.8))
+                        out = gaussian(out, sigma=sigma, preserve_range=True)
+                    elif method == "nl_means":
+                        mn, mx = float(np.min(out)), float(np.max(out))
+                        scale = mx - mn
+                        scaled = (out - mn) / scale if scale > 0 else out
+                        sigma_est = np.mean(estimate_sigma(scaled, channel_axis=None))
+                        out = denoise_nl_means(
+                            scaled,
+                            h=1.15 * sigma_est,
+                            fast_mode=True,
+                            patch_size=5,
+                            patch_distance=6,
+                            channel_axis=None,
+                        )
+                        out = out * scale + mn
+            elif step == "background":
+                bg = cfg.get("background")
+                if bg:
+                    method = bg.get("method")
+                    radius = int(bg.get("radius", 15))
+                    if method == "white_tophat":
+                        se = disk(radius)
+                        try:
+                            out = morphology.white_tophat(out, selem=se)
+                        except TypeError:
+                            out = morphology.white_tophat(out, footprint=se)
+                    elif method == "black_tophat":
+                        se = disk(radius)
+                        try:
+                            out = morphology.black_tophat(out, selem=se)
+                        except TypeError:
+                            out = morphology.black_tophat(out, footprint=se)
+                    elif method == "rolling_ball":
+                        if _HAVE_ROLLING_BALL:
+                            background = _sk_rolling_ball(out, radius=radius)
+                            out = out - background
+                            out = np.clip(out, 0, None)
+                        else:
+                            se = disk(radius)
+                            try:
+                                opened = morphology.opening(out, selem=se)
+                            except TypeError:
+                                opened = morphology.opening(out, footprint=se)
+                            out = out - opened
+                            out = np.clip(out, 0, None)
+        # Rescale to preserve original max intensity of this channel
+        try:
+            orig_max = float(np.max(img))
+            new_max = float(np.max(out))
+            if new_max > 0 and orig_max > 0:
+                out = out * (orig_max / new_max)
+        except Exception:
+            pass
+        # Clip to dtype range if integer
+        if np.issubdtype(img.dtype, np.integer):
+            info = np.iinfo(img.dtype)
+            out = np.clip(out, info.min, info.max)
+        else:
+            out = np.clip(out, 0, None)
+        return out.astype(img.dtype, copy=False)
+
+    def _on_hot_method_changed(self):
+        self._sync_hot_controls_visibility()
+        self._apply_denoise_settings_and_refresh()
+
+    def _sync_hot_controls_visibility(self):
+        # Show N only for ">N SD above local median"
+        is_threshold = self.hot_pixel_method_combo.currentIndex() == 1
+        self.hot_pixel_n_spin.setVisible(is_threshold)
+        self.hot_pixel_n_label.setVisible(is_threshold)
+
+    def _load_denoise_settings(self):
+        """Load saved denoise settings for the currently selected denoise channel into the UI."""
+        ch = self.denoise_channel_combo.currentText()
+        if not ch:
+            return
+        cfg = self.channel_denoise.get(ch, {})
+        hot = cfg.get("hot")
+        speckle = cfg.get("speckle")
+        bg = cfg.get("background")
+        # Block signals during UI update
+        self.hot_pixel_chk.blockSignals(True)
+        self.hot_pixel_method_combo.blockSignals(True)
+        self.hot_pixel_n_spin.blockSignals(True)
+        self.speckle_chk.blockSignals(True)
+        self.speckle_method_combo.blockSignals(True)
+        self.gaussian_sigma_spin.blockSignals(True)
+        self.bg_subtract_chk.blockSignals(True)
+        self.bg_method_combo.blockSignals(True)
+        self.bg_radius_spin.blockSignals(True)
+        try:
+            if hot:
+                self.hot_pixel_chk.setChecked(True)
+                self.hot_pixel_method_combo.setCurrentIndex(0 if hot.get("method") == "median3" else 1)
+                self.hot_pixel_n_spin.setValue(float(hot.get("n_sd", 5.0)))
+            else:
+                self.hot_pixel_chk.setChecked(False)
+                self.hot_pixel_method_combo.setCurrentIndex(0)
+                self.hot_pixel_n_spin.setValue(5.0)
+            if speckle:
+                self.speckle_chk.setChecked(True)
+                self.speckle_method_combo.setCurrentIndex(0 if speckle.get("method") == "gaussian" else 1)
+                self.gaussian_sigma_spin.setValue(float(speckle.get("sigma", 0.8)))
+            else:
+                self.speckle_chk.setChecked(False)
+                self.speckle_method_combo.setCurrentIndex(0)
+                self.gaussian_sigma_spin.setValue(0.8)
+            if bg:
+                self.bg_subtract_chk.setChecked(True)
+                # 0 white_tophat, 1 black_tophat, 2 rolling_ball (approx)
+                method = bg.get("method")
+                if method == "white_tophat":
+                    self.bg_method_combo.setCurrentIndex(0)
+                elif method == "black_tophat":
+                    self.bg_method_combo.setCurrentIndex(1)
+                else:
+                    self.bg_method_combo.setCurrentIndex(2)
+                self.bg_radius_spin.setValue(int(bg.get("radius", 15)))
+            else:
+                self.bg_subtract_chk.setChecked(False)
+                self.bg_method_combo.setCurrentIndex(0)
+                self.bg_radius_spin.setValue(15)
+        finally:
+            self.hot_pixel_chk.blockSignals(False)
+            self.hot_pixel_method_combo.blockSignals(False)
+            self.hot_pixel_n_spin.blockSignals(False)
+            self.speckle_chk.blockSignals(False)
+            self.speckle_method_combo.blockSignals(False)
+            self.gaussian_sigma_spin.blockSignals(False)
+            self.bg_subtract_chk.blockSignals(False)
+            self.bg_method_combo.blockSignals(False)
+            self.bg_radius_spin.blockSignals(False)
+        # Sync N visibility
+        self._sync_hot_controls_visibility()
     
     def _update_minmax_controls_state(self):
         """Enable/disable min/max controls based on scaling method."""
@@ -887,10 +1288,15 @@ class MainWindow(QtWidgets.QMainWindow):
         
         try:
             img = self.loader.get_image(self.current_acq_id, current_channel)
-            # Use robust percentile scaling function
+            # Apply denoising if enabled/configured before computing percentiles
+            try:
+                img = self._apply_denoise(current_channel, img)
+            except Exception:
+                pass
+            # Use robust percentile scaling function on preprocessed image
             scaled_img = robust_percentile_scale(img, low=1.0, high=99.0)
             
-            # Get the actual min/max values that were used for scaling
+            # Get the actual min/max values used for scaling (from preprocessed image)
             min_val = float(np.percentile(img, 1))
             max_val = float(np.percentile(img, 99))
             
@@ -925,6 +1331,11 @@ class MainWindow(QtWidgets.QMainWindow):
         
         try:
             img = self.loader.get_image(self.current_acq_id, current_channel)
+            # Apply denoising if enabled/configured before normalization
+            try:
+                img = self._apply_denoise(current_channel, img)
+            except Exception:
+                pass
             cofactor = self.cofactor_spinbox.value()
             
             # Apply arcsinh normalization
@@ -980,7 +1391,7 @@ class MainWindow(QtWidgets.QMainWindow):
             print(f"Error in default range: {e}")
 
     def _load_image_with_normalization(self, acq_id: str, channel: str) -> np.ndarray:
-        """Load image and apply arcsinh normalization if enabled."""
+        """Load image, apply denoising (per-channel) then normalization if enabled."""
         # Try cache first
         cache_key = (acq_id, channel)
         with self._cache_lock:
@@ -990,6 +1401,12 @@ class MainWindow(QtWidgets.QMainWindow):
             with self._cache_lock:
                 self.image_cache[cache_key] = img
         
+        # Apply per-channel denoising first (operates in raw space)
+        try:
+            img = self._apply_denoise(channel, img)
+        except Exception:
+            pass
+
         # Apply per-channel normalization (if configured)
         norm_cfg = self.channel_normalization.get(channel)
         if norm_cfg and norm_cfg.get("method") == "arcsinh":
@@ -1783,6 +2200,11 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Open segmentation dialog
         dlg = SegmentationDialog(channels, self)
+        # Initialize with current viewer denoising toggle state
+        try:
+            dlg.set_use_viewer_denoising(self.denoise_enable_chk.isChecked())
+        except Exception:
+            pass
         if dlg.exec_() != QtWidgets.QDialog.Accepted:
             return
         
@@ -1796,6 +2218,7 @@ class MainWindow(QtWidgets.QMainWindow):
         masks_directory = dlg.get_masks_directory()
         gpu_id = dlg.get_selected_gpu()
         preprocessing_config = dlg.get_preprocessing_config()
+        use_viewer_denoising = dlg.get_use_viewer_denoising()
         segment_all = dlg.get_segment_all()
         
         # Validate preprocessing configuration
@@ -1826,7 +2249,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Run segmentation on current acquisition only
                 self._perform_segmentation(
                     model, diameter, flow_threshold, cellprob_threshold, 
-                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config
+                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config, use_viewer_denoising
                 )
         except Exception as e:
             QtWidgets.QMessageBox.critical(
@@ -1836,7 +2259,7 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def _perform_segmentation(self, model: str, diameter: int = None, flow_threshold: float = 0.4, 
                             cellprob_threshold: float = 0.0, show_overlay: bool = True, 
-                            save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None):
+                            save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None, use_viewer_denoising: bool = False):
         """Perform the actual segmentation using Cellpose."""
         # Create progress dialog
         progress_dlg = ProgressDialog("Cell Segmentation", self)
@@ -1881,7 +2304,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Preprocess and combine channels
             nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
-                preprocessing_config, progress_dlg
+                preprocessing_config, progress_dlg, use_viewer_denoising
             )
             
             # Prepare input images
@@ -2339,7 +2762,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             return "GPU detection failed"
     
-    def _preprocess_channels_for_segmentation(self, preprocessing_config: dict, progress_dlg) -> tuple:
+    def _preprocess_channels_for_segmentation(self, preprocessing_config: dict, progress_dlg, use_viewer_denoising: bool = False) -> tuple:
         """Preprocess and combine channels for segmentation."""
         if not preprocessing_config:
             raise ValueError("Preprocessing configuration is required for segmentation")
@@ -2359,6 +2782,12 @@ class MainWindow(QtWidgets.QMainWindow):
         nuclear_imgs = []
         for channel in nuclear_channels:
             img = self.loader.get_image(self.current_acq_id, channel)
+            # Optional: apply viewer denoising if enabled and configured for this channel
+            if use_viewer_denoising:
+                try:
+                    img = self._apply_denoise(channel, img)
+                except Exception:
+                    pass
             # Apply normalization if configured
             img = self._apply_normalization(img, config, self.current_acq_id, channel)
             nuclear_imgs.append(img)
@@ -2375,6 +2804,11 @@ class MainWindow(QtWidgets.QMainWindow):
             cyto_imgs = []
             for channel in cyto_channels:
                 img = self.loader.get_image(self.current_acq_id, channel)
+                if use_viewer_denoising:
+                    try:
+                        img = self._apply_denoise(channel, img)
+                    except Exception:
+                        pass
                 # Apply normalization if configured
                 img = self._apply_normalization(img, config, self.current_acq_id, channel)
                 cyto_imgs.append(img)
@@ -2494,7 +2928,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if any(selected_features[key] for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 
                                                      'eccentricity', 'solidity', 'extent', 'circularity',
                                                      'major_axis_len_um', 'minor_axis_len_um', 'aspect_ratio',
-                                                     'bbox_area_um2', 'touches_border', 'holes_count']):
+                                                     'bbox_area_um2', 'touches_border', 'holes_count',
+                                                     'centroid_x', 'centroid_y']):
                 morph_features = self._extract_morphology_features(mask, unique_cells, pixel_size_um, selected_features)
                 features.update(morph_features)
             
@@ -2692,7 +3127,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if any(selected_features[key] for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 
                                                      'eccentricity', 'solidity', 'extent', 'circularity',
                                                      'major_axis_len_um', 'minor_axis_len_um', 'aspect_ratio',
-                                                     'bbox_area_um2', 'touches_border', 'holes_count']):
+                                                     'bbox_area_um2', 'touches_border', 'holes_count',
+                                                     'centroid_x', 'centroid_y']):
                 morph_features = self._extract_morphology_features(mask, unique_cells, pixel_size_um, selected_features)
                 features.update(morph_features)
             
@@ -2749,7 +3185,8 @@ class MainWindow(QtWidgets.QMainWindow):
         features['cell_id'] = []
         for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 'eccentricity', 
                    'solidity', 'extent', 'circularity', 'major_axis_len_um', 'minor_axis_len_um', 
-                   'aspect_ratio', 'bbox_area_um2', 'touches_border', 'holes_count']:
+                   'aspect_ratio', 'bbox_area_um2', 'touches_border', 'holes_count',
+                   'centroid_x', 'centroid_y']:
             if selected_features[key]:
                 features[key] = []
         
@@ -2807,6 +3244,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Count holes in the cell (simplified - count of background pixels in convex hull)
                 # This is a simplified implementation
                 features['holes_count'].append(0)  # Placeholder - would need more complex analysis
+            
+            if selected_features['centroid_x']:
+                # X coordinate (column) of centroid in pixels
+                features['centroid_x'].append(prop.centroid[1])
+            
+            if selected_features['centroid_y']:
+                # Y coordinate (row) of centroid in pixels
+                features['centroid_y'].append(prop.centroid[0])
         
         return features
     
