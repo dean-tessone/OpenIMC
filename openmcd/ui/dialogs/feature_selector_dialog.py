@@ -25,7 +25,7 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         for name in available_feature_names:
             if name in self._morpho_names:
                 morpho.append(name)
-            elif any(suf in name for suf in self._intensity_suffixes):
+            elif any(name.endswith(suffix) for suffix in self._intensity_suffixes):
                 intensity.append(name)
 
         self._morpho_all = sorted(set(morpho))
@@ -40,7 +40,7 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         filter_row = QtWidgets.QHBoxLayout()
         filter_row.addWidget(QtWidgets.QLabel("Intensity filter:"))
         self.cmb_filter = QtWidgets.QComboBox()
-        self.cmb_filter.addItems(["All", "_mean", "_median", "_std", "_mad", "_p10", "_p90", "_integrated", "_frac_pos"])
+        self.cmb_filter.addItems(["All", "mean_", "median_", "std_", "mad_", "p10_", "p90_", "integrated_", "frac_pos_"])
         self.cmb_filter.currentTextChanged.connect(self._apply_intensity_filter)
         filter_row.addWidget(self.cmb_filter)
         filter_row.addStretch(1)
@@ -111,7 +111,9 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         if sel == "All":
             filtered = self._intensity_all
         else:
-            filtered = [n for n in self._intensity_all if sel in n]
+            # Convert prefix to suffix for filtering
+            suffix = f"_{sel.lower()}"
+            filtered = [n for n in self._intensity_all if n.endswith(suffix)]
         self._populate_checklist(self.lst_intensity, filtered)
         # When changing filter, keep default preference of _mean if All
         if sel == "All":
@@ -126,7 +128,7 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
     def _apply_intensity_default_selection(self):
         for i in range(self.lst_intensity.count()):
             it = self.lst_intensity.item(i)
-            if "_mean" in it.text():
+            if it.text().endswith("_mean"):
                 it.setCheckState(Qt.Checked)
             else:
                 it.setCheckState(Qt.Unchecked)

@@ -6,12 +6,52 @@ from concurrent.futures import ThreadPoolExecutor, Future
 import numpy as np
 import pandas as pd
 import multiprocessing as mp
+from scipy import stats
 from skimage.measure import regionprops, regionprops_table
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 
 from openmcd.data.mcd_loader import MCDLoader, AcquisitionInfo
+from openmcd.processing.feature_worker import extract_features_for_acquisition
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
+
+class CustomNavigationToolbar(NavigationToolbar):
+    """Custom navigation toolbar with improved save functionality."""
+    
+    def __init__(self, canvas, parent, main_window=None):
+        super().__init__(canvas, parent)
+        self.main_window = main_window
+    
+    def save_figure(self, *args):
+        """Override save_figure method to use custom filename."""
+        if self.main_window and hasattr(self.main_window, 'get_save_filename'):
+            # Get custom filename from main window
+            filename = self.main_window.get_save_filename()
+            if filename:
+                self.figure.savefig(filename)
+                return
+            # If filename is None (user cancelled), don't fall back to default behavior
+            return
+            
+        # Fallback to default behavior only if main window method is not available
+        super().save_figure(*args)
+    
+    def _save(self):
+        """Override _save method to use custom filename."""
+        if self.main_window and hasattr(self.main_window, 'get_save_filename'):
+            # Get custom filename from main window
+            filename = self.main_window.get_save_filename()
+            if filename:
+                self.figure.savefig(filename)
+                return
+            # If filename is None (user cancelled), don't fall back to default behavior
+            return
+            
+        # Fallback to default behavior only if main window method is not available
+        super()._save()
 from openmcd.ui.mpl_canvas import MplCanvas
 from openmcd.ui.utils import (
     PreprocessingCache,
@@ -44,6 +84,9 @@ except Exception:
     _HAVE_TIFFFILE = False
 from openmcd.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
 from openmcd.ui.dialogs.comparison_dialog import DynamicComparisonDialog
+
+
+
 
 # Optional runtime flags for extra deps
 _HAVE_CELLPOSE = False
@@ -104,6 +147,12 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Store last selected channels for auto-selection
         self.last_selected_channels: List[str] = []
+        
+        # Simple zoom preservation for specific operations
+        self.saved_zoom_limits = None
+        self.preserve_zoom = False  # Flag to indicate when to preserve zoom
+        self.had_no_channels = False  # Flag to track when we had no channels selected
+        
 
         # Widgets
         self.canvas = MplCanvas(width=6, height=6, dpi=100)
@@ -119,16 +168,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segment_btn = QtWidgets.QPushButton("Cell Segmentation")
         self.extract_features_btn = QtWidgets.QPushButton("Extract Features")
         self.clustering_btn = QtWidgets.QPushButton("Cell Clustering")
+        self.reset_zoom_btn = QtWidgets.QPushButton("Reset Zoom")
         
         # Visualization options
         self.grayscale_chk = QtWidgets.QCheckBox("Grayscale mode")
         self.grid_view_chk = QtWidgets.QCheckBox("Grid view for multiple channels")
         # Auto-refresh on toggle
-        self.grayscale_chk.toggled.connect(lambda _: self._view_selected())
+        self.grayscale_chk.toggled.connect(self._on_grayscale_toggled)
         self.grid_view_chk.toggled.connect(self._on_grid_view_toggled)
         self.grid_view_chk.setChecked(True)
         self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
         self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
+        
+        # Show all channels button (only visible in grid view)
+        self.show_all_channels_btn = QtWidgets.QPushButton("Show all channels")
+        self.show_all_channels_btn.clicked.connect(self._show_all_channels)
+        self.show_all_channels_btn.setVisible(False)  # Hidden by default
+
 
         # Denoising enable + options panel
         self.denoise_enable_chk = QtWidgets.QCheckBox("Enable denoising")
@@ -216,6 +272,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.order_combo_1.setCurrentText("Hot pixel")
         self.order_combo_2.setCurrentText("Speckle")
         self.order_combo_3.setCurrentText("Background")
+
+        # Apply to all channels button
+        self.apply_all_channels_btn = QtWidgets.QPushButton("Apply to All Channels")
+        self.apply_all_channels_btn.clicked.connect(self._apply_denoise_to_all_channels)
+        denoise_layout.addWidget(self.apply_all_channels_btn)
 
         # Disable panel if scikit-image is missing
         if not _HAVE_SCIKIT_IMAGE:
@@ -424,6 +485,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Visualization options
         v.addWidget(self.grayscale_chk)
         v.addWidget(self.grid_view_chk)
+        v.addWidget(self.show_all_channels_btn)
         v.addWidget(self.segmentation_overlay_chk)
         v.addWidget(self.denoise_enable_chk)
         v.addWidget(self.denoise_frame)
@@ -439,6 +501,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         v.addSpacing(8)
         v.addWidget(self.view_btn)
+        v.addWidget(self.reset_zoom_btn)
         v.addWidget(self.comparison_btn)
         v.addWidget(self.segment_btn)
         v.addWidget(self.extract_features_btn)
@@ -457,7 +520,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Right pane with toolbar + canvas
         rightw = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(rightw)
-        self.nav_toolbar = NavigationToolbar(self.canvas, self)
+        self.nav_toolbar = CustomNavigationToolbar(self.canvas, self, self)
         right_layout.addWidget(self.nav_toolbar)
         right_layout.addWidget(self.canvas, 1)
         splitter.addWidget(rightw)
@@ -509,6 +572,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.view_btn.clicked.disconnect()
         except Exception:
             pass
+        self.reset_zoom_btn.clicked.connect(self._reset_zoom)
         self.comparison_btn.clicked.connect(self._comparison)
         self.segment_btn.clicked.connect(self._run_segmentation)
         self.extract_features_btn.clicked.connect(self._extract_features)
@@ -524,6 +588,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Ensure RGB controls are hidden when grid view is enabled on startup
         try:
             self._update_rgb_controls_visibility()
+            # Also ensure show all channels button visibility is correct
+            if hasattr(self, 'show_all_channels_btn'):
+                self.show_all_channels_btn.setVisible(self.grid_view_chk.isChecked())
         except Exception:
             pass
 
@@ -561,6 +628,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.acq_combo.addItem(label, ai.id)
         if self.acquisitions:
             self._populate_channels(self.acquisitions[0].id)
+            # For initial file load, if no channels were pre-selected, select the first channel
+            if not self._selected_channels() and self.channel_list.count() > 0:
+                # Select first channel by default for initial display
+                item = self.channel_list.item(0)
+                item.setCheckState(Qt.Checked)
 
     # ---------- Acquisition / channels ----------
     def _on_acq_changed(self, idx: int):
@@ -644,6 +716,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_channel_selection_changed(self):
         """Update color assignment dropdowns when channel selection changes."""
         selected_channels = self._selected_channels()
+        
+        # Check if we're going from no channels to having channels
+        has_last_channels = hasattr(self, 'last_selected_channels') and self.last_selected_channels
+        # Only trigger if we had no channels selected AND now we have channels
+        going_from_no_channels = selected_channels and self.had_no_channels
+        
+        
+        # Set preserve zoom FIRST before any other operations (unless going from no channels)
+        if not going_from_no_channels:
+            self.preserve_zoom = True
+        
         self._populate_color_assignments(selected_channels)
         self._populate_denoise_channel_list(selected_channels)
         
@@ -653,11 +736,21 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update scaling channel combo to reflect current selection
         if self.custom_scaling_chk.isChecked():
             self._update_scaling_channel_combo()
-        # Auto-refresh view when channels change
+        # Auto-refresh view when channels change (preserve zoom)
         self._view_selected()
 
         # Update RGB control visibility and selections on change
         self._update_rgb_controls_visibility()
+        
+        # Update the had_no_channels flag
+        if not selected_channels:
+            self.had_no_channels = True
+        else:
+            self.had_no_channels = False
+        
+        # If we went from no channels to having channels, click the reset zoom button
+        if going_from_no_channels:
+            self.reset_zoom_btn.click()
 
     def _populate_color_assignments(self, channels: List[str]):
         """Populate the color assignment dropdowns with selected channels only."""
@@ -717,11 +810,17 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update arcsinh button state based on new RGB assignments
         self._update_minmax_controls_state()
         
-        # Refresh view
-        self._view_selected()
+        # Only refresh view if we're not already preserving zoom (to avoid double calls)
+        if not self.preserve_zoom:
+            self.preserve_zoom = True
+            self._view_selected()
 
     def _on_grid_view_toggled(self):
         self._update_rgb_controls_visibility()
+        
+        # Show/hide "Show all channels" button based on grid view state
+        if hasattr(self, 'show_all_channels_btn'):
+            self.show_all_channels_btn.setVisible(self.grid_view_chk.isChecked())
         
         # Handle arcsinh/percentile state when switching between RGB and grid view
         if self.grid_view_chk.isChecked():
@@ -731,6 +830,12 @@ class MainWindow(QtWidgets.QMainWindow):
             # Switching to RGB view - revert channels that had arcsinh/percentile applied in grid view
             self._revert_auto_scaling_for_rgb_view()
         
+        self.preserve_zoom = True
+        self._view_selected()
+
+    def _on_grayscale_toggled(self):
+        """Handle grayscale checkbox toggle."""
+        self.preserve_zoom = True
         self._view_selected()
 
     def _update_rgb_controls_visibility(self):
@@ -780,13 +885,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_custom_scaling_toggled(self):
         """Handle custom scaling checkbox toggle."""
+        # Set preserve zoom FIRST before any other operations
+        self.preserve_zoom = True
+        
         self.scaling_frame.setVisible(self.custom_scaling_chk.isChecked())
         if self.custom_scaling_chk.isChecked():
             self._update_scaling_channel_combo()
             self._load_channel_scaling()
             # Initialize controls state
             self._update_minmax_controls_state()
-        # Auto-refresh when toggled
+        # Auto-refresh when toggled (preserve zoom)
         self._view_selected()
 
     def _update_scaling_channel_combo(self):
@@ -822,8 +930,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.custom_scaling_chk.isChecked():
             # Save current values
             self._save_channel_scaling()
-            # Auto-refresh display
+            # Auto-refresh display (preserve zoom)
+            self.preserve_zoom = True
             self._view_selected()
+    
     
     def _filter_channels(self):
         """Filter channels based on search text."""
@@ -837,6 +947,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---------- Denoising ----------
     def _on_denoise_toggled(self):
         self.denoise_frame.setVisible(self.denoise_enable_chk.isChecked())
+        self.preserve_zoom = True
         self._view_selected()
         # Ensure N control visibility is synced with method
         self._sync_hot_controls_visibility()
@@ -893,7 +1004,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.channel_denoise[target_channel]["speckle"] = cfg_speckle
             self.channel_denoise[target_channel]["background"] = cfg_bg
 
-            # Refresh
+            # Refresh (preserve zoom)
+            self.preserve_zoom = True
             self._view_selected()
         except Exception:
             pass
@@ -1006,6 +1118,107 @@ class MainWindow(QtWidgets.QMainWindow):
             out = np.clip(out, 0, None)
         return out.astype(img.dtype, copy=False)
 
+    def _apply_custom_denoise(self, channel: str, img: np.ndarray, custom_denoise_settings: dict) -> np.ndarray:
+        """Apply custom denoise steps for a channel in raw domain."""
+        if not _HAVE_SCIKIT_IMAGE:
+            return img
+        cfg = custom_denoise_settings.get(channel)
+        if not cfg:
+            return img
+        out = img.astype(np.float32, copy=False)
+
+        # Apply denoising steps in order: hot pixel -> speckle -> background
+        # Hot pixel removal
+        hot = cfg.get("hot")
+        if hot:
+            method = hot.get("method")
+            if method == "median3":
+                try:
+                    out = median(out, footprint=footprint_rectangle(3, 3).astype(bool))
+                except Exception:
+                    out = ndi.median_filter(out, size=3)
+            elif method == "n_sd_local_median":
+                n_sd = float(hot.get("n_sd", 5.0))
+                try:
+                    local_median = median(out, footprint=footprint_rectangle(3, 3).astype(bool))
+                except Exception:
+                    local_median = ndi.median_filter(out, size=3)
+                diff = out - local_median
+                local_var = ndi.uniform_filter(diff * diff, size=3)
+                local_std = np.sqrt(np.maximum(local_var, 1e-8))
+                mask_hot = diff > (n_sd * local_std)
+                out = np.where(mask_hot, local_median, out)
+        
+        # Speckle smoothing
+        speckle = cfg.get("speckle")
+        if speckle:
+            method = speckle.get("method")
+            if method == "gaussian":
+                sigma = float(speckle.get("sigma", 0.8))
+                out = gaussian(out, sigma=sigma, preserve_range=True)
+            elif method == "nl_means":
+                mn, mx = float(np.min(out)), float(np.max(out))
+                scale = mx - mn
+                scaled = (out - mn) / scale if scale > 0 else out
+                sigma_est = np.mean(estimate_sigma(scaled, channel_axis=None))
+                out = denoise_nl_means(
+                    scaled,
+                    h=1.15 * sigma_est,
+                    fast_mode=True,
+                    patch_size=5,
+                    patch_distance=6,
+                    channel_axis=None,
+                )
+                out = out * scale + mn
+        
+        # Background subtraction
+        bg = cfg.get("background")
+        if bg:
+            method = bg.get("method")
+            radius = int(bg.get("radius", 15))
+            if method == "white_tophat":
+                se = disk(radius)
+                try:
+                    out = morphology.white_tophat(out, selem=se)
+                except TypeError:
+                    out = morphology.white_tophat(out, footprint=se)
+            elif method == "black_tophat":
+                se = disk(radius)
+                try:
+                    out = morphology.black_tophat(out, selem=se)
+                except TypeError:
+                    out = morphology.black_tophat(out, footprint=se)
+            elif method == "rolling_ball":
+                if _HAVE_ROLLING_BALL:
+                    background = _sk_rolling_ball(out, radius=radius)
+                    out = out - background
+                    out = np.clip(out, 0, None)
+                else:
+                    se = disk(radius)
+                    try:
+                        opened = morphology.opening(out, selem=se)
+                    except TypeError:
+                        opened = morphology.opening(out, footprint=se)
+                    out = out - opened
+                    out = np.clip(out, 0, None)
+        
+        # Rescale to preserve original max intensity of this channel
+        try:
+            orig_max = float(np.max(img))
+            new_max = float(np.max(out))
+            if new_max > 0 and orig_max > 0:
+                out = out * (orig_max / new_max)
+        except Exception:
+            pass
+        
+        # Clip to dtype range if integer
+        if np.issubdtype(img.dtype, np.integer):
+            info = np.iinfo(img.dtype)
+            out = np.clip(out, info.min, info.max)
+        else:
+            out = np.clip(out, 0, None)
+        return out.astype(img.dtype, copy=False)
+
     def _on_hot_method_changed(self):
         self._sync_hot_controls_visibility()
         self._apply_denoise_settings_and_refresh()
@@ -1015,6 +1228,71 @@ class MainWindow(QtWidgets.QMainWindow):
         is_threshold = self.hot_pixel_method_combo.currentIndex() == 1
         self.hot_pixel_n_spin.setVisible(is_threshold)
         self.hot_pixel_n_label.setVisible(is_threshold)
+
+    def _on_denoise_channel_changed(self):
+        """Handle changes to the denoise channel selection."""
+        self._load_denoise_settings()
+
+    def _apply_denoise_to_all_channels(self):
+        """Apply current denoising parameters to all channels (selected and unselected)."""
+        try:
+            # Get all available channels from the channel list
+            all_channels = []
+            for i in range(self.channel_list.count()):
+                item = self.channel_list.item(i)
+                all_channels.append(item.text())
+            
+            if not all_channels:
+                return
+            
+            # Build config from current UI settings
+            cfg_hot = None
+            if self.hot_pixel_chk.isChecked():
+                cfg_hot = {
+                    "method": "median3" if self.hot_pixel_method_combo.currentIndex() == 0 else "n_sd_local_median",
+                    "n_sd": float(self.hot_pixel_n_spin.value()),
+                }
+
+            cfg_speckle = None
+            if self.speckle_chk.isChecked():
+                cfg_speckle = {
+                    "method": "gaussian" if self.speckle_method_combo.currentIndex() == 0 else "nl_means",
+                    "sigma": float(self.gaussian_sigma_spin.value()),
+                }
+
+            cfg_bg = None
+            if self.bg_subtract_chk.isChecked():
+                cfg_bg = {
+                    "method": "white_tophat" if self.bg_method_combo.currentIndex() == 0 else "rolling_ball",
+                    "radius": int(self.bg_radius_spin.value()),
+                }
+
+            # Apply the same configuration to all channels
+            for channel in all_channels:
+                self.channel_denoise.setdefault(channel, {})
+                self.channel_denoise[channel]["hot"] = cfg_hot
+                self.channel_denoise[channel]["speckle"] = cfg_speckle
+                self.channel_denoise[channel]["background"] = cfg_bg
+
+            # Show visual confirmation
+            self.apply_all_channels_btn.setText("✓ Applied to All Channels")
+            self.apply_all_channels_btn.setStyleSheet("QPushButton { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }")
+            
+            # Reset button appearance after 2 seconds
+            QTimer.singleShot(2000, self._reset_apply_all_button)
+
+            # Refresh view to show the changes
+            self.preserve_zoom = True
+            self._view_selected()
+            
+        except Exception as e:
+            # Silently handle any errors to avoid disrupting the UI
+            pass
+    
+    def _reset_apply_all_button(self):
+        """Reset the apply all channels button to its original appearance."""
+        self.apply_all_channels_btn.setText("Apply to All Channels")
+        self.apply_all_channels_btn.setStyleSheet("")
 
     def _load_denoise_settings(self):
         """Load saved denoise settings for the currently selected denoise channel into the UI."""
@@ -1079,6 +1357,267 @@ class MainWindow(QtWidgets.QMainWindow):
             self.bg_radius_spin.blockSignals(False)
         # Sync N visibility
         self._sync_hot_controls_visibility()
+
+    def _show_all_channels(self):
+        """Show all channels in a scrollable grid at original size."""
+        if self.current_acq_id is None:
+            QtWidgets.QMessageBox.information(self, "No acquisition", "Select an acquisition first.")
+            return
+        
+        try:
+            # Get all channels for current acquisition
+            all_channels = self.loader.get_channels(self.current_acq_id)
+            if not all_channels:
+                QtWidgets.QMessageBox.information(self, "No channels", "No channels available.")
+                return
+            
+            # Create dialog window - make it larger and resizable
+            dialog = QtWidgets.QDialog(self)
+            dialog.setWindowTitle(f"All Channels - {self._get_acquisition_subtitle(self.current_acq_id)}")
+            dialog.setModal(True)
+            
+            # Set size to 90% of main window
+            main_window_size = self.size()
+            dialog_width = int(main_window_size.width() * 0.9)
+            dialog_height = int(main_window_size.height() * 0.9)
+            dialog.resize(dialog_width, dialog_height)
+            
+            # Set minimum size
+            dialog.setMinimumSize(800, 600)
+            
+            # Create control panel at top
+            control_panel = QtWidgets.QHBoxLayout()
+            
+            # Image scaling controls
+            scale_label = QtWidgets.QLabel("Image Scale:")
+            scale_spin = QtWidgets.QDoubleSpinBox()
+            scale_spin.setRange(0.5, 5.0)
+            scale_spin.setDecimals(1)
+            scale_spin.setValue(1.0)
+            scale_spin.setSingleStep(0.1)
+            control_panel.addWidget(scale_label)
+            control_panel.addWidget(scale_spin)
+            
+            # Arcsinh scaling button
+            arcsinh_btn = QtWidgets.QPushButton("Apply Arcsinh Scaling")
+            arcsinh_btn.setCheckable(True)
+            arcsinh_btn.setChecked(False)
+            control_panel.addWidget(arcsinh_btn)
+            
+            # Co-factor spinbox
+            cofactor_label = QtWidgets.QLabel("Co-factor:")
+            cofactor_spin = QtWidgets.QDoubleSpinBox()
+            cofactor_spin.setRange(0.1, 100.0)
+            cofactor_spin.setDecimals(1)
+            cofactor_spin.setValue(5.0)
+            cofactor_spin.setSingleStep(0.5)
+            control_panel.addWidget(cofactor_label)
+            control_panel.addWidget(cofactor_spin)
+            
+            control_panel.addStretch()
+            
+            # Close button
+            close_btn = QtWidgets.QPushButton("Close")
+            close_btn.clicked.connect(dialog.accept)
+            control_panel.addWidget(close_btn)
+            
+            # Create scroll area
+            scroll_area = QtWidgets.QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            
+            # Create widget to hold the grid
+            grid_widget = QtWidgets.QWidget()
+            grid_layout = QtWidgets.QGridLayout(grid_widget)
+            grid_layout.setSpacing(5)  # Reduced spacing between images
+            
+            # Calculate grid dimensions based on available width
+            # We'll calculate this after we know the image sizes, so start with a reasonable default
+            n_channels = len(all_channels)
+            cols = 4  # Start with 4 columns, will be adjusted
+            rows = max(1, int(np.ceil(n_channels / cols)))
+            
+            # Store references to canvases and images for scaling and arcsinh
+            canvas_refs = []
+            image_refs = []
+            original_sizes = []  # Store original image dimensions
+            
+            # Load and display each channel
+            for i, channel in enumerate(all_channels):
+                try:
+                    # Load image with normalization and denoising
+                    img = self._load_image_with_normalization(self.current_acq_id, channel)
+                    image_refs.append(img)  # Store original image
+                    original_sizes.append((img.shape[1], img.shape[0]))  # Store (width, height)
+                    
+                    # Create matplotlib figure for this channel
+                    fig = Figure(figsize=(3, 3), dpi=100)
+                    ax = fig.add_subplot(111)
+                    
+                    # Display image
+                    if self.grayscale_chk.isChecked():
+                        im = ax.imshow(img, cmap='gray', interpolation='nearest')
+                    else:
+                        im = ax.imshow(img, cmap='viridis', interpolation='nearest')
+                    
+                    ax.set_title(channel, fontsize=9, pad=3)
+                    ax.axis('off')
+                    
+                    # Create canvas
+                    canvas = FigureCanvas(fig)
+                    # Set initial size to actual image dimensions (but with reasonable limits)
+                    max_size = 400  # Maximum size to prevent huge images
+                    min_size = 100  # Minimum size for visibility
+                    width = max(min_size, min(max_size, img.shape[1]))
+                    height = max(min_size, min(max_size, img.shape[0]))
+                    canvas.setFixedSize(width, height)
+                    
+                    # Store references
+                    canvas_refs.append((canvas, ax, im, fig))
+                    
+                    # Add to grid
+                    row = i // cols
+                    col = i % cols
+                    grid_layout.addWidget(canvas, row, col)
+                    
+                except Exception as e:
+                    print(f"Error loading channel {channel}: {e}")
+                    # Add placeholder for failed channel
+                    label = QtWidgets.QLabel(f"Error loading\n{channel}")
+                    label.setAlignment(Qt.AlignCenter)
+                    label.setStyleSheet("QLabel { border: 1px solid red; color: red; }")
+                    label.setFixedSize(150, 150)
+                    row = i // cols
+                    col = i % cols
+                    grid_layout.addWidget(label, row, col)
+                    canvas_refs.append(None)  # Placeholder for failed channel
+                    image_refs.append(None)
+                    original_sizes.append((150, 150))  # Default size for error placeholder
+            
+            # Set scroll area widget
+            scroll_area.setWidget(grid_widget)
+            
+            # Function to calculate optimal number of columns based on available width
+            def calculate_columns():
+                # Get available width (accounting for scrollbar and margins)
+                available_width = scroll_area.width() - 50  # Account for scrollbar and margins
+                if available_width <= 0:
+                    return 4  # Default fallback
+                
+                # Get current image width (assuming all images are similar size)
+                if canvas_refs and canvas_refs[0] is not None:
+                    current_width = canvas_refs[0][0].width()
+                else:
+                    current_width = 200  # Default width
+                
+                # Calculate how many columns fit
+                cols = max(1, available_width // (current_width + 5))  # +5 for spacing
+                return min(cols, n_channels)  # Don't exceed number of channels
+            
+            # Function to update image sizes based on scale
+            def update_image_sizes():
+                scale = scale_spin.value()
+                for i, (canvas_ref, orig_size) in enumerate(zip(canvas_refs, original_sizes)):
+                    if canvas_ref is None:
+                        continue
+                    canvas, ax, im, fig = canvas_ref
+                    
+                    # Calculate new size based on scale
+                    orig_width, orig_height = orig_size
+                    new_width = int(orig_width * scale)
+                    new_height = int(orig_height * scale)
+                    
+                    # Apply reasonable limits
+                    max_size = 600  # Increased maximum size
+                    min_size = 50   # Reduced minimum size
+                    new_width = max(min_size, min(max_size, new_width))
+                    new_height = max(min_size, min(max_size, new_height))
+                    
+                    # Update canvas size
+                    canvas.setFixedSize(new_width, new_height)
+                
+                # Recalculate grid layout after size changes
+                update_grid_layout()
+            
+            # Function to update grid layout
+            def update_grid_layout():
+                # Calculate optimal number of columns
+                optimal_cols = calculate_columns()
+                
+                # Clear current layout
+                for i in reversed(range(grid_layout.count())):
+                    grid_layout.itemAt(i).widget().setParent(None)
+                
+                # Re-add widgets with new column count
+                for i, canvas_ref in enumerate(canvas_refs):
+                    if canvas_ref is None:
+                        # Handle error placeholders
+                        label = QtWidgets.QLabel(f"Error loading\n{all_channels[i]}")
+                        label.setAlignment(Qt.AlignCenter)
+                        label.setStyleSheet("QLabel { border: 1px solid red; color: red; }")
+                        label.setFixedSize(150, 150)
+                        row = i // optimal_cols
+                        col = i % optimal_cols
+                        grid_layout.addWidget(label, row, col)
+                    else:
+                        canvas, ax, im, fig = canvas_ref
+                        row = i // optimal_cols
+                        col = i % optimal_cols
+                        grid_layout.addWidget(canvas, row, col)
+                
+                # Force the grid widget to update its size
+                grid_widget.adjustSize()
+                grid_widget.updateGeometry()
+                
+                # Update the scroll area's widget size
+                scroll_area.widget().adjustSize()
+            
+            # Function to apply arcsinh scaling
+            def apply_arcsinh_scaling():
+                cofactor = cofactor_spin.value()
+                for i, (canvas_ref, img) in enumerate(zip(canvas_refs, image_refs)):
+                    if canvas_ref is None or img is None:
+                        continue
+                    canvas, ax, im, fig = canvas_ref
+                    
+                    if arcsinh_btn.isChecked():
+                        # Apply arcsinh scaling
+                        scaled_img = arcsinh_normalize(img, cofactor=cofactor)
+                    else:
+                        # Use original image
+                        scaled_img = img
+                    
+                    # Update the image
+                    im.set_array(scaled_img)
+                    im.set_clim(vmin=np.min(scaled_img), vmax=np.max(scaled_img))
+                    canvas.draw()
+            
+            # Connect controls
+            scale_spin.valueChanged.connect(update_image_sizes)
+            arcsinh_btn.toggled.connect(apply_arcsinh_scaling)
+            cofactor_spin.valueChanged.connect(apply_arcsinh_scaling)
+            
+            # Connect scroll area resize to update grid layout
+            def on_scroll_area_resize(event):
+                QtWidgets.QScrollArea.resizeEvent(scroll_area, event)
+                update_grid_layout()
+            
+            scroll_area.resizeEvent = on_scroll_area_resize
+            
+            # Initial grid layout update
+            update_grid_layout()
+            
+            # Create main layout
+            main_layout = QtWidgets.QVBoxLayout(dialog)
+            main_layout.addLayout(control_panel)
+            main_layout.addWidget(scroll_area)
+            
+            # Show dialog
+            dialog.exec_()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error showing all channels: {str(e)}")
     
     def _update_minmax_controls_state(self):
         """Enable/disable min/max controls based on scaling method."""
@@ -1469,14 +2008,29 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         chans = self._selected_channels()
         if not chans:
-            # Silent no-op during auto-refresh when no channels are selected
+            # Clear the canvas when no channels are selected
+            self.canvas.fig.clear()
+            self.canvas.draw()
+            # Clear any saved zoom limits and reset preserve flag to prevent issues when channels are selected again
+            self.saved_zoom_limits = None
+            self.preserve_zoom = False
             return
+        
+        # Check if we're going from no channels to having channels (force fresh start)
+        if not hasattr(self, 'last_selected_channels') or not self.last_selected_channels:
+            # Force a fresh start - clear any zoom preservation
+            self.saved_zoom_limits = None
+            self.preserve_zoom = False
         
         # Store selected channels for auto-selection in next acquisition
         self.last_selected_channels = chans.copy()
         
         grayscale = self.grayscale_chk.isChecked()
         grid_view = self.grid_view_chk.isChecked()
+        
+        # Save zoom limits if we should preserve them
+        if self.preserve_zoom:
+            self._save_zoom_limits()
         
         # Get custom scaling values if enabled
         # For single channel view, use that channel's scaling
@@ -1511,8 +2065,70 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.canvas.show_grid(images, titles, grayscale=grayscale, raw_images=images, 
                                     channel_names=chans, channel_scaling=self.channel_scaling, 
                                     custom_scaling_enabled=self.custom_scaling_chk.isChecked())
+            
+            # Restore zoom limits if we preserved them
+            if self.preserve_zoom:
+                self._restore_zoom_limits()
+                self.preserve_zoom = False  # Reset flag
+            
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "View error", str(e))
+    
+    def _reset_zoom(self):
+        """Reset zoom to original view by clearing saved limits and redrawing the whole canvas."""
+        # Clear any saved zoom limits
+        self.saved_zoom_limits = None
+        # Don't preserve zoom - force reset
+        self.preserve_zoom = False
+        
+        # Simply redraw the current view - this will reset everything to default
+        self._view_selected()
+    
+    def _save_zoom_limits(self):
+        """Save current zoom limits."""
+        try:
+            # For grid view, save limits for all axes
+            if hasattr(self.canvas, 'grid_axes') and self.canvas.grid_axes:
+                self.saved_zoom_limits = []
+                for ax in self.canvas.grid_axes:
+                    xlim = ax.get_xlim()
+                    ylim = ax.get_ylim()
+                    self.saved_zoom_limits.append((xlim, ylim))
+            # For single view, save limits for main axis
+            elif hasattr(self.canvas, 'ax') and self.canvas.ax:
+                xlim = self.canvas.ax.get_xlim()
+                ylim = self.canvas.ax.get_ylim()
+                self.saved_zoom_limits = (xlim, ylim)
+            else:
+                self.saved_zoom_limits = None
+        except Exception:
+            self.saved_zoom_limits = None
+    
+    def _restore_zoom_limits(self):
+        """Restore saved zoom limits."""
+        if self.saved_zoom_limits is None:
+            return
+        
+        try:
+            # For grid view, restore limits for all axes
+            if (hasattr(self.canvas, 'grid_axes') and self.canvas.grid_axes and 
+                isinstance(self.saved_zoom_limits, list)):
+                for i, (ax, (xlim, ylim)) in enumerate(zip(self.canvas.grid_axes, self.saved_zoom_limits)):
+                    if i < len(self.saved_zoom_limits):
+                        ax.set_xlim(xlim)
+                        ax.set_ylim(ylim)
+            # For single view, restore limits for main axis
+            elif (hasattr(self.canvas, 'ax') and self.canvas.ax and 
+                  isinstance(self.saved_zoom_limits, tuple) and len(self.saved_zoom_limits) == 2):
+                xlim, ylim = self.saved_zoom_limits
+                self.canvas.ax.set_xlim(xlim)
+                self.canvas.ax.set_ylim(ylim)
+            
+            # Redraw the canvas
+            self.canvas.draw()
+        except Exception:
+            pass
+    
 
     def _auto_load_image(self, selected_channels: List[str]):
         """Automatically load and display image for pre-selected channels."""
@@ -1834,6 +2450,47 @@ class MainWindow(QtWidgets.QMainWindow):
         # Open the dynamic comparison dialog
         dlg = DynamicComparisonDialog(self.acquisitions, self.loader, self)
         dlg.exec_()
+
+    # ---------- Image Saving ----------
+    def get_save_filename(self):
+        """Generate a custom filename for saving images based on acquisition and channels."""
+        if not self.current_acq_id or not hasattr(self, 'current_path') or not self.current_path:
+            return None
+            
+        try:
+            # Get MCD filename without extension
+            mcd_filename = os.path.splitext(os.path.basename(self.current_path))[0]
+            
+            # Get acquisition descriptor (subtitle)
+            acquisition_descriptor = self._get_acquisition_subtitle(self.current_acq_id)
+            
+            # Get currently selected channels
+            selected_channels = self._selected_channels()
+            
+            # Create filename: filename(without.mcd)_acquisition_descriptor_channels.png
+            if selected_channels:
+                channels_str = "_".join(selected_channels)
+                filename = f"{mcd_filename}_{acquisition_descriptor}_{channels_str}.png"
+            else:
+                filename = f"{mcd_filename}_{acquisition_descriptor}.png"
+            
+            # Clean filename (remove invalid characters)
+            import re
+            filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+            
+            # Open save dialog with suggested filename
+            from PyQt5.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Save Image", 
+                filename, 
+                "PNG files (*.png);;JPEG files (*.jpg);;All files (*.*)"
+            )
+            
+            return file_path if file_path else None
+            
+        except (StopIteration, AttributeError):
+            return None
 
     # ---------- Export ----------
     def _export_ome_tiff(self):
@@ -2221,6 +2878,10 @@ class MainWindow(QtWidgets.QMainWindow):
         use_viewer_denoising = dlg.get_use_viewer_denoising()
         segment_all = dlg.get_segment_all()
         
+        # Get denoising parameters
+        denoise_source = dlg.get_denoise_source()
+        custom_denoise_settings = dlg.get_custom_denoise_settings()
+        
         # Validate preprocessing configuration
         if not preprocessing_config:
             QtWidgets.QMessageBox.warning(self, "No preprocessing configured", "Please configure preprocessing to select channels for segmentation.")
@@ -2243,13 +2904,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Run segmentation on all acquisitions
                 self._perform_segmentation_all_acquisitions(
                     model, diameter, flow_threshold, cellprob_threshold, 
-                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config
+                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config,
+                    denoise_source, custom_denoise_settings
                 )
             else:
                 # Run segmentation on current acquisition only
                 self._perform_segmentation(
                     model, diameter, flow_threshold, cellprob_threshold, 
-                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config, use_viewer_denoising
+                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config, use_viewer_denoising,
+                    denoise_source, custom_denoise_settings
                 )
         except Exception as e:
             QtWidgets.QMessageBox.critical(
@@ -2259,7 +2922,8 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def _perform_segmentation(self, model: str, diameter: int = None, flow_threshold: float = 0.4, 
                             cellprob_threshold: float = 0.0, show_overlay: bool = True, 
-                            save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None, use_viewer_denoising: bool = False):
+                            save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None, use_viewer_denoising: bool = False,
+                            denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None):
         """Perform the actual segmentation using Cellpose."""
         # Create progress dialog
         progress_dlg = ProgressDialog("Cell Segmentation", self)
@@ -2304,7 +2968,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Preprocess and combine channels
             nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
-                preprocessing_config, progress_dlg, use_viewer_denoising
+                preprocessing_config, progress_dlg, use_viewer_denoising, denoise_source, custom_denoise_settings
             )
             
             # Prepare input images
@@ -2379,7 +3043,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _perform_segmentation_all_acquisitions(self, model: str, diameter: int = None, 
                                              flow_threshold: float = 0.4, cellprob_threshold: float = 0.0, 
                                              show_overlay: bool = True, save_masks: bool = False, 
-                                             masks_directory: str = None, gpu_id = None, preprocessing_config = None):
+                                             masks_directory: str = None, gpu_id = None, preprocessing_config = None,
+                                             denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None):
         """Perform efficient batch segmentation on all acquisitions."""
         if not self.acquisitions:
             QtWidgets.QMessageBox.warning(self, "No acquisitions", "No acquisitions available for segmentation.")
@@ -2548,7 +3213,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 
                 # Preprocess channels for this acquisition
                 nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
-                    preprocessing_config, progress_dlg
+                    preprocessing_config, progress_dlg, False, denoise_source, custom_denoise_settings
                 )
                 
                 # Prepare input images based on model type
@@ -2595,7 +3260,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             # Preprocess channels
             nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
-                preprocessing_config, None
+                preprocessing_config, None, False, "Use viewer settings", None
             )
             
             # Prepare input images
@@ -2762,7 +3427,8 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             return "GPU detection failed"
     
-    def _preprocess_channels_for_segmentation(self, preprocessing_config: dict, progress_dlg, use_viewer_denoising: bool = False) -> tuple:
+    def _preprocess_channels_for_segmentation(self, preprocessing_config: dict, progress_dlg, use_viewer_denoising: bool = False, 
+                                            denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None) -> tuple:
         """Preprocess and combine channels for segmentation."""
         if not preprocessing_config:
             raise ValueError("Preprocessing configuration is required for segmentation")
@@ -2782,10 +3448,15 @@ class MainWindow(QtWidgets.QMainWindow):
         nuclear_imgs = []
         for channel in nuclear_channels:
             img = self.loader.get_image(self.current_acq_id, channel)
-            # Optional: apply viewer denoising if enabled and configured for this channel
-            if use_viewer_denoising:
+            # Apply denoising based on source selection
+            if denoise_source == "Viewer" and use_viewer_denoising:
                 try:
                     img = self._apply_denoise(channel, img)
+                except Exception:
+                    pass
+            elif denoise_source == "Custom" and custom_denoise_settings:
+                try:
+                    img = self._apply_custom_denoise(channel, img, custom_denoise_settings)
                 except Exception:
                     pass
             # Apply normalization if configured
@@ -2804,9 +3475,15 @@ class MainWindow(QtWidgets.QMainWindow):
             cyto_imgs = []
             for channel in cyto_channels:
                 img = self.loader.get_image(self.current_acq_id, channel)
-                if use_viewer_denoising:
+                # Apply denoising based on source selection
+                if denoise_source == "Viewer" and use_viewer_denoising:
                     try:
                         img = self._apply_denoise(channel, img)
+                    except Exception:
+                        pass
+                elif denoise_source == "Custom" and custom_denoise_settings:
+                    try:
+                        img = self._apply_custom_denoise(channel, img, custom_denoise_settings)
                     except Exception:
                         pass
                 # Apply normalization if configured
@@ -2852,6 +3529,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Update display if we have segmentation masks
         if self.current_acq_id in self.segmentation_masks:
+            self.preserve_zoom = True
             self._view_selected()
             
             # Update checkbox text to show cell count
@@ -2881,6 +3559,11 @@ class MainWindow(QtWidgets.QMainWindow):
         selected_features = dlg.get_selected_features()
         output_path = dlg.get_output_path()
         
+        # Get preprocessing parameters
+        normalization_config = dlg.get_normalization_config()
+        denoise_source = dlg.get_denoise_source()
+        custom_denoise_settings = dlg.get_custom_denoise_settings()
+        
         if not selected_acquisitions:
             QtWidgets.QMessageBox.warning(self, "No acquisitions selected", "Please select at least one acquisition.")
             return
@@ -2891,7 +3574,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Perform feature extraction
         try:
-            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path)
+            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings)
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self, 
@@ -2899,92 +3582,52 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Feature extraction failed with error:\n{str(e)}"
             )
     
-    def _extract_features_worker(self, args):
-        """Worker function for multiprocessing feature extraction."""
-        acq_id, mask, selected_features, acq_info, loader, arcsinh_enabled, cofactor = args
-        
-        try:
-            # Get pixel size from metadata
-            pixel_size_um = self._get_pixel_size_um(acq_id, acq_info)
-            
-            # Get all available channels
-            channels = acq_info.channels  # channels are already strings, not objects
-            
-            # Initialize feature dictionary
-            features = {
-                'acquisition_id': acq_id,
-                'acquisition_name': acq_info.name,
-                'well': acq_info.well if acq_info.well else ''
-            }
-            
-            # Get unique cell IDs (excluding background = 0)
-            unique_cells = np.unique(mask)
-            unique_cells = unique_cells[unique_cells > 0]  # Remove background
-            
-            if len(unique_cells) == 0:
-                return None
-            
-            # Extract morphology features
-            if any(selected_features[key] for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 
-                                                     'eccentricity', 'solidity', 'extent', 'circularity',
-                                                     'major_axis_len_um', 'minor_axis_len_um', 'aspect_ratio',
-                                                     'bbox_area_um2', 'touches_border', 'holes_count',
-                                                     'centroid_x', 'centroid_y']):
-                morph_features = self._extract_morphology_features(mask, unique_cells, pixel_size_um, selected_features)
-                features.update(morph_features)
-            
-            # Extract intensity features for each channel
-            if any(selected_features[key] for key in ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated', 'frac_pos']):
-                for channel in channels:
-                    try:
-                        # Load channel image
-                        channel_img = loader.get_image(acq_id, channel)
-                        
-                        # Apply arcsinh normalization if enabled
-                        if arcsinh_enabled:
-                            channel_img = arcsinh_normalize(channel_img, cofactor=cofactor)
-                        
-                        intensity_features = self._extract_intensity_features(
-                            channel_img, mask, unique_cells, channel, selected_features
-                        )
-                        features.update(intensity_features)
-                    except Exception as e:
-                        print(f"Warning: Could not load channel {channel}: {e}")
-                        continue
-            
-            # Create DataFrame
-            features_df = pd.DataFrame(features)
-            
-            return features_df
-            
-        except Exception as e:
-            print(f"Error extracting features for acquisition {acq_id}: {e}")
-            return None
 
-    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path):
+    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings):
         """Perform the actual feature extraction using multiprocessing."""
         # Create progress dialog
         progress_dlg = ProgressDialog("Feature Extraction", self)
-        progress_dlg.set_maximum(len(selected_acquisitions))
+        progress_dlg.set_maximum(len(selected_acquisitions) * 2)  # Loading + Processing phases
         progress_dlg.show()
         
         try:
             # Prepare arguments for multiprocessing
             mp_args = []
-            for acq_id in selected_acquisitions:
+            progress_dlg.update_progress(0, "Pre-loading image data", "Loading acquisitions from MCD file")
+            
+            for i, acq_id in enumerate(selected_acquisitions):
                 try:
                     current_acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
                     mask = self.segmentation_masks[acq_id]
-                    cofactor = self.cofactor_spinbox.value() if hasattr(self, 'cofactor_spinbox') else 5.0
+                    # Prepare preprocessing parameters
+                    arcsinh_enabled = normalization_config is not None and normalization_config.get('method') == 'arcsinh'
+                    cofactor = normalization_config.get('cofactor', 5.0) if normalization_config else 5.0
+                    
+                    # Pre-load image data to avoid concurrent MCD file access
+                    print(f"[main] Pre-loading image data for acquisition {acq_id}")
+                    progress_dlg.update_progress(i, f"Loading acquisition {i+1}/{len(selected_acquisitions)}", f"Loading {acq_id}")
+                    img_stack = self.loader.get_all_channels(acq_id)
+                    print(f"[main] Loaded image stack shape: {img_stack.shape}")
+                    
+                    # Convert AcquisitionInfo to dictionary for pickling
+                    acq_info_dict = {
+                        'channels': current_acq_info.channels,
+                        'name': current_acq_info.name,
+                        'well': current_acq_info.well,
+                        'id': current_acq_info.id
+                    }
                     
                     mp_args.append((
                         acq_id, 
                         mask, 
                         selected_features, 
-                        current_acq_info, 
-                        self.loader, 
-                        self.arcsinh_enabled, 
-                        cofactor
+                        acq_info_dict, 
+                        current_acq_info.name,  # acq_label
+                        img_stack,  # pre-loaded image data
+                        arcsinh_enabled, 
+                        cofactor,
+                        denoise_source,
+                        custom_denoise_settings
                     ))
                 except StopIteration:
                     continue
@@ -2993,69 +3636,65 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(self, "No valid acquisitions", "No valid acquisitions found for feature extraction.")
                 return
             
-            # Use multiprocessing with maximum CPU count
-            max_workers = mp.cpu_count()
-            progress_dlg.update_progress(0, "Starting feature extraction", f"Using {max_workers} CPU cores")
+            # Use multiprocessing for faster feature extraction
+            max_workers = min(mp.cpu_count(), len(mp_args))
+            progress_dlg.update_progress(len(selected_acquisitions), "Starting feature extraction", f"Using {max_workers} CPU cores")
             
             all_features = []
             try:
-                from openmcd.processing.feature_worker import extract_features_for_acquisition
-                # Prepare arguments without non-picklable objects
-                safe_args = []
-                for (acq_id, mask, selected_features, current_acq_info, _loader, arcsinh_enabled, cofactor) in mp_args:
-                    # Build user-facing label matching UI (name + optional well)
-                    acq_label = None
-                    try:
-                        acq_obj = next(a for a in self.acquisitions if a.id == acq_id)
-                        acq_label = acq_obj.name + (f" ({acq_obj.well})" if acq_obj.well else "")
-                    except StopIteration:
-                        acq_label = acq_id
-                    safe_args.append((
-                        acq_id,
-                        mask,
-                        selected_features,
-                        {"channels": current_acq_info.channels if hasattr(current_acq_info, 'channels') else current_acq_info.get('channels', [])},
-                        acq_label,
-                        self.current_path or "",
-                        self.channel_normalization is not None and len(self.channel_normalization) > 0,  # arcsinh_enabled (approx)
-                        self.cofactor_spinbox.value() if hasattr(self, 'cofactor_spinbox') else 5.0,
-                    ))
-
-                # Use threads instead of multiprocessing to avoid hangs in some environments
-                progress_dlg.update_progress(0, "Starting feature extraction", f"Using up to {max_workers} threads")
-                from concurrent.futures import ThreadPoolExecutor, as_completed
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    future_to_idx = {executor.submit(extract_features_for_acquisition, *args): idx for idx, args in enumerate(safe_args)}
+                with mp.Pool(processes=max_workers) as pool:
+                    # Submit all tasks
+                    futures = []
+                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings) in mp_args:
+                        future = pool.apply_async(
+                            extract_features_for_acquisition,
+                            (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings)
+                        )
+                        futures.append((acq_id, future))
+                    
+                    # Collect results
                     completed = 0
-                    total = len(safe_args)
-                    for future in as_completed(future_to_idx):
+                    for acq_id, future in futures:
                         if progress_dlg.is_cancelled():
                             break
                         try:
-                            result = future.result()
+                            result = future.get(timeout=300)  # 5 minute timeout per acquisition
+                            if result is not None and not result.empty:
+                                all_features.append(result)
                         except Exception as e:
-                            print(f"Feature extraction task failed: {e}")
-                            result = None
-                        if result is not None and not result.empty:
-                            all_features.append(result)
+                            print(f"Feature extraction failed for acquisition {acq_id}: {e}")
+                            continue
+                        
                         completed += 1
                         progress_dlg.update_progress(
-                            completed,
-                            f"Processed acquisition {completed}/{total}",
+                            len(selected_acquisitions) + completed,
+                            f"Processed acquisition {completed}/{len(futures)}",
                             f"Extracted features from {len(all_features)} acquisitions"
                         )
-            except Exception as thread_error:
-                print(f"Threaded execution failed, falling back to single-threaded processing: {thread_error}")
-                progress_dlg.update_progress(0, "Threading failed, using single-threaded processing", "Processing acquisitions sequentially")
-                # Fallback to single-threaded processing
-                for i, args in enumerate(mp_args):
+                        
+            except Exception as mp_error:
+                print(f"Multiprocessing failed, falling back to sequential processing: {mp_error}")
+                progress_dlg.update_progress(0, "Multiprocessing failed, using sequential processing", "Processing acquisitions one by one")
+                
+                # Fallback to sequential processing
+                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings) in enumerate(mp_args):
                     if progress_dlg.is_cancelled():
                         break
-                    result = self._extract_features_worker(args)
-                    if result is not None and not result.empty:
-                        all_features.append(result)
+                    
+                    try:
+                        result = extract_features_for_acquisition(
+                            acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings
+                        )
+                        
+                        if result is not None and not result.empty:
+                            all_features.append(result)
+                            
+                    except Exception as e:
+                        print(f"Feature extraction failed for acquisition {acq_id}: {e}")
+                        continue
+                    
                     progress_dlg.update_progress(
-                        i + 1,
+                        len(selected_acquisitions) + i + 1,
                         f"Processed acquisition {i+1}/{len(mp_args)}",
                         f"Extracted features from {len(all_features)} acquisitions"
                     )
@@ -3100,60 +3739,6 @@ class MainWindow(QtWidgets.QMainWindow):
         finally:
             progress_dlg.close()
     
-    def _extract_features_for_acquisition(self, acq_id, mask, selected_features, acq_info):
-        """Extract features for a single acquisition."""
-        try:
-            # Get pixel size from metadata
-            pixel_size_um = self._get_pixel_size_um(acq_id, acq_info)
-            
-            # Get all available channels
-            channels = acq_info.channels  # channels are already strings, not objects
-            
-            # Initialize feature dictionary
-            features = {
-                'acquisition_id': acq_id,
-                'acquisition_name': acq_info.name,
-                'well': acq_info.well if acq_info.well else ''
-            }
-            
-            # Get unique cell IDs (excluding background = 0)
-            unique_cells = np.unique(mask)
-            unique_cells = unique_cells[unique_cells > 0]  # Remove background
-            
-            if len(unique_cells) == 0:
-                return None
-            
-            # Extract morphology features
-            if any(selected_features[key] for key in ['area_um2', 'perimeter_um', 'equivalent_diameter_um', 
-                                                     'eccentricity', 'solidity', 'extent', 'circularity',
-                                                     'major_axis_len_um', 'minor_axis_len_um', 'aspect_ratio',
-                                                     'bbox_area_um2', 'touches_border', 'holes_count',
-                                                     'centroid_x', 'centroid_y']):
-                morph_features = self._extract_morphology_features(mask, unique_cells, pixel_size_um, selected_features)
-                features.update(morph_features)
-            
-            # Extract intensity features for each channel
-            if any(selected_features[key] for key in ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated', 'frac_pos']):
-                for channel in channels:
-                    try:
-                        # Load channel image
-                        channel_img = self._load_image_with_normalization(acq_id, channel)
-                        intensity_features = self._extract_intensity_features(
-                            channel_img, mask, unique_cells, channel, selected_features
-                        )
-                        features.update(intensity_features)
-                    except Exception as e:
-                        print(f"Warning: Could not load channel {channel}: {e}")
-                        continue
-            
-            # Create DataFrame
-            features_df = pd.DataFrame(features)
-            
-            return features_df
-            
-        except Exception as e:
-            print(f"Error extracting features for acquisition {acq_id}: {e}")
-            return None
     
     def _get_pixel_size_um(self, acq_id, acq_info=None):
         """Get pixel size in micrometers from acquisition metadata."""

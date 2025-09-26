@@ -8,6 +8,78 @@ from skimage.measure import regionprops, regionprops_table
 from openmcd.data.mcd_loader import MCDLoader
 from openmcd.ui.utils import arcsinh_normalize
 
+# Optional scikit-image for denoising
+try:
+    from skimage import morphology, filters
+    from skimage.filters import gaussian, median
+    from skimage.morphology import disk, footprint_rectangle
+    from skimage.restoration import denoise_nl_means, estimate_sigma
+    from scipy import ndimage as ndi
+    try:
+        from skimage.restoration import rolling_ball as _sk_rolling_ball  # type: ignore
+        _HAVE_ROLLING_BALL = True
+    except Exception:
+        _HAVE_ROLLING_BALL = False
+    _HAVE_SCIKIT_IMAGE = True
+except ImportError:
+    _HAVE_SCIKIT_IMAGE = False
+    _HAVE_ROLLING_BALL = False
+
+
+def _apply_denoise_to_channel(channel_img: np.ndarray, channel_name: str, denoise_settings: Dict) -> np.ndarray:
+    """Apply denoising to a single channel image based on settings."""
+    if not _HAVE_SCIKIT_IMAGE or not denoise_settings:
+        return channel_img
+    
+    result = channel_img.copy()
+    
+    # Hot pixel removal
+    if denoise_settings.get("hot", {}).get("enabled", False):
+        hot_config = denoise_settings["hot"]
+        method = hot_config.get("method", "median3")
+        n_sd = hot_config.get("n_sd", 5.0)
+        
+        if method == "median3":
+            # 3x3 median filter
+            result = median(result, disk(1))
+        elif method == "nl_means":
+            # Non-local means denoising
+            sigma = estimate_sigma(result)
+            result = denoise_nl_means(result, h=sigma * n_sd)
+    
+    # Speckle noise reduction
+    if denoise_settings.get("speckle", {}).get("enabled", False):
+        speckle_config = denoise_settings["speckle"]
+        method = speckle_config.get("method", "gaussian")
+        sigma = speckle_config.get("sigma", 0.8)
+        
+        if method == "gaussian":
+            result = gaussian(result, sigma=sigma)
+        elif method == "median":
+            result = median(result, disk(1))
+    
+    # Background subtraction
+    if denoise_settings.get("background", {}).get("enabled", False):
+        bg_config = denoise_settings["background"]
+        method = bg_config.get("method", "white_tophat")
+        radius = bg_config.get("radius", 15)
+        
+        if method == "white_tophat":
+            # White top-hat (remove bright background)
+            selem = disk(radius)
+            result = morphology.white_tophat(result, selem)
+        elif method == "black_tophat":
+            # Black top-hat (remove dark background)
+            selem = disk(radius)
+            result = morphology.black_tophat(result, selem)
+        elif method == "rolling_ball" and _HAVE_ROLLING_BALL:
+            # Rolling ball background subtraction (approximation)
+            selem = disk(radius)
+            background = morphology.white_tophat(result, selem)
+            result = result - background
+    
+    return result
+
 
 def extract_features_for_acquisition(
     acq_id: str,
@@ -15,9 +87,11 @@ def extract_features_for_acquisition(
     selected_features: Dict[str, bool],
     acq_info: Dict,
     acq_label: str,
-    mcd_path: str,
+    img_stack: np.ndarray,
     arcsinh_enabled: bool,
     cofactor: float,
+    denoise_source: str = "None",
+    custom_denoise_settings: Dict = None,
 ) -> pd.DataFrame:
     """Module-level worker that extracts features for a single acquisition.
 
@@ -25,13 +99,17 @@ def extract_features_for_acquisition(
     """
     try:
         print(f"[feature_worker] Start extraction acq_id={acq_id}, arcsinh={arcsinh_enabled}, cofactor={cofactor}")
-        loader = MCDLoader()
-        print(f"[feature_worker] Opening MCD: {mcd_path}")
-        loader.open(mcd_path)
-
-        # Load all channels (H, W, C)
-        img_stack = loader.get_all_channels(acq_id)
-        print(f"[feature_worker] Loaded stack shape: {img_stack.shape}")
+        print(f"[feature_worker] Processing image stack shape: {img_stack.shape}")
+        
+        # Apply denoising per channel if requested
+        if denoise_source != "None" and custom_denoise_settings:
+            print(f"[feature_worker] Applying denoising with source: {denoise_source}")
+            for idx, ch_name in enumerate(acq_info.get("channels", [])):
+                if ch_name in custom_denoise_settings:
+                    ch_img = img_stack[..., idx]
+                    denoised_img = _apply_denoise_to_channel(ch_img, ch_name, custom_denoise_settings[ch_name])
+                    img_stack[..., idx] = denoised_img
+        
         if arcsinh_enabled:
             print(f"[feature_worker] Applying arcsinh normalization with cofactor={cofactor}")
             img_stack = arcsinh_normalize(img_stack, cofactor=cofactor)

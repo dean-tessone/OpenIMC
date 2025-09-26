@@ -41,6 +41,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Cell Clustering Analysis")
         self.setModal(True)
+        
+        # Set size to 90% of parent window if available
+        if parent is not None:
+            parent_size = parent.size()
+            dialog_width = int(parent_size.width() * 0.9)
+            dialog_height = int(parent_size.height() * 0.9)
+            self.resize(dialog_width, dialog_height)
+        
         self.setMinimumSize(800, 600)
         self.feature_dataframe = feature_dataframe
         self.cluster_labels = None
@@ -157,7 +165,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         viz_layout = QtWidgets.QHBoxLayout()
         viz_layout.addWidget(QtWidgets.QLabel("View:"))
         self.view_combo = QtWidgets.QComboBox()
-        self.view_combo.addItems(["Heatmap", "UMAP", "Stacked Bars"])
+        self.view_combo.addItems(["Heatmap", "UMAP", "Stacked Bars", "Differential Expression"])
         self.view_combo.currentTextChanged.connect(self._on_view_changed)
         viz_layout.addWidget(self.view_combo)
 
@@ -181,6 +189,33 @@ class CellClusteringDialog(QtWidgets.QDialog):
         for col in available_group_cols:
             self.group_by_combo.addItem(col)
         viz_layout.addWidget(self.group_by_combo)
+
+        # Colormap selector (for heatmaps and differential expression)
+        viz_layout.addWidget(QtWidgets.QLabel("Colormap:"))
+        self.colormap_combo = QtWidgets.QComboBox()
+        self.colormap_combo.addItems([
+            "RdBu_r (Red-White-Blue)",
+            "viridis (Purple-Green-Yellow)", 
+            "plasma (Purple-Pink-Yellow)",
+            "inferno (Purple-Red-Yellow)",
+            "Blues (Light-Dark Blue)",
+            "Reds (Light-Dark Red)",
+            "Greens (Light-Dark Green)",
+            "Oranges (Light-Dark Orange)",
+            "Purples (Light-Dark Purple)"
+        ])
+        self.colormap_combo.setCurrentText("RdBu_r (Red-White-Blue)")
+        self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
+        viz_layout.addWidget(self.colormap_combo)
+
+        # Top N markers selector (for differential expression only)
+        viz_layout.addWidget(QtWidgets.QLabel("Top N:"))
+        self.top_n_spinbox = QtWidgets.QSpinBox()
+        self.top_n_spinbox.setMinimum(1)
+        self.top_n_spinbox.setMaximum(20)
+        self.top_n_spinbox.setValue(5)
+        self.top_n_spinbox.valueChanged.connect(self._on_top_n_changed)
+        viz_layout.addWidget(self.top_n_spinbox)
 
         viz_layout.addStretch()
 
@@ -288,13 +323,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for clustering.")
                 return
             
+            # Clear canvas before clustering
+            self.figure.clear()
+            self.canvas.draw()
+            
             # Perform clustering
             self.clustered_data, self.cluster_labels = self._perform_clustering(data, n_clusters, cluster_method)
             
             # Default to heatmap view after clustering
-            print("Creating heatmap...")
             self._create_heatmap()
-            print("Heatmap creation completed")
+            
+            # Force canvas refresh
+            self.canvas.draw()
             
             # Enable buttons
             self.explore_btn.setEnabled(True)
@@ -312,7 +352,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
     
     def _list_available_feature_columns(self, include_morpho):
         marker_cols = [col for col in self.feature_dataframe.columns 
-                      if any(suffix in col for suffix in ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos'])]
+                      if any(col.endswith(suffix) for suffix in ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos'])]
         morpho_cols = []
         if include_morpho:
             morpho_cols = [col for col in self.feature_dataframe.columns 
@@ -325,17 +365,41 @@ class CellClusteringDialog(QtWidgets.QDialog):
     def _prepare_clustering_data(self, agg_method, include_morpho, selected_columns):
         """Prepare data for clustering."""
         feature_cols = list(selected_columns or [])
+        
         if not feature_cols:
+            return None
+        
+        # Check if all selected columns exist in the dataframe
+        missing_cols = [col for col in feature_cols if col not in self.feature_dataframe.columns]
+        if missing_cols:
             return None
         
         # Extract data
         data = self.feature_dataframe[feature_cols].copy()
-        
         # Handle missing/infinite values safely
         data = data.replace([np.inf, -np.inf], np.nan).fillna(data.median(numeric_only=True))
         
         # Normalize data (z-score) and drop any residual non-finite rows/cols
-        data = (data - data.mean()) / data.std(ddof=0)
+        # Handle columns with zero variance (all values are the same)
+        data_means = data.mean()
+        data_stds = data.std(ddof=0)
+
+        # For columns with zero variance, set them to 0 (centered but not scaled)
+        zero_var_cols = data_stds == 0
+        if zero_var_cols.any():
+            # Set zero variance columns to 0 (centered)
+            data.loc[:, zero_var_cols] = 0
+            # Only normalize non-zero variance columns
+            non_zero_var_cols = ~zero_var_cols
+            if non_zero_var_cols.any():
+                # Ensure dtype compatibility by converting to float64 for calculation, then back to original dtype
+                normalized_data = (data.loc[:, non_zero_var_cols] - data_means[non_zero_var_cols]) / data_stds[non_zero_var_cols]
+                data.loc[:, non_zero_var_cols] = normalized_data.astype(data.dtypes[non_zero_var_cols])
+        else:
+            # Normalize all columns normally
+            normalized_data = (data - data_means) / data_stds
+            data = normalized_data.astype(data.dtypes)
+        
         data = data.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how='any').dropna(axis=1, how='any')
         
         # Guard: require at least 2 rows and 2 columns to compute distances
@@ -436,16 +500,22 @@ class CellClusteringDialog(QtWidgets.QDialog):
     
     def _create_heatmap(self):
         """Create the heatmap visualization."""
-        print(f"Creating heatmap, seaborn available: {_HAVE_SEABORN}")
         self.figure.clear()
+        
+        # Check if clustered_data exists
+        if self.clustered_data is None:
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, "No clustered data available.\nPlease run clustering first.", 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=12)
+            ax.set_title("Heatmap")
+            self.canvas.draw()
+            return
         
         # Use seaborn if available, otherwise fall back to matplotlib
         if _HAVE_SEABORN:
-            print("Using seaborn implementation")
             self._create_seaborn_heatmap()
             return
         
-        print("Using matplotlib implementation")
         # Create single heatmap plot - no subplots needed
         ax_heatmap = self.figure.add_subplot(111)
 
@@ -455,8 +525,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
 
         # No dendrograms - just show the heatmap data as-is
 
-        # Create heatmap
-        im = ax_heatmap.imshow(heatmap_data.T, aspect='auto', cmap='viridis', interpolation='nearest')
+        # Create heatmap with user-selected colormap
+        colormap_name = self._get_colormap_name()
+        im = ax_heatmap.imshow(heatmap_data.T, aspect='auto', cmap=colormap_name, interpolation='nearest')
 
         # Set labels only; tick order should follow row order in clustered_data
         ax_heatmap.set_xlabel('Cells')
@@ -497,12 +568,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
     def _create_seaborn_heatmap(self):
         """Create heatmap using seaborn clustermap with color bars."""
         try:
-            print("Starting seaborn heatmap creation")
+            # Check if clustered_data exists
+            if self.clustered_data is None:
+                self._create_matplotlib_heatmap()
+                return
             # Prepare data for heatmap (exclude cluster column)
             feature_cols = [c for c in self.clustered_data.columns if c != 'cluster']
             heatmap_data = self.clustered_data[feature_cols]
-            print(f"Feature columns: {feature_cols}")
-            print(f"Heatmap data shape: {heatmap_data.shape}")
             
             # Create cluster color mapping
             unique_clusters = sorted(self.clustered_data['cluster'].unique())
@@ -527,16 +599,24 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 col_cluster = (self.dendro_mode.currentText() == "Rows and columns")
                 linkage_method = self.hierarchical_method.currentText()
             
+            # Get canvas size to determine appropriate figure size
+            canvas_width = self.canvas.width()
+            canvas_height = self.canvas.height()
+            # Convert pixels to inches (assuming 100 DPI)
+            fig_width = max(8, canvas_width / 100)
+            fig_height = max(6, canvas_height / 100)
+            
             # Create clustermap with appropriate parameters
+            colormap_name = self._get_colormap_name()
             g = sns.clustermap(
                 heatmap_data.T,  # Transpose for features as rows, cells as columns
-                cmap='viridis',
+                cmap=colormap_name,
                 row_cluster=row_cluster,
                 col_cluster=col_cluster,
                 method=linkage_method,
                 metric='euclidean',
                 cbar_kws={'label': 'Normalized Feature Value'},
-                figsize=(10, 6),  # Smaller figure size to fit window better
+                figsize=(fig_width, fig_height),  # Dynamic figure size based on canvas
                 col_colors=cluster_colors_series  # This creates the color bar
             )
             
@@ -555,29 +635,37 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.figure = g.fig
             self.canvas.figure = self.figure
             
+            # Use tight layout to maximize plot area
+            self.figure.tight_layout(pad=1.0)
+            
             # Close the old figure to free memory
             plt.close(old_figure)
             
             # Force canvas update
-            print("Calling canvas.draw()...")
             self.canvas.draw()
-            print("Canvas draw completed")
-            print("Seaborn heatmap created successfully")
             
         except Exception as e:
-            print(f"Error creating seaborn heatmap: {e}")
-            print("Falling back to matplotlib implementation")
             # Fall back to matplotlib implementation
             self._create_matplotlib_heatmap()
     
     def _create_matplotlib_heatmap(self):
         """Fallback heatmap using matplotlib (original implementation)."""
-        print("Creating matplotlib heatmap")
+        # Check if clustered_data exists
+        if self.clustered_data is None:
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, "No clustered data available.\nPlease run clustering first.", 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=12)
+            ax.set_title("Heatmap")
+            self.canvas.draw()
+            return
         # Create subplots - simplified layout without cluster size bar
-        gs = self.figure.add_gridspec(2, 1, height_ratios=[1, 4], hspace=0.3)
+        gs = self.figure.add_gridspec(1, 1, hspace=0.1, wspace=0.1)
         
-        # Main heatmap
-        ax_heatmap = self.figure.add_subplot(gs[1])
+        # Main heatmap - use full figure area
+        ax_heatmap = self.figure.add_subplot(gs[0])
+        
+        # Use tight layout to maximize plot area
+        self.figure.tight_layout(pad=1.0)
         
         # Prepare data for heatmap (exclude cluster column)
         feature_cols = [c for c in self.clustered_data.columns if c != 'cluster']
@@ -585,13 +673,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
 
         # No dendrograms - just show the heatmap data as-is
         
-        # Create heatmap
-        im = ax_heatmap.imshow(heatmap_data.T, aspect='auto', cmap='viridis', interpolation='nearest')
+        # Create heatmap with user-selected colormap
+        colormap_name = self._get_colormap_name()
+        im = ax_heatmap.imshow(heatmap_data.T, aspect='auto', cmap=colormap_name, interpolation='nearest')
         
         # Set labels and ticks
         ax_heatmap.set_xlabel('Cells')
         ax_heatmap.set_ylabel('Features')
-        print(f"Setting y-ticks for {len(feature_cols)} features")
         ax_heatmap.set_yticks(np.arange(len(feature_cols)))
         ax_heatmap.set_yticklabels(feature_cols, fontsize=6, rotation=0)
         
@@ -623,7 +711,6 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Cluster size bar removed - using color bars for cluster identity instead
         
         self.canvas.draw()
-        print("Matplotlib heatmap created successfully")
     
     def _add_cluster_legend(self, g, cluster_color_map):
         """Add cluster legend to seaborn clustermap."""
@@ -670,8 +757,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for UMAP analysis.")
                 return
             
+            # Clear canvas before UMAP
+            self.figure.clear()
+            self.canvas.draw()
+            
             # Perform UMAP
-            print(f"Running UMAP on {data.shape[0]} cells with {data.shape[1]} features...")
             reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
             self.umap_embedding = reducer.fit_transform(data.values)
             # Persist for coloring
@@ -681,6 +771,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             # Create UMAP plot
             self._create_umap_plot()
+            
+            # Force canvas refresh
+            self.canvas.draw()
             
             # Populate color-by options
             self._populate_color_by_options()
@@ -699,6 +792,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
 
     def _on_view_changed(self, view: str):
         """Switch visualization based on selected view and manage dependencies."""
+        # Clear canvas before switching views
+        self.figure.clear()
+        self.canvas.draw()
+        
         self._update_viz_controls_visibility()
         if view == 'Heatmap':
             self._show_heatmap()
@@ -709,6 +806,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 self._create_umap_plot()
         elif view == 'Stacked Bars':
             self._show_stacked_bars()
+        elif view == 'Differential Expression':
+            self._show_differential_expression()
+        
+        # Force canvas refresh after view change
+        self.canvas.draw()
+        
         # Enable save if there is content
         self.save_plot_btn.setEnabled(True)
 
@@ -721,6 +824,34 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.color_by_combo.setVisible(view == 'UMAP')
         # Group-by visible only for Stacked Bars
         self.group_by_combo.setVisible(view == 'Stacked Bars')
+        # Colormap visible for Heatmap and Differential Expression
+        self.colormap_combo.setVisible(view in ['Heatmap', 'Differential Expression'])
+        # Top N visible only for Differential Expression
+        self.top_n_spinbox.setVisible(view == 'Differential Expression')
+    
+    def _on_colormap_changed(self, _text: str):
+        """Handle colormap selection change."""
+        # Refresh the current view if it uses colormaps
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        if view in ['Heatmap', 'Differential Expression']:
+            if view == 'Heatmap':
+                self._show_heatmap()
+            elif view == 'Differential Expression':
+                self._show_differential_expression()
+    
+    def _on_top_n_changed(self, _value: int):
+        """Handle top N markers selection change."""
+        # Refresh the differential expression view
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        if view == 'Differential Expression':
+            self._show_differential_expression()
+    
+    def _get_colormap_name(self):
+        """Get the matplotlib colormap name from the combo box selection."""
+        colormap_text = self.colormap_combo.currentText()
+        # Extract the colormap name (part before the parenthesis)
+        colormap_name = colormap_text.split(' (')[0]
+        return colormap_name
     
     def _create_umap_plot(self):
         """Create UMAP scatter plot."""
@@ -728,7 +859,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             return
         
         self.figure.clear()
+        # Use tight layout to maximize plot area
         ax = self.figure.add_subplot(111)
+        self.figure.tight_layout(pad=1.0)
         
         # Determine coloring
         color_by = self.color_by_combo.currentText() if hasattr(self, 'color_by_combo') else 'Cluster'
@@ -838,6 +971,131 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.canvas.draw()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error creating stacked bars: {str(e)}")
+
+    def _show_differential_expression(self):
+        """Show differential expression heatmap showing top 5 markers per cluster."""
+        if self.clustered_data is None or 'cluster' not in self.clustered_data.columns:
+            QtWidgets.QMessageBox.warning(self, "No Clustering", "Please run clustering first to view differential expression.")
+            return
+        
+        try:
+            # Get feature columns (exclude cluster and metadata columns)
+            feature_cols = [col for col in self.clustered_data.columns 
+                           if col != 'cluster' and not col.startswith('acquisition_')]
+            
+            if not feature_cols:
+                QtWidgets.QMessageBox.warning(self, "No Features", "No features available for differential expression analysis.")
+                return
+            
+            # Calculate mean expression per cluster for each feature
+            cluster_means = self.clustered_data.groupby('cluster')[feature_cols].mean()
+            
+            # Calculate differential expression (z-score across clusters for each feature)
+            # This shows which features are most variable across clusters
+            feature_means = cluster_means.mean(axis=0)  # Mean across clusters
+            feature_stds = cluster_means.std(axis=0)    # Std across clusters
+            
+            # Avoid division by zero
+            feature_stds = feature_stds.replace(0, 1)
+            
+            # Z-score normalization: (value - mean) / std
+            differential_scores = (cluster_means - feature_means) / feature_stds
+            
+            # Find top N markers FOR EACH cluster individually
+            # Get the user-selected number of top markers
+            top_n = self.top_n_spinbox.value()
+            
+            # For each cluster, find the top N features with highest z-scores
+            cluster_top_features = {}
+            top_features = []
+            
+            # Sort clusters for consistent ordering
+            sorted_clusters = sorted(differential_scores.index)
+            
+            for cluster_id in sorted_clusters:
+                # Get z-scores for this cluster
+                cluster_scores = differential_scores.loc[cluster_id]
+                # Sort by z-score (descending) and take top N
+                top_n_for_cluster = cluster_scores.nlargest(top_n).index.tolist()
+                cluster_top_features[cluster_id] = top_n_for_cluster
+                # Add features for this cluster to the ordered list
+                top_features.extend(top_n_for_cluster)
+            
+            if not top_features:
+                QtWidgets.QMessageBox.warning(self, "No Features", "No features found for differential expression analysis.")
+                return
+            
+            # Create heatmap data with all top features
+            heatmap_data = differential_scores[top_features]
+            
+            # Create the plot
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            
+            # Create heatmap with user-selected colormap
+            colormap_name = self._get_colormap_name()
+            im = ax.imshow(heatmap_data.T, cmap=colormap_name, aspect='auto', 
+                          vmin=-3, vmax=3)  # Limit color scale to ±3 z-scores
+            
+            # Set labels
+            ax.set_xticks(range(len(heatmap_data.index)))
+            ax.set_xticklabels([f'Cluster {i}' for i in heatmap_data.index])
+            ax.set_yticks(range(len(heatmap_data.columns)))
+            ax.set_yticklabels(heatmap_data.columns, rotation=0)
+            
+            # Add colorbar
+            cbar = self.figure.colorbar(im, ax=ax, shrink=0.8)
+            cbar.set_label('Z-score (Differential Expression)', rotation=270, labelpad=20)
+            
+            # Add title and labels
+            ax.set_title(f'Top {top_n} Differential Expression Markers per Cluster')
+            ax.set_xlabel('Clusters')
+            ax.set_ylabel('Features')
+            
+            # Add text annotations showing actual z-scores
+            # Also highlight the top N markers for each cluster
+            for i in range(len(heatmap_data.index)):
+                cluster_id = heatmap_data.index[i]
+                top_n_for_this_cluster = cluster_top_features[cluster_id]
+                
+                for j in range(len(heatmap_data.columns)):
+                    feature_name = heatmap_data.columns[j]
+                    value = heatmap_data.iloc[i, j]
+                    
+                    # Color text based on background
+                    text_color = 'white' if abs(value) > 1.5 else 'black'
+                    
+                    # Make top N markers for this cluster more prominent
+                    fontweight = 'bold'
+                    fontsize = 9
+                    if feature_name in top_n_for_this_cluster:
+                        # Highlight top N markers with larger, bolder text
+                        fontweight = 'bold'
+                        fontsize = 10
+                        # Add a subtle background highlight
+                        ax.add_patch(plt.Rectangle((i-0.4, j-0.4), 0.8, 0.8, 
+                                                 fill=False, edgecolor='black', 
+                                                 linewidth=2, alpha=0.7))
+                    
+                    ax.text(i, j, f'{value:.2f}', ha='center', va='center', 
+                           color=text_color, fontsize=fontsize, fontweight=fontweight)
+            
+            # Rotate x-axis labels for better readability
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            
+            # Add explanation text below the colorbar
+            explanation_text = (f"Black boxes highlight the top {top_n} markers for each cluster.\n"
+                              "Z-scores show how much each cluster differs from the overall mean.")
+            # Position text below the colorbar
+            ax.text(1.02, -0.15, explanation_text, transform=ax.transAxes, 
+                   fontsize=8, verticalalignment='top', horizontalalignment='left',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            self.figure.tight_layout()
+            self.canvas.draw()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error creating differential expression heatmap: {str(e)}")
 
     def _open_gating_dialog(self):
         """Open gating rules editor and apply on save."""
@@ -1082,6 +1340,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             default = 'cell_clustering_heatmap.png'
         elif view == 'Stacked Bars':
             default = 'stacked_bars.png'
+        elif view == 'Differential Expression':
+            default = 'differential_expression_heatmap.png'
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save Plot", default,
             "PNG Files (*.png)"
@@ -1102,6 +1362,14 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Cluster Explorer")
         self.setModal(True)
+        
+        # Set size to 90% of parent window if available
+        if parent is not None:
+            parent_size = parent.size()
+            dialog_width = int(parent_size.width() * 0.9)
+            dialog_height = int(parent_size.height() * 0.9)
+            self.resize(dialog_width, dialog_height)
+        
         self.setMinimumSize(1000, 700)
         self.cluster_info = cluster_info
         self.feature_dataframe = feature_dataframe
@@ -1195,11 +1463,16 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
     def _populate_channels(self):
         """Populate channel combo box with available channels."""
         # Get channels from feature dataframe columns
+        # Look for any intensity feature suffix to identify channels
+        intensity_suffixes = ['_mean', '_std', '_p10', '_p90', '_integrated', '_frac_pos', '_median', '_mad']
         channels = set()
+        
         for col in self.feature_dataframe.columns:
-            if '_mean' in col:
-                channel = col.replace('_mean', '')
-                channels.add(channel)
+            for suffix in intensity_suffixes:
+                if col.endswith(suffix):
+                    channel = col[:-len(suffix)]  # Remove the suffix to get channel name
+                    channels.add(channel)
+                    break  # Found a match, no need to check other suffixes
         
         # Add channels (RGB mode is controlled by checkbox)
         self.channel_combo.addItems(sorted(channels))
@@ -1364,10 +1637,13 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
             else:
                 # Fallback to automatic channel detection
                 channels = set()
+                intensity_suffixes = ['_mean', '_std', '_p10', '_p90', '_integrated', '_frac_pos', '_median', '_mad']
                 for col in self.feature_dataframe.columns:
-                    if '_mean' in col:
-                        channel = col.replace('_mean', '')
-                        channels.add(channel)
+                    for suffix in intensity_suffixes:
+                        if col.endswith(suffix):
+                            channel = col[:-len(suffix)]  # Remove the suffix to get channel name
+                            channels.add(channel)
+                            break  # Found a match, no need to check other suffixes
                 
                 # Try to find RGB channels (common naming patterns)
                 rgb_channels = []
@@ -1438,6 +1714,14 @@ class GatingRulesDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Manual Gating Rules")
         self.setModal(True)
+        
+        # Set size to 90% of parent window if available
+        if parent is not None:
+            parent_size = parent.size()
+            dialog_width = int(parent_size.width() * 0.9)
+            dialog_height = int(parent_size.height() * 0.9)
+            self.resize(dialog_width, dialog_height)
+        
         self.setMinimumSize(700, 500)
         self._available_columns = list(sorted(set(available_columns)))
         self._rules = [r.copy() for r in (rules or [])]

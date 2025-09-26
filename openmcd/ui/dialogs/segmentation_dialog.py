@@ -1,7 +1,7 @@
 from typing import List
 
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 
 # Data types
 from openmcd.data.mcd_loader import AcquisitionInfo, MCDLoader  # noqa: F401
@@ -16,6 +16,23 @@ try:
 except Exception:
     _HAVE_TORCH = False
 
+# Optional scikit-image for denoising
+try:
+    from skimage import morphology, filters
+    from skimage.filters import gaussian, median
+    from skimage.morphology import disk, footprint_rectangle
+    from skimage.restoration import denoise_nl_means, estimate_sigma
+    from scipy import ndimage as ndi
+    try:
+        from skimage.restoration import rolling_ball as _sk_rolling_ball  # type: ignore
+        _HAVE_ROLLING_BALL = True
+    except Exception:
+        _HAVE_ROLLING_BALL = False
+    _HAVE_SCIKIT_IMAGE = True
+except ImportError:
+    _HAVE_SCIKIT_IMAGE = False
+    _HAVE_ROLLING_BALL = False
+
 
 
 class SegmentationDialog(QtWidgets.QDialog):
@@ -23,7 +40,17 @@ class SegmentationDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Cell Segmentation")
         self.setModal(True)
-        self.setMinimumSize(500, 400)
+        
+        # Set dialog size to 90% of parent window size
+        if parent:
+            parent_size = parent.size()
+            dialog_width = int(parent_size.width() * 0.9)
+            dialog_height = int(parent_size.height() * 0.9)
+            self.resize(dialog_width, dialog_height)
+        else:
+            self.resize(800, 700)  # Fallback size if no parent
+        
+        self.setMinimumSize(600, 500)
         self.channels = channels
         # Persist selections per MCD file (by path on parent window)
         self._per_file_channel_prefs = {}
@@ -32,6 +59,46 @@ class SegmentationDialog(QtWidgets.QDialog):
         
         # Create UI
         self._create_ui()
+        
+        # Load persisted channel selections for this MCD file
+        self._load_persisted_selections()
+    
+    def _load_persisted_selections(self):
+        """Load previously saved channel selections for the current MCD file."""
+        mcd_key = getattr(self.parent(), 'current_path', None)
+        if not mcd_key:
+            return
+            
+        prefs = self._per_file_channel_prefs.get(mcd_key, {})
+        if not prefs:
+            return
+            
+        # Restore preprocessing config if available
+        if 'preprocessing_config' in prefs:
+            self.preprocessing_config = prefs['preprocessing_config']
+            
+        # Restore model selection if available
+        if 'model' in prefs:
+            model_index = self.model_combo.findText(prefs['model'])
+            if model_index >= 0:
+                self.model_combo.setCurrentIndex(model_index)
+        
+    def _save_persisted_selections(self):
+        """Save current selections for the current MCD file."""
+        mcd_key = getattr(self.parent(), 'current_path', None)
+        if not mcd_key:
+            return
+            
+        # Save current selections
+        self._per_file_channel_prefs[mcd_key] = {
+            'model': self.model_combo.currentText(),
+            'preprocessing_config': self.preprocessing_config
+        }
+    
+    def accept(self):
+        """Override accept to save selections before closing."""
+        self._save_persisted_selections()
+        super().accept()
         
     def _create_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -53,17 +120,12 @@ class SegmentationDialog(QtWidgets.QDialog):
         
         layout.addWidget(model_group)
         
-        # Preprocessing button
+        # Preprocessing and Denoising section
         preprocess_group = QtWidgets.QGroupBox("Image Preprocessing")
         preprocess_layout = QtWidgets.QVBoxLayout(preprocess_group)
         
-        # Use viewer denoising toggle
-        self.use_viewer_denoise_chk = QtWidgets.QCheckBox("Use viewer denoising for selected channels")
-        self.use_viewer_denoise_chk.setChecked(False)
-        self.use_viewer_denoise_chk.setToolTip("Apply the current per-channel denoising settings from the main viewer during segmentation preprocessing.")
-        preprocess_layout.addWidget(self.use_viewer_denoise_chk)
-        
-        preprocess_btn = QtWidgets.QPushButton("Configure Preprocessing...")
+        # Preprocessing button
+        preprocess_btn = QtWidgets.QPushButton("Configure Segmentation...")
         preprocess_btn.clicked.connect(self._open_preprocessing_dialog)
         preprocess_layout.addWidget(preprocess_btn)
         
@@ -72,6 +134,129 @@ class SegmentationDialog(QtWidgets.QDialog):
         self.preprocess_info_label.setWordWrap(True)
         preprocess_layout.addWidget(self.preprocess_info_label)
         
+        # Denoising options
+        denoise_frame = QtWidgets.QFrame()
+        denoise_layout = QtWidgets.QVBoxLayout(denoise_frame)
+        denoise_layout.setContentsMargins(0, 10, 0, 0)
+        
+        # Denoising source selection
+        denoise_source_layout = QtWidgets.QHBoxLayout()
+        denoise_source_layout.addWidget(QtWidgets.QLabel("Denoising:"))
+        self.denoise_source_combo = QtWidgets.QComboBox()
+        self.denoise_source_combo.addItems(["None", "Use viewer settings", "Use custom settings"])
+        self.denoise_source_combo.currentTextChanged.connect(self._on_denoise_source_changed)
+        denoise_source_layout.addWidget(self.denoise_source_combo)
+        denoise_source_layout.addStretch()
+        denoise_layout.addLayout(denoise_source_layout)
+        
+        # Custom denoising frame (hidden by default)
+        self.custom_denoise_frame = QtWidgets.QFrame()
+        self.custom_denoise_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        self.custom_denoise_frame.setStyleSheet("QFrame { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; }")
+        custom_denoise_layout = QtWidgets.QVBoxLayout(self.custom_denoise_frame)
+        custom_denoise_layout.setContentsMargins(10, 10, 10, 10)
+        custom_denoise_layout.setSpacing(8)
+        
+        # Add a title label
+        title_label = QtWidgets.QLabel("Custom Denoising Settings")
+        title_label.setStyleSheet("QLabel { font-weight: bold; color: #495057; }")
+        custom_denoise_layout.addWidget(title_label)
+        
+        custom_denoise_layout.addWidget(QtWidgets.QLabel("Configure denoising parameters for each channel:"))
+        
+        # Channel dropdown for custom denoising
+        denoise_channel_row = QtWidgets.QHBoxLayout()
+        denoise_channel_row.addWidget(QtWidgets.QLabel("Channel:"))
+        self.denoise_channel_combo = QtWidgets.QComboBox()
+        self.denoise_channel_combo.currentTextChanged.connect(self._on_denoise_channel_changed)
+        denoise_channel_row.addWidget(self.denoise_channel_combo, 1)
+        custom_denoise_layout.addLayout(denoise_channel_row)
+        
+        # Hot pixel removal
+        hot_group = QtWidgets.QGroupBox("Hot Pixel Removal")
+        hot_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        hot_layout = QtWidgets.QVBoxLayout(hot_group)
+        hot_layout.setContentsMargins(8, 8, 8, 8)
+        
+        self.hot_pixel_chk = QtWidgets.QCheckBox("Enable hot pixel removal")
+        self.hot_pixel_method_combo = QtWidgets.QComboBox()
+        self.hot_pixel_method_combo.addItems(["Median 3x3", ">N SD above local median"])
+        self.hot_pixel_n_spin = QtWidgets.QDoubleSpinBox()
+        self.hot_pixel_n_spin.setRange(0.5, 10.0)
+        self.hot_pixel_n_spin.setDecimals(1)
+        self.hot_pixel_n_spin.setValue(5.0)
+        hot_row = QtWidgets.QHBoxLayout()
+        hot_row.addWidget(self.hot_pixel_chk)
+        hot_row.addWidget(self.hot_pixel_method_combo)
+        self.hot_pixel_n_label = QtWidgets.QLabel("N:")
+        hot_row.addWidget(self.hot_pixel_n_label)
+        hot_row.addWidget(self.hot_pixel_n_spin)
+        hot_row.addStretch()
+        hot_layout.addLayout(hot_row)
+        custom_denoise_layout.addWidget(hot_group)
+        
+        # Speckle smoothing
+        speckle_group = QtWidgets.QGroupBox("Speckle Smoothing")
+        speckle_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        speckle_layout = QtWidgets.QVBoxLayout(speckle_group)
+        speckle_layout.setContentsMargins(8, 8, 8, 8)
+        
+        self.speckle_chk = QtWidgets.QCheckBox("Enable speckle smoothing")
+        self.speckle_method_combo = QtWidgets.QComboBox()
+        self.speckle_method_combo.addItems(["Gaussian", "Non-local means (slow)"])
+        self.gaussian_sigma_spin = QtWidgets.QDoubleSpinBox()
+        self.gaussian_sigma_spin.setRange(0.1, 5.0)
+        self.gaussian_sigma_spin.setDecimals(2)
+        self.gaussian_sigma_spin.setValue(0.8)
+        self.gaussian_sigma_spin.setSingleStep(0.1)
+        speckle_row = QtWidgets.QHBoxLayout()
+        speckle_row.addWidget(self.speckle_chk)
+        speckle_row.addWidget(self.speckle_method_combo)
+        speckle_row.addWidget(QtWidgets.QLabel("σ:"))
+        speckle_row.addWidget(self.gaussian_sigma_spin)
+        speckle_row.addStretch()
+        speckle_layout.addLayout(speckle_row)
+        custom_denoise_layout.addWidget(speckle_group)
+        
+        # Background subtraction
+        bg_group = QtWidgets.QGroupBox("Background Subtraction")
+        bg_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        bg_layout = QtWidgets.QVBoxLayout(bg_group)
+        bg_layout.setContentsMargins(8, 8, 8, 8)
+        
+        self.bg_subtract_chk = QtWidgets.QCheckBox("Enable background subtraction")
+        self.bg_method_combo = QtWidgets.QComboBox()
+        self.bg_method_combo.addItems(["White top-hat", "Black top-hat", "Rolling ball (approx)"])
+        self.bg_radius_spin = QtWidgets.QSpinBox()
+        self.bg_radius_spin.setRange(1, 100)
+        self.bg_radius_spin.setValue(15)
+        bg_row = QtWidgets.QHBoxLayout()
+        bg_row.addWidget(self.bg_subtract_chk)
+        bg_row.addWidget(self.bg_method_combo)
+        bg_row.addWidget(QtWidgets.QLabel("radius:"))
+        bg_row.addWidget(self.bg_radius_spin)
+        bg_row.addStretch()
+        bg_layout.addLayout(bg_row)
+        custom_denoise_layout.addWidget(bg_group)
+        
+        # Apply to all channels button
+        self.apply_all_channels_btn = QtWidgets.QPushButton("Apply to All Channels")
+        self.apply_all_channels_btn.setStyleSheet("QPushButton { background-color: #007bff; color: white; font-weight: bold; padding: 8px; border-radius: 4px; } QPushButton:hover { background-color: #0056b3; }")
+        self.apply_all_channels_btn.clicked.connect(self._apply_denoise_to_all_channels)
+        custom_denoise_layout.addWidget(self.apply_all_channels_btn)
+        
+        # Initialize custom denoising settings storage
+        self.custom_denoise_settings = {}
+        
+        # Disable custom denoising panel if scikit-image is missing
+        if not _HAVE_SCIKIT_IMAGE:
+            self.custom_denoise_frame.setEnabled(False)
+            custom_denoise_layout.addWidget(QtWidgets.QLabel("scikit-image not available; install to enable custom denoising."))
+        
+        denoise_layout.addWidget(self.custom_denoise_frame)
+        preprocess_layout.addWidget(denoise_frame)
+        
+        # Add preprocessing group to main layout
         layout.addWidget(preprocess_group)
         
         # Parameters
@@ -197,8 +382,10 @@ class SegmentationDialog(QtWidgets.QDialog):
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
         self.segment_btn = QtWidgets.QPushButton("Run Segmentation")
+        self.segment_btn.setStyleSheet("QPushButton { background-color: #28a745; color: white; font-weight: bold; padding: 10px 20px; border-radius: 5px; } QPushButton:hover { background-color: #218838; } QPushButton:pressed { background-color: #1e7e34; }")
         self.segment_btn.clicked.connect(self.accept)
         self.cancel_btn = QtWidgets.QPushButton("Cancel")
+        self.cancel_btn.setStyleSheet("QPushButton { background-color: #dc3545; color: white; font-weight: bold; padding: 10px 20px; border-radius: 5px; } QPushButton:hover { background-color: #c82333; } QPushButton:pressed { background-color: #bd2130; }")
         self.cancel_btn.clicked.connect(self.reject)
         
         button_layout.addWidget(self.segment_btn)
@@ -211,6 +398,11 @@ class SegmentationDialog(QtWidgets.QDialog):
         self._detect_and_populate_gpus()
         self.gpu_combo.currentTextChanged.connect(self._on_gpu_selection_changed)
         self._on_segment_all_toggled()
+        
+        # Initialize denoising
+        self._populate_denoise_channel_list()
+        self._on_denoise_source_changed()
+        self._sync_hot_controls_visibility()
         
     def _on_model_changed(self):
         """Update UI when model selection changes."""
@@ -315,7 +507,7 @@ class SegmentationDialog(QtWidgets.QDialog):
         """Open the preprocessing configuration dialog."""
         dlg = PreprocessingDialog(self.channels, self)
         # Apply persisted selections for current MCD file if available
-        mcd_key = getattr(self.parent(), 'mcd_path', None)
+        mcd_key = getattr(self.parent(), 'current_path', None)
         prefs = self._per_file_channel_prefs.get(mcd_key, {}) if mcd_key else {}
         if 'nuclear_channels' in prefs:
             dlg.set_nuclear_channels(prefs['nuclear_channels'])
@@ -380,11 +572,14 @@ class SegmentationDialog(QtWidgets.QDialog):
 
     def set_use_viewer_denoising(self, enabled: bool):
         """Initialize the 'use viewer denoising' toggle state."""
-        self.use_viewer_denoise_chk.setChecked(bool(enabled))
+        if enabled:
+            self.denoise_source_combo.setCurrentText("Use viewer settings")
+        else:
+            self.denoise_source_combo.setCurrentText("None")
 
     def get_use_viewer_denoising(self) -> bool:
         """Return whether to use viewer denoising during segmentation."""
-        return self.use_viewer_denoise_chk.isChecked()
+        return self.denoise_source_combo.currentText() == "Use viewer settings"
     
     def _on_segment_all_toggled(self):
         """Update UI when segment all checkbox is toggled."""
@@ -432,6 +627,179 @@ class SegmentationDialog(QtWidgets.QDialog):
             else:
                 # Fallback to .mcd file directory
                 parent = self.parent()
-                if hasattr(parent, 'mcd_path') and parent.mcd_path:
-                    return os.path.dirname(parent.mcd_path)
+                if hasattr(parent, 'current_path') and parent.current_path:
+                    return os.path.dirname(parent.current_path)
         return None
+    
+    # ---------- Denoising Methods ----------
+    def _populate_denoise_channel_list(self):
+        """Populate the denoise channel combo with available channels."""
+        self.denoise_channel_combo.blockSignals(True)
+        self.denoise_channel_combo.clear()
+        for ch in self.channels:
+            self.denoise_channel_combo.addItem(ch)
+        self.denoise_channel_combo.blockSignals(False)
+        if self.channels:
+            self.denoise_channel_combo.setCurrentIndex(0)
+            self._load_denoise_settings()
+    
+    def _on_denoise_source_changed(self):
+        """Handle changes to the denoising source selection."""
+        source = self.denoise_source_combo.currentText()
+        use_custom = source == "Use custom settings"
+        self.custom_denoise_frame.setVisible(use_custom)
+        
+        # Adjust dialog size when custom denoising is shown/hidden
+        if self.parent():
+            parent_size = self.parent().size()
+            if use_custom:
+                # Use 90% of parent size for custom denoising
+                dialog_width = int(parent_size.width() * 0.9)
+                dialog_height = int(parent_size.height() * 0.9)
+                self.resize(dialog_width, dialog_height)
+            else:
+                # Use 80% of parent size for basic view
+                dialog_width = int(parent_size.width() * 0.8)
+                dialog_height = int(parent_size.height() * 0.8)
+                self.resize(dialog_width, dialog_height)
+    
+    def _on_denoise_channel_changed(self):
+        """Handle changes to the denoise channel selection."""
+        self._load_denoise_settings()
+    
+    def _load_denoise_settings(self):
+        """Load saved denoise settings for the currently selected denoise channel into the UI."""
+        ch = self.denoise_channel_combo.currentText()
+        if not ch:
+            return
+        cfg = self.custom_denoise_settings.get(ch, {})
+        hot = cfg.get("hot")
+        speckle = cfg.get("speckle")
+        bg = cfg.get("background")
+        
+        # Block signals during UI update
+        self.hot_pixel_chk.blockSignals(True)
+        self.hot_pixel_method_combo.blockSignals(True)
+        self.hot_pixel_n_spin.blockSignals(True)
+        self.speckle_chk.blockSignals(True)
+        self.speckle_method_combo.blockSignals(True)
+        self.gaussian_sigma_spin.blockSignals(True)
+        self.bg_subtract_chk.blockSignals(True)
+        self.bg_method_combo.blockSignals(True)
+        self.bg_radius_spin.blockSignals(True)
+        
+        try:
+            if hot:
+                self.hot_pixel_chk.setChecked(True)
+                self.hot_pixel_method_combo.setCurrentIndex(0 if hot.get("method") == "median3" else 1)
+                self.hot_pixel_n_spin.setValue(float(hot.get("n_sd", 5.0)))
+            else:
+                self.hot_pixel_chk.setChecked(False)
+                self.hot_pixel_method_combo.setCurrentIndex(0)
+                self.hot_pixel_n_spin.setValue(5.0)
+                
+            if speckle:
+                self.speckle_chk.setChecked(True)
+                self.speckle_method_combo.setCurrentIndex(0 if speckle.get("method") == "gaussian" else 1)
+                self.gaussian_sigma_spin.setValue(float(speckle.get("sigma", 0.8)))
+            else:
+                self.speckle_chk.setChecked(False)
+                self.speckle_method_combo.setCurrentIndex(0)
+                self.gaussian_sigma_spin.setValue(0.8)
+                
+            if bg:
+                self.bg_subtract_chk.setChecked(True)
+                # 0 white_tophat, 1 black_tophat, 2 rolling_ball (approx)
+                method = bg.get("method")
+                if method == "white_tophat":
+                    self.bg_method_combo.setCurrentIndex(0)
+                elif method == "black_tophat":
+                    self.bg_method_combo.setCurrentIndex(1)
+                else:
+                    self.bg_method_combo.setCurrentIndex(2)
+                self.bg_radius_spin.setValue(int(bg.get("radius", 15)))
+            else:
+                self.bg_subtract_chk.setChecked(False)
+                self.bg_method_combo.setCurrentIndex(0)
+                self.bg_radius_spin.setValue(15)
+        finally:
+            # Unblock signals
+            self.hot_pixel_chk.blockSignals(False)
+            self.hot_pixel_method_combo.blockSignals(False)
+            self.hot_pixel_n_spin.blockSignals(False)
+            self.speckle_chk.blockSignals(False)
+            self.speckle_method_combo.blockSignals(False)
+            self.gaussian_sigma_spin.blockSignals(False)
+            self.bg_subtract_chk.blockSignals(False)
+            self.bg_method_combo.blockSignals(False)
+            self.bg_radius_spin.blockSignals(False)
+        
+        self._sync_hot_controls_visibility()
+    
+    def _apply_denoise_to_all_channels(self):
+        """Apply current denoising parameters to all channels."""
+        try:
+            # Build config from current UI settings
+            cfg_hot = None
+            if self.hot_pixel_chk.isChecked():
+                cfg_hot = {
+                    "method": "median3" if self.hot_pixel_method_combo.currentIndex() == 0 else "n_sd_local_median",
+                    "n_sd": float(self.hot_pixel_n_spin.value()),
+                }
+
+            cfg_speckle = None
+            if self.speckle_chk.isChecked():
+                cfg_speckle = {
+                    "method": "gaussian" if self.speckle_method_combo.currentIndex() == 0 else "nl_means",
+                    "sigma": float(self.gaussian_sigma_spin.value()),
+                }
+
+            cfg_bg = None
+            if self.bg_subtract_chk.isChecked():
+                cfg_bg = {
+                    "method": "white_tophat" if self.bg_method_combo.currentIndex() == 0 else "rolling_ball",
+                    "radius": int(self.bg_radius_spin.value()),
+                }
+
+            # Apply the same configuration to all channels
+            for channel in self.channels:
+                self.custom_denoise_settings.setdefault(channel, {})
+                self.custom_denoise_settings[channel]["hot"] = cfg_hot
+                self.custom_denoise_settings[channel]["speckle"] = cfg_speckle
+                self.custom_denoise_settings[channel]["background"] = cfg_bg
+            
+            # Show visual confirmation
+            self.apply_all_channels_btn.setText("✓ Applied to All Channels")
+            self.apply_all_channels_btn.setStyleSheet("QPushButton { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }")
+            
+            # Reset button appearance after 2 seconds
+            QTimer.singleShot(2000, self._reset_apply_all_button)
+            
+        except Exception as e:
+            # Silently handle any errors to avoid disrupting the UI
+            pass
+    
+    def _reset_apply_all_button(self):
+        """Reset the apply all channels button to its original appearance."""
+        self.apply_all_channels_btn.setText("Apply to All Channels")
+        self.apply_all_channels_btn.setStyleSheet("")
+    
+    def _sync_hot_controls_visibility(self):
+        """Show N only for '>N SD above local median' method."""
+        is_threshold = self.hot_pixel_method_combo.currentIndex() == 1
+        self.hot_pixel_n_spin.setVisible(is_threshold)
+        self.hot_pixel_n_label.setVisible(is_threshold)
+    
+    def get_denoise_source(self):
+        """Get the selected denoising source."""
+        source = self.denoise_source_combo.currentText()
+        if source == "Use viewer settings":
+            return "viewer"
+        elif source == "Use custom settings":
+            return "custom"
+        else:
+            return "none"
+    
+    def get_custom_denoise_settings(self):
+        """Get the custom denoising settings."""
+        return self.custom_denoise_settings
