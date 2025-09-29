@@ -2,44 +2,44 @@
 
 OpenMCD is a comprehensive PyQt5-based platform for analyzing Imaging Mass Cytometry (IMC) data. It provides an intuitive graphical interface for visualizing, processing, and analyzing multi-channel imaging data from mass cytometry experiments with advanced machine learning capabilities.
 
-## 🚀 Key Features
+## Key Features
 
-### 📊 **Image Viewing & Visualization**
+### **Image Viewing & Visualization**
 - **Multi-acquisition Support**: View and analyze multiple acquisitions within a single .mcd file
 - **Flexible Display Modes**: Single channel, RGB composite, and grid view for comprehensive data exploration
 - **Custom Scaling**: Advanced intensity scaling with percentile-based optimization and manual controls
 - **Dynamic Comparison**: Compare channels across different acquisitions with linked/unlinked scaling
 
-### 🔬 **Marker Quality Control**
+### **Marker Quality Control**
 - **Interactive Annotation System**: Label channels with quality assessments (High-quality, Low-quality, Artifact/Exclude)
 - **Export Capabilities**: Save and load annotations as CSV files for reproducible analysis
 - **Visual Quality Assessment**: Real-time visualization with custom scaling for marker evaluation
 
-### 🎯 **Advanced Segmentation**
+### **Advanced Segmentation**
 - **Cellpose Integration**: GPU-accelerated cell segmentation using state-of-the-art Cellpose models
 - **Multiple Models**: Support for cyto3 and nuclei segmentation models
 - **Overlay Visualization**: Real-time mask overlay on original images
 - **GPU Acceleration**: CUDA and MPS support for faster processing
 
-### 📈 **Feature Extraction**
+### **Feature Extraction**
 - **Comprehensive Feature Sets**: Extract morphometric (area, perimeter, eccentricity) and intensity features (mean, median, std)
 - **Multiprocessing Support**: Parallel processing for efficient feature computation
 - **Export Options**: Save results to CSV or keep in memory for further analysis
 - **Per-cell Analysis**: Detailed feature extraction for individual cells
 
-### 🧬 **Clustering Analysis**
+### **Clustering Analysis**
 - **Multiple Algorithms**: Hierarchical clustering and Leiden community detection
 - **Feature Selection**: Interactive dialog to select relevant features for clustering
 - **Advanced Visualization**: Heatmaps, dendrograms, and cluster statistics
 - **Cluster Explorer**: Detailed exploration of individual clusters with cell visualization
 
-### 🤖 **LLM-Based Cell Phenotyping**
+### **LLM-Based Cell Phenotyping**
 - **OpenAI Integration**: Leverage GPT models for intelligent cell phenotype annotation
 - **Automated Classification**: AI-powered cell type identification and characterization
 - **Custom Phenotypes**: Define and train custom phenotype categories
 - **Batch Processing**: Process large datasets with AI-assisted annotation
 
-## 📋 Workflow
+## Workflow
 
 ### 1. **Image Loading**
 - Open .mcd files containing IMC acquisitions
@@ -71,7 +71,7 @@ OpenMCD is a comprehensive PyQt5-based platform for analyzing Imaging Mass Cytom
 - **Custom**: Define and apply custom phenotype categories
 - Export annotated results for further analysis
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### Option 1: Conda Environment (Recommended)
 
@@ -109,7 +109,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## 🔑 OpenAI API Key Setup
+## OpenAI API Key Setup
 
 To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 
@@ -120,7 +120,7 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 4. Click "Create new secret key"
 5. Copy the generated API key (starts with `sk-`)
 
-## 📦 Requirements
+## Requirements
 
 ### Core Dependencies
 - Python 3.11
@@ -136,7 +136,7 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 - **UMAP** (≥0.5.0): Dimensionality reduction
 - **OpenAI** (≥1.42.0): LLM-based phenotyping
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Start the application
@@ -147,7 +147,7 @@ python main.py
 # 4. Extract features → 5. Perform clustering → 6. Annotate phenotypes
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -172,7 +172,7 @@ python main.py
    - Consider subsampling for clustering analysis
    - Use multiprocessing for feature extraction
 
-## 📚 Acknowledgments
+## Acknowledgments
 
 - **Cellpose**: GPU-accelerated cell segmentation framework
   - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
@@ -198,6 +198,6 @@ python main.py
 - **seaborn**: Statistical data visualization
   - Project: https://seaborn.pydata.org/
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License.
