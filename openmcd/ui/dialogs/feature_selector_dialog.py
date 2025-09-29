@@ -5,6 +5,9 @@ from PyQt5.QtCore import Qt
 
 
 class FeatureSelectorDialog(QtWidgets.QDialog):
+    # Class-level cache to persist selections across dialog instances
+    _last_selections: Dict[str, int] = {}
+    
     def __init__(self, available_feature_names: List[str], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Features for Clustering")
@@ -31,16 +34,32 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         self._morpho_all = sorted(set(morpho))
         self._intensity_all = sorted(set(intensity))
 
+        # Track check states across filtering/searching
+        self._checked_by_name: Dict[str, int] = {}
+        
+        # Restore previous selections from class cache
+        for name in available_feature_names:
+            if name in self._last_selections:
+                self._checked_by_name[name] = self._last_selections[name]
+
         self._create_ui()
 
     def _create_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
 
+        # QC reminder note
+        qc_note = QtWidgets.QLabel(
+            "Note: Please perform QC on features prior to selecting them here."
+        )
+        qc_note.setWordWrap(True)
+        qc_note.setStyleSheet("color: #a15d00;")  # subtle warning color
+        layout.addWidget(qc_note)
+
         # Intensity filter
         filter_row = QtWidgets.QHBoxLayout()
         filter_row.addWidget(QtWidgets.QLabel("Intensity filter:"))
         self.cmb_filter = QtWidgets.QComboBox()
-        self.cmb_filter.addItems(["All", "mean_", "median_", "std_", "mad_", "p10_", "p90_", "integrated_", "frac_pos_"])
+        self.cmb_filter.addItems(["All", "_mean", "_median", "_std", "_mad", "_p10", "_p90", "_integrated", "_frac_pos"])
         self.cmb_filter.currentTextChanged.connect(self._apply_intensity_filter)
         filter_row.addWidget(self.cmb_filter)
         filter_row.addStretch(1)
@@ -51,8 +70,14 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
 
         morpho_group = QtWidgets.QGroupBox("Morphometric features")
         morpho_layout = QtWidgets.QVBoxLayout(morpho_group)
+        # Search bar for morphometric markers
+        self.txt_search_morpho = QtWidgets.QLineEdit()
+        self.txt_search_morpho.setPlaceholderText("Search morphometric markers…")
+        self.txt_search_morpho.textChanged.connect(self._apply_morpho_search)
+        morpho_layout.addWidget(self.txt_search_morpho)
         self.lst_morpho = QtWidgets.QListWidget()
         self.lst_morpho.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.lst_morpho.itemChanged.connect(self._on_item_check_changed)
         morpho_layout.addWidget(self.lst_morpho, 1)
         morpho_btns = QtWidgets.QHBoxLayout()
         self.btn_morpho_all = QtWidgets.QPushButton("Select All")
@@ -65,8 +90,14 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
 
         intensity_group = QtWidgets.QGroupBox("Intensity features")
         intensity_layout = QtWidgets.QVBoxLayout(intensity_group)
+        # Search bar for intensity markers
+        self.txt_search_intensity = QtWidgets.QLineEdit()
+        self.txt_search_intensity.setPlaceholderText("Search intensity markers…")
+        self.txt_search_intensity.textChanged.connect(self._apply_intensity_filter)
+        intensity_layout.addWidget(self.txt_search_intensity)
         self.lst_intensity = QtWidgets.QListWidget()
         self.lst_intensity.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.lst_intensity.itemChanged.connect(self._on_item_check_changed)
         intensity_layout.addWidget(self.lst_intensity, 1)
         intensity_btns = QtWidgets.QHBoxLayout()
         self.btn_int_all = QtWidgets.QPushButton("Select All")
@@ -92,19 +123,32 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         btns.addWidget(self.btn_cancel)
         layout.addLayout(btns)
 
-        # Populate lists (all selected by default)
+        # Initialize default checked state for all markers (only if not already set from cache)
+        for name in self._morpho_all + self._intensity_all:
+            if name not in self._checked_by_name:
+                self._checked_by_name[name] = Qt.Checked
+
+        # Populate lists
         self._populate_checklist(self.lst_morpho, self._morpho_all)
-        self._populate_checklist(self.lst_intensity, self._intensity_all)
-        # Auto-select only _mean intensity features by default
-        self._apply_intensity_default_selection()
+        # Default intensity filter to _mean and populate accordingly
+        self.cmb_filter.setCurrentText("_mean")
+        self._apply_intensity_filter()
 
     def _populate_checklist(self, widget: QtWidgets.QListWidget, names: List[str]):
+        widget.blockSignals(True)
         widget.clear()
         for name in names:
             item = QtWidgets.QListWidgetItem(name)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            item.setCheckState(Qt.Checked)
+            # Restore previous check state if available
+            state = self._checked_by_name.get(name, Qt.Checked)
+            item.setCheckState(state)
             widget.addItem(item)
+        widget.blockSignals(False)
+
+    def _on_item_check_changed(self, item: QtWidgets.QListWidgetItem):
+        name = item.text()
+        self._checked_by_name[name] = item.checkState()
 
     def _apply_intensity_filter(self):
         sel = self.cmb_filter.currentText()
@@ -112,8 +156,12 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
             filtered = self._intensity_all
         else:
             # Convert prefix to suffix for filtering
-            suffix = f"_{sel.lower()}"
+            suffix = sel.lower() if sel.startswith("_") else f"_{sel.lower()}"
             filtered = [n for n in self._intensity_all if n.endswith(suffix)]
+        # Apply search filter as well (case-insensitive substring)
+        query = (self.txt_search_intensity.text() if hasattr(self, 'txt_search_intensity') else "").strip().lower()
+        if query:
+            filtered = [n for n in filtered if query in n.lower()]
         self._populate_checklist(self.lst_intensity, filtered)
         # When changing filter, keep default preference of _mean if All
         if sel == "All":
@@ -121,17 +169,25 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
 
     def _set_all(self, widget: QtWidgets.QListWidget, checked: bool):
         state = Qt.Checked if checked else Qt.Unchecked
+        widget.blockSignals(True)
         for i in range(widget.count()):
             it = widget.item(i)
             it.setCheckState(state)
+            self._checked_by_name[it.text()] = state
+        widget.blockSignals(False)
 
     def _apply_intensity_default_selection(self):
         for i in range(self.lst_intensity.count()):
             it = self.lst_intensity.item(i)
-            if it.text().endswith("_mean"):
-                it.setCheckState(Qt.Checked)
-            else:
-                it.setCheckState(Qt.Unchecked)
+            it.setCheckState(Qt.Checked if it.text().endswith("_mean") else Qt.Unchecked)
+
+    def _apply_morpho_search(self):
+        query = self.txt_search_morpho.text().strip().lower()
+        if not query:
+            names = self._morpho_all
+        else:
+            names = [n for n in self._morpho_all if query in n.lower()]
+        self._populate_checklist(self.lst_morpho, names)
 
     def get_selected_columns(self) -> List[str]:
         cols: List[str] = []
@@ -140,6 +196,10 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
                 it = widget.item(i)
                 if it.checkState() == Qt.Checked:
                     cols.append(it.text())
+        
+        # Save current selections to class cache for persistence
+        self._last_selections.update(self._checked_by_name)
+        
         return sorted(cols)
 
 

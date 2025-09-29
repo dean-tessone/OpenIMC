@@ -9,6 +9,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 from scipy.spatial.distance import pdist
 from skimage.measure import regionprops
+import json
+import math
 
 # Optional seaborn for enhanced clustering visualization
 try:
@@ -37,7 +39,7 @@ except ImportError:
 # Cell Clustering Dialog
 # --------------------------
 class CellClusteringDialog(QtWidgets.QDialog):
-    def __init__(self, feature_dataframe, parent=None):
+    def __init__(self, feature_dataframe, normalization_config=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Cell Clustering Analysis")
         self.setModal(True)
@@ -51,11 +53,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         self.setMinimumSize(800, 600)
         self.feature_dataframe = feature_dataframe
+        self.normalization_config = normalization_config
         self.cluster_labels = None
         self.clustered_data = None
         self.umap_embedding = None
         self.cluster_annotation_map = {}
+        self.cluster_backend_names = {}  # Store normalized names for CSV export
         self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
+        self.llm_phenotype_cache = {}  # Cache for LLM phenotype suggestions
         
         self._create_ui()
         self._setup_plot()
@@ -149,6 +154,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.run_btn.clicked.connect(self._run_clustering)
         options_layout.addWidget(self.run_btn)
         
+        # Save clustering output button
+        self.save_output_btn = QtWidgets.QPushButton("Save Clustering Output")
+        self.save_output_btn.clicked.connect(self._save_clustering_output)
+        self.save_output_btn.setEnabled(False)
+        self.save_output_btn.setToolTip("Save CSV with all features, cluster labels, and manual annotations")
+        options_layout.addWidget(self.save_output_btn)
+        
         options_layout.addStretch()
         layout.addWidget(options_group)
         
@@ -170,14 +182,16 @@ class CellClusteringDialog(QtWidgets.QDialog):
         viz_layout.addWidget(self.view_combo)
 
         # Color-by control (UMAP only)
-        viz_layout.addWidget(QtWidgets.QLabel("Color by:"))
+        self.color_by_label = QtWidgets.QLabel("Color by:")
+        viz_layout.addWidget(self.color_by_label)
         self.color_by_combo = QtWidgets.QComboBox()
         self.color_by_combo.addItem("Cluster")
         self.color_by_combo.currentTextChanged.connect(self._on_color_by_changed)
         viz_layout.addWidget(self.color_by_combo)
 
         # Group-by for stacked bars (Stacked Bars only)
-        viz_layout.addWidget(QtWidgets.QLabel("Group by:"))
+        self.group_by_label = QtWidgets.QLabel("Group by:")
+        viz_layout.addWidget(self.group_by_label)
         self.group_by_combo = QtWidgets.QComboBox()
         candidate_cols = [
             'roi', 'ROI', 'slide', 'Slide', 'condition', 'Condition',
@@ -191,7 +205,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         viz_layout.addWidget(self.group_by_combo)
 
         # Colormap selector (for heatmaps and differential expression)
-        viz_layout.addWidget(QtWidgets.QLabel("Colormap:"))
+        self.colormap_label = QtWidgets.QLabel("Colormap:")
+        viz_layout.addWidget(self.colormap_label)
         self.colormap_combo = QtWidgets.QComboBox()
         self.colormap_combo.addItems([
             "RdBu_r (Red-White-Blue)",
@@ -208,8 +223,25 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
         viz_layout.addWidget(self.colormap_combo)
 
+        # Heatmap source selector (Clusters vs Manual Gates)
+        self.heatmap_source_label = QtWidgets.QLabel("Heatmap of:")
+        viz_layout.addWidget(self.heatmap_source_label)
+        self.heatmap_source_combo = QtWidgets.QComboBox()
+        self.heatmap_source_combo.addItems(["Heatmap of:", "Clusters", "Manual Gates"])  # temporary to ensure widget exists
+        self.heatmap_source_combo.clear()
+        self.heatmap_source_combo.addItems(["Clusters", "Manual Gates"])
+        self.heatmap_source_combo.currentTextChanged.connect(self._on_heatmap_source_changed)
+        viz_layout.addWidget(self.heatmap_source_combo)
+
+        # Heatmap filter button
+        self.heatmap_filter_btn = QtWidgets.QPushButton("Filter…")
+        self.heatmap_filter_btn.setToolTip("Filter which clusters/phenotypes appear in the heatmap")
+        self.heatmap_filter_btn.clicked.connect(self._open_heatmap_filter_dialog)
+        viz_layout.addWidget(self.heatmap_filter_btn)
+
         # Top N markers selector (for differential expression only)
-        viz_layout.addWidget(QtWidgets.QLabel("Top N:"))
+        self.top_n_label = QtWidgets.QLabel("Top N:")
+        viz_layout.addWidget(self.top_n_label)
         self.top_n_spinbox = QtWidgets.QSpinBox()
         self.top_n_spinbox.setMinimum(1)
         self.top_n_spinbox.setMaximum(20)
@@ -295,6 +327,20 @@ class CellClusteringDialog(QtWidgets.QDialog):
     def _run_clustering(self):
         """Run the clustering analysis."""
         try:
+            # Reset custom cluster names when re-clustering
+            self.cluster_annotation_map = {}
+            self.cluster_backend_names = {}
+            # Clear LLM phenotype cache when re-clustering
+            print(f"[DEBUG] Clearing LLM cache before re-clustering. Previous cache had {len(self.llm_phenotype_cache)} entries")
+            self.llm_phenotype_cache = {}
+            print("[DEBUG] LLM cache cleared")
+            
+            # Clear any existing cluster phenotype data
+            if hasattr(self, 'clustered_data') and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
+                self.clustered_data = self.clustered_data.drop('cluster_phenotype', axis=1)
+            if 'cluster_phenotype' in self.feature_dataframe.columns:
+                self.feature_dataframe = self.feature_dataframe.drop('cluster_phenotype', axis=1)
+            
             # Get options
             # Defaults for backward compatibility (now controlled by selector)
             agg_method = "mean"
@@ -340,6 +386,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.explore_btn.setEnabled(True)
             self.annotate_btn.setEnabled(True)
             self.save_plot_btn.setEnabled(True)
+            self.save_output_btn.setEnabled(True)
             # If UMAP was previously run, keep that available
             # Otherwise, selecting UMAP will prompt to run
 
@@ -511,17 +558,49 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.canvas.draw()
             return
         
+        # Determine source and prepare data ordering and optional grouping
+        source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
+        data_to_plot = self.clustered_data.copy()
+        group_col = 'cluster'
+        legend_labels = None
+        if source == 'Manual Gates' and 'manual_phenotype' in data_to_plot.columns:
+            groups = self._get_manual_groups_series()
+            if groups is not None:
+                data_to_plot = data_to_plot.copy()
+                data_to_plot['__group__'] = groups.values
+                group_col = '__group__'
+                # Apply filter by names if set
+                if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
+                    data_to_plot = self._apply_heatmap_filter(data_to_plot, group_col)
+                # Sort by group label
+                data_to_plot = data_to_plot.sort_values(group_col)
+                legend_labels = sorted(data_to_plot[group_col].unique())
+            else:
+                group_col = 'cluster'
+        else:
+            # Clusters source: optionally filter by selected clusters (by display name or id)
+            if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
+                wanted_ids = set()
+                for cid in sorted(self.clustered_data['cluster'].unique()):
+                    name = self._get_cluster_display_name(cid)
+                    if name in self.heatmap_filter_selection or str(cid) in self.heatmap_filter_selection:
+                        wanted_ids.add(cid)
+                if wanted_ids:
+                    data_to_plot = data_to_plot[data_to_plot['cluster'].isin(sorted(wanted_ids))]
+            data_to_plot = data_to_plot.sort_values('cluster')
+
         # Use seaborn if available, otherwise fall back to matplotlib
         if _HAVE_SEABORN:
+            # The seaborn path internally computes source/filtering similarly
             self._create_seaborn_heatmap()
             return
         
         # Create single heatmap plot - no subplots needed
         ax_heatmap = self.figure.add_subplot(111)
 
-        # Prepare data for heatmap (exclude cluster column)
-        feature_cols = [c for c in self.clustered_data.columns if c != 'cluster']
-        heatmap_data = self.clustered_data[feature_cols].values
+        # Prepare data for heatmap (exclude grouping columns)
+        feature_cols = self._select_feature_columns(data_to_plot)
+        heatmap_data = data_to_plot[feature_cols].values
 
         # No dendrograms - just show the heatmap data as-is
 
@@ -539,12 +618,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax_heatmap.set_xticks([])
         
         
-        # Add cluster color bars along x-axis
-        cluster_colors = plt.cm.Set3(np.linspace(0, 1, len(self.clustered_data['cluster'].unique())))
-        cluster_color_map = {cluster_id: cluster_colors[i] for i, cluster_id in enumerate(sorted(self.clustered_data['cluster'].unique()))}
+        # Add group color bars along x-axis
+        unique_groups = sorted(data_to_plot[group_col].unique())
+        cluster_colors = plt.cm.Set3(np.linspace(0, 1, len(unique_groups)))
+        cluster_color_map = {gid: cluster_colors[i] for i, gid in enumerate(unique_groups)}
         
         # Create color bar for each cell
-        cell_colors = [cluster_color_map[cluster_id] for cluster_id in self.clustered_data['cluster']]
+        cell_colors = [cluster_color_map[val] for val in data_to_plot[group_col]]
         
         # Add color bar below the heatmap
         for i, color in enumerate(cell_colors):
@@ -562,6 +642,16 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         
         # (Feature list removed; top-right is optionally used for column dendrogram)
+
+        # Add legend for groups/clusters
+        legend_elements = []
+        if source == 'Manual Gates':
+            for key, color in cluster_color_map.items():
+                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key)))
+        else:
+            for key, color in cluster_color_map.items():
+                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key)))
+        self.figure.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
         
         self.canvas.draw()
     
@@ -572,17 +662,42 @@ class CellClusteringDialog(QtWidgets.QDialog):
             if self.clustered_data is None:
                 self._create_matplotlib_heatmap()
                 return
-            # Prepare data for heatmap (exclude cluster column)
-            feature_cols = [c for c in self.clustered_data.columns if c != 'cluster']
-            heatmap_data = self.clustered_data[feature_cols]
+            # Prepare data considering source/filter
+            source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
+            data_to_plot = self.clustered_data.copy()
+            group_col = 'cluster'
+            if source == 'Manual Gates' and 'manual_phenotype' in data_to_plot.columns:
+                groups = self._get_manual_groups_series()
+                if groups is not None:
+                    data_to_plot['__group__'] = groups.values
+                    group_col = '__group__'
+                    if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
+                        data_to_plot = self._apply_heatmap_filter(data_to_plot, group_col)
+                    data_to_plot = data_to_plot.sort_values(group_col)
+            else:
+                if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
+                    wanted_ids = set()
+                    for cid in sorted(self.clustered_data['cluster'].unique()):
+                        name = self._get_cluster_display_name(cid)
+                        if name in self.heatmap_filter_selection or str(cid) in self.heatmap_filter_selection:
+                            wanted_ids.add(cid)
+                    if wanted_ids:
+                        data_to_plot = data_to_plot[data_to_plot['cluster'].isin(sorted(wanted_ids))]
+                data_to_plot = data_to_plot.sort_values('cluster')
+
+            feature_cols = self._select_feature_columns(data_to_plot)
+            heatmap_data = data_to_plot[feature_cols]
             
-            # Create cluster color mapping
-            unique_clusters = sorted(self.clustered_data['cluster'].unique())
-            cluster_colors = sns.color_palette("Set3", len(unique_clusters))
-            cluster_color_map = {cluster_id: cluster_colors[i] for i, cluster_id in enumerate(unique_clusters)}
+            # Store original feature order for y-tick labels
+            original_feature_order = list(feature_cols)
             
-            # Create cluster color series for color bar
-            cluster_colors_series = self.clustered_data['cluster'].map(cluster_color_map)
+            # Create group color mapping
+            unique_groups = sorted(data_to_plot[group_col].unique())
+            cluster_colors = sns.color_palette("Set3", len(unique_groups))
+            cluster_color_map = {gid: cluster_colors[i] for i, gid in enumerate(unique_groups)}
+            
+            # Create color series for color bar
+            cluster_colors_series = data_to_plot[group_col].map(cluster_color_map)
             
             # Determine clustering settings based on method
             clustering_type = self.clustering_type.currentText()
@@ -623,12 +738,26 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Labels – let seaborn manage tick order after clustering; just style
             g.ax_heatmap.set_xlabel('Cells')
             g.ax_heatmap.set_ylabel('Features')
-            for lbl in g.ax_heatmap.get_yticklabels():
-                lbl.set_fontsize(6)
-                lbl.set_rotation(0)
             
-            # Add cluster legend
-            self._add_cluster_legend(g, cluster_color_map)
+            # Force all row tick labels to show (features)
+            # Use reordered features if row clustering is enabled, otherwise use original order
+            if row_cluster:
+                # When row clustering is enabled, use the reordered feature names
+                feature_labels = g.ax_heatmap.get_yticklabels()
+                feature_names = [label.get_text() for label in feature_labels]
+            else:
+                # When row clustering is disabled, use original feature order
+                feature_names = original_feature_order
+            
+            g.ax_heatmap.set_yticks(range(len(feature_names)))
+            g.ax_heatmap.set_yticklabels(feature_names, fontsize=6)
+            
+            # Remove column tick labels (cells)
+            g.ax_heatmap.set_xticks([])
+            g.ax_heatmap.set_xticklabels([])
+            
+            # Add legend
+            self._add_cluster_legend(g, cluster_color_map, source=source)
             
             # Replace the figure with the seaborn figure
             old_figure = self.figure
@@ -636,7 +765,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.canvas.figure = self.figure
             
             # Use tight layout to maximize plot area
-            self.figure.tight_layout(pad=1.0)
+            # Avoid tight_layout on clustermap to prevent warnings
             
             # Close the old figure to free memory
             plt.close(old_figure)
@@ -668,7 +797,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.figure.tight_layout(pad=1.0)
         
         # Prepare data for heatmap (exclude cluster column)
-        feature_cols = [c for c in self.clustered_data.columns if c != 'cluster']
+        feature_cols = self._select_feature_columns(self.clustered_data)
         heatmap_data = self.clustered_data[feature_cols].values
 
         # No dendrograms - just show the heatmap data as-is
@@ -709,17 +838,28 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # No row dendrogram - just the heatmap
         
         # Cluster size bar removed - using color bars for cluster identity instead
+
+        # Add legend for groups/clusters
+        legend_elements = []
+        if source == 'Manual Gates':
+            for key, color in cluster_color_map.items():
+                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key)))
+        else:
+            for key, color in cluster_color_map.items():
+                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key)))
+        self.figure.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
         
         self.canvas.draw()
     
-    def _add_cluster_legend(self, g, cluster_color_map):
-        """Add cluster legend to seaborn clustermap."""
-        # Create legend
+    def _add_cluster_legend(self, g, cluster_color_map, source='Clusters'):
+        """Add legend to seaborn clustermap using cluster names or manual group labels."""
         legend_elements = []
-        for cluster_id, color in cluster_color_map.items():
-            legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=f'Cluster {cluster_id}'))
-        
-        # Add legend to the figure
+        for key, color in cluster_color_map.items():
+            if source == 'Manual Gates':
+                label = str(key)
+            else:
+                label = self._get_cluster_display_name(key)
+            legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=label))
         g.fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
     
     def _run_umap(self):
@@ -761,8 +901,22 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.figure.clear()
             self.canvas.draw()
             
+            # Allow user to choose n_neighbors
+            default_n = 15
+            max_n = max(2, min(default_n, data.shape[0] - 1))
+            # Simple input dialog for n_neighbors with bounds
+            n_neighbors, ok = QtWidgets.QInputDialog.getInt(
+                self,
+                "UMAP n_neighbors",
+                f"Set n_neighbors (2–{max(2, data.shape[0]-1)}):",
+                value=max_n,
+                min=2,
+                max=max(2, data.shape[0]-1)
+            )
+            if not ok:
+                return
             # Perform UMAP
-            reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
+            reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=int(n_neighbors), min_dist=0.1)
             self.umap_embedding = reducer.fit_transform(data.values)
             # Persist for coloring
             self.umap_index = data.index.to_list()
@@ -779,6 +933,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self._populate_color_by_options()
             # Enable save button since a plot is shown
             self.save_plot_btn.setEnabled(True)
+            self.save_output_btn.setEnabled(True)
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "UMAP Error", f"Error during UMAP analysis: {str(e)}")
@@ -814,6 +969,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # Enable save if there is content
         self.save_plot_btn.setEnabled(True)
+        self.save_output_btn.setEnabled(True)
 
     def _update_viz_controls_visibility(self):
         """Show/hide controls depending on selected view."""
@@ -821,13 +977,29 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Color-by visible only for UMAP
         for i in range(self.color_by_combo.count()):
             pass
+        if hasattr(self, 'color_by_label'):
+            self.color_by_label.setVisible(view == 'UMAP')
         self.color_by_combo.setVisible(view == 'UMAP')
         # Group-by visible only for Stacked Bars
+        if hasattr(self, 'group_by_label'):
+            self.group_by_label.setVisible(view == 'Stacked Bars')
         self.group_by_combo.setVisible(view == 'Stacked Bars')
-        # Colormap visible for Heatmap and Differential Expression
+        # Colormap visible only for Heatmap and Differential Expression; hidden for UMAP and Stacked Bars
+        if hasattr(self, 'colormap_label'):
+            self.colormap_label.setVisible(view in ['Heatmap', 'Differential Expression'])
         self.colormap_combo.setVisible(view in ['Heatmap', 'Differential Expression'])
         # Top N visible only for Differential Expression
+        if hasattr(self, 'top_n_label'):
+            self.top_n_label.setVisible(view == 'Differential Expression')
         self.top_n_spinbox.setVisible(view == 'Differential Expression')
+        # Heatmap-only controls
+        is_heatmap = view == 'Heatmap'
+        if hasattr(self, 'heatmap_source_combo'):
+            self.heatmap_source_combo.setVisible(is_heatmap)
+        if hasattr(self, 'heatmap_source_label'):
+            self.heatmap_source_label.setVisible(is_heatmap)
+        if hasattr(self, 'heatmap_filter_btn'):
+            self.heatmap_filter_btn.setVisible(is_heatmap)
     
     def _on_colormap_changed(self, _text: str):
         """Handle colormap selection change."""
@@ -852,6 +1024,99 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Extract the colormap name (part before the parenthesis)
         colormap_name = colormap_text.split(' (')[0]
         return colormap_name
+
+    def _select_feature_columns(self, df: pd.DataFrame):
+        """Return numeric feature columns to plot, excluding non-numeric/meta columns."""
+        exclude_cols = { 'cluster', '__group__', 'cluster_phenotype', 'manual_phenotype' }
+        feature_cols = []
+        for col in df.columns:
+            if col in exclude_cols:
+                continue
+            try:
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    feature_cols.append(col)
+            except Exception:
+                continue
+        return feature_cols
+
+    def _on_heatmap_source_changed(self, _text: str):
+        """Refresh heatmap when the source (Clusters vs Manual Gates) changes."""
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        if view == 'Heatmap':
+            self._show_heatmap()
+
+    def _get_cluster_display_name(self, cluster_id):
+        """Return display label for a cluster id, using annotation if available."""
+        if isinstance(self.cluster_annotation_map, dict) and cluster_id in self.cluster_annotation_map and self.cluster_annotation_map[cluster_id]:
+            return self.cluster_annotation_map[cluster_id]
+        return f"Cluster {cluster_id}"
+
+    def _get_manual_groups_series(self):
+        """Compute grouping series for manual gates. Single named phenotype -> name vs Other; otherwise names with Unassigned for blanks."""
+        if self.clustered_data is None:
+            return None
+        if 'manual_phenotype' not in self.clustered_data.columns:
+            return None
+        series = self.clustered_data['manual_phenotype'].fillna('').astype(str)
+        unique_named = sorted([s for s in series.unique() if s.strip() != ''])
+        if len(unique_named) == 1:
+            name = unique_named[0]
+            return series.apply(lambda s: name if s == name else 'Other')
+        return series.apply(lambda s: s if s.strip() != '' else 'Unassigned')
+
+    def _apply_heatmap_filter(self, df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+        """Apply heatmap filter selection to the dataframe, if any selection present."""
+        selected = getattr(self, 'heatmap_filter_selection', None)
+        if not selected:
+            return df
+        mask = df[group_col].isin(list(selected))
+        filtered = df.loc[mask]
+        return filtered
+
+    def _open_heatmap_filter_dialog(self):
+        """Open a dialog to choose which clusters/phenotypes to show in heatmap."""
+        if self.clustered_data is None:
+            QtWidgets.QMessageBox.warning(self, "No Clustering", "Run clustering first to filter heatmap.")
+            return
+        source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Select groups to display")
+        v = QtWidgets.QVBoxLayout(dlg)
+        listw = QtWidgets.QListWidget()
+        listw.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        # Build items
+        items = []
+        if source == 'Manual Gates' and 'manual_phenotype' in self.clustered_data.columns:
+            groups = self._get_manual_groups_series()
+            options = sorted(groups.unique()) if groups is not None else []
+            items = options
+        else:
+            options = sorted(self.clustered_data['cluster'].unique())
+            items = [self._get_cluster_display_name(cid) for cid in options]
+        for label in items:
+            it = QtWidgets.QListWidgetItem(label)
+            it.setSelected(True if not getattr(self, 'heatmap_filter_selection', None) else (label in self.heatmap_filter_selection))
+            listw.addItem(it)
+        v.addWidget(listw)
+        # Action buttons
+        btns = QtWidgets.QHBoxLayout()
+        select_all_btn = QtWidgets.QPushButton("Select All")
+        ok = QtWidgets.QPushButton("Apply")
+        cancel = QtWidgets.QPushButton("Cancel")
+        btns.addStretch()
+        btns.addWidget(select_all_btn)
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        v.addLayout(btns)
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        def do_select_all():
+            for i in range(listw.count()):
+                listw.item(i).setSelected(True)
+        select_all_btn.clicked.connect(do_select_all)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            self.heatmap_filter_selection = set([i.text() for i in listw.selectedItems()])
+            self._show_heatmap()
     
     def _create_umap_plot(self):
         """Create UMAP scatter plot."""
@@ -875,12 +1140,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
             unique_clusters = sorted(np.unique(cluster_labels))
             colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
             cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
+            handles = []
+            labels = []
             for cluster_id in unique_clusters:
                 mask = cluster_labels == cluster_id
-                ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
-                          c=[cluster_color_map[cluster_id]], label=f'Cluster {cluster_id}',
-                          alpha=0.8, s=18, edgecolors='none')
-            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+                sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
+                                c=[cluster_color_map[cluster_id]],
+                                alpha=0.8, s=18, edgecolors='none')
+                handles.append(sc)
+                labels.append(self._get_cluster_display_name(cluster_id))
+            # Place legend inside axes to avoid clipping
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8)
         elif hasattr(self, 'umap_raw_data') and color_by in getattr(self, 'umap_selected_columns', []):
             # Continuous coloring by selected feature (aligned to UMAP order)
             vals = self.umap_raw_data[color_by].values
@@ -958,7 +1228,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             x = np.arange(len(freq))
             for cluster_id in unique_clusters:
                 vals = freq.get(cluster_id, pd.Series(0, index=freq.index)).values
-                ax.bar(x, vals, bottom=bottom, color=cluster_color_map[cluster_id], label=f"Cluster {cluster_id}")
+                ax.bar(x, vals, bottom=bottom, color=cluster_color_map[cluster_id], label=self._get_cluster_display_name(cluster_id))
                 bottom = bottom + vals
 
             ax.set_xticks(x)
@@ -979,9 +1249,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             return
         
         try:
-            # Get feature columns (exclude cluster and metadata columns)
-            feature_cols = [col for col in self.clustered_data.columns 
-                           if col != 'cluster' and not col.startswith('acquisition_')]
+            # Get numeric feature columns only (exclude cluster/phenotype/text metadata)
+            feature_cols = self._select_feature_columns(self.clustered_data)
             
             if not feature_cols:
                 QtWidgets.QMessageBox.warning(self, "No Features", "No features available for differential expression analysis.")
@@ -1039,7 +1308,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             # Set labels
             ax.set_xticks(range(len(heatmap_data.index)))
-            ax.set_xticklabels([f'Cluster {i}' for i in heatmap_data.index])
+            ax.set_xticklabels([self._get_cluster_display_name(i) for i in heatmap_data.index])
             ax.set_yticks(range(len(heatmap_data.columns)))
             ax.set_yticklabels(heatmap_data.columns, rotation=0)
             
@@ -1101,12 +1370,15 @@ class CellClusteringDialog(QtWidgets.QDialog):
         """Open gating rules editor and apply on save."""
         # Allow selection among intensity features by default
         marker_cols = [col for col in self.feature_dataframe.columns
-                       if any(suffix in col for suffix in ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos'])]
+                       if any(col.endswith(suffix) for suffix in ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos'])]
         dlg = GatingRulesDialog(self.gating_rules, marker_cols, self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self.gating_rules = dlg.get_rules()
             self._apply_gating_rules()
             QtWidgets.QMessageBox.information(self, "Gating Applied", "Manual phenotypes assigned using gating rules.")
+            # If user just applied manual gates, default heatmap source to Manual Gates for immediate view
+            if hasattr(self, 'heatmap_source_combo'):
+                self.heatmap_source_combo.setCurrentText('Manual Gates')
 
     def _apply_gating_rules(self):
         """Evaluate gating rules and create/update 'manual_phenotype' column on feature_dataframe."""
@@ -1229,14 +1501,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
             form.addRow(f"Cluster {cid}", le)
             editors[cid] = le
         v.addLayout(form)
-        # Save/Load inside dialog
-        tools = QtWidgets.QHBoxLayout()
-        load_btn = QtWidgets.QPushButton("Load…")
-        save_btn = QtWidgets.QPushButton("Save…")
-        tools.addWidget(load_btn)
-        tools.addWidget(save_btn)
-        tools.addStretch()
-        v.addLayout(tools)
+        # (Load/Save removed)
+        # LLM assist row
+        llm_row = QtWidgets.QHBoxLayout()
+        llm_btn = QtWidgets.QPushButton("Suggest phenotypes with LLM…")
+        llm_btn.setToolTip("Requires OpenAI API key. Uses per-cluster marker statistics.")
+        llm_row.addWidget(llm_btn)
+        llm_row.addStretch()
+        v.addLayout(llm_row)
         btns = QtWidgets.QHBoxLayout()
         ok = QtWidgets.QPushButton("Apply")
         cancel = QtWidgets.QPushButton("Cancel")
@@ -1247,39 +1519,21 @@ class CellClusteringDialog(QtWidgets.QDialog):
         btns.addWidget(cancel)
         v.addLayout(btns)
 
-        def do_load():
-            path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load Annotations", "", "CSV Files (*.csv)")
-            if not path:
-                return
-            try:
-                df = pd.read_csv(path)
-                if not {'cluster_id', 'phenotype'}.issubset(df.columns):
-                    raise ValueError("CSV must have columns: cluster_id, phenotype")
-                for _, row in df.iterrows():
-                    try:
-                        cid = int(row['cluster_id'])
-                    except Exception:
-                        continue
-                    name = str(row['phenotype']).strip()
-                    if cid in editors:
+        # (Load/Save handlers removed)
+        def open_llm_dialog():
+            def apply_names(display_name_map, backend_name_map):
+                # Set display names in the UI
+                for cid, name in display_name_map.items():
+                    if cid in editors and isinstance(name, str):
                         editors[cid].setText(name)
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Load Error", f"Error loading annotations: {str(e)}")
+                # Store backend names for CSV export
+                self.cluster_backend_names.update(backend_name_map)
+            d = PhenotypeSuggestionDialog(self, unique_clusters, apply_names, self.llm_phenotype_cache, self.normalization_config)
+            d.exec_()
+        llm_btn.clicked.connect(open_llm_dialog)
 
-        def do_save():
-            path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Annotations", "cluster_annotations.csv", "CSV Files (*.csv)")
-            if not path:
-                return
-            try:
-                rows = [(cid, editors[cid].text().strip()) for cid in unique_clusters if editors[cid].text().strip()]
-                df = pd.DataFrame(rows, columns=['cluster_id', 'phenotype'])
-                df.to_csv(path, index=False)
-                QtWidgets.QMessageBox.information(self, "Saved", f"Annotations saved to: {path}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving annotations: {str(e)}")
-
-        load_btn.clicked.connect(do_load)
-        save_btn.clicked.connect(do_save)
+        # Make the dialog wider for better usability
+        dlg.resize(500, dlg.sizeHint().height())
 
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             # Save mapping from editors
@@ -1292,8 +1546,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
     def _apply_cluster_annotations(self):
         """Apply current annotation map to clustered_data and feature_dataframe as 'cluster_phenotype'."""
         if not self.clustered_data is None and self.cluster_annotation_map:
-            # Map on clustered_data
-            self.clustered_data['cluster_phenotype'] = self.clustered_data['cluster'].map(self.cluster_annotation_map).fillna('')
+            # Use backend names for CSV export if available, otherwise use display names
+            export_name_map = self.cluster_backend_names if self.cluster_backend_names else self.cluster_annotation_map
+            
+            # Map on clustered_data using backend names for CSV export
+            self.clustered_data['cluster_phenotype'] = self.clustered_data['cluster'].map(export_name_map).fillna('')
             # Write back to feature_dataframe aligned by index
             aligned = self.feature_dataframe.reindex(self.clustered_data.index)
             if 'cluster_phenotype' not in self.feature_dataframe.columns:
@@ -1301,11 +1558,16 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.feature_dataframe.loc[self.clustered_data.index, 'cluster_phenotype'] = self.clustered_data['cluster_phenotype'].values
             # Update color-by options
             self._populate_color_by_options()
-            # If currently showing heatmap or umap, refresh
-            if hasattr(self, 'umap_embedding') and self.umap_embedding is not None:
+            # Redraw the currently selected view
+            current_view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+            if current_view == 'UMAP':
                 self._create_umap_plot()
-            else:
+            elif current_view == 'Heatmap':
                 self._create_heatmap()
+            elif current_view == 'Stacked Bars':
+                self._show_stacked_bars()
+            elif current_view == 'Differential Expression':
+                self._show_differential_expression()
 
     # Top-level save/load removed; handled inside annotation dialog
     
@@ -1325,7 +1587,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             })
         
         # Open explorer dialog
-        explorer = ClusterExplorerDialog(cluster_info, self.feature_dataframe, self.parent())
+        explorer = ClusterExplorerDialog(cluster_info, self.feature_dataframe, self.parent(), label_provider=self)
         explorer.exec_()
     
     def _save_current_plot(self):
@@ -1354,11 +1616,66 @@ class CellClusteringDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving plot: {str(e)}")
 
+    def _save_clustering_output(self):
+        """Save clustering output as CSV with all features and labels."""
+        if self.clustered_data is None:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No clustering data available to save.")
+            return
+        
+        # Get default filename
+        default = "clustering_output.csv"
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Clustering Output", default,
+            "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+        
+        try:
+            # Start with the original feature dataframe (all features)
+            output_df = self.feature_dataframe.copy()
+            
+            # Add cluster labels
+            if self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
+                # Align cluster data with feature dataframe by index
+                cluster_series = self.clustered_data['cluster'].reindex(output_df.index)
+                output_df['cluster'] = cluster_series
+            
+            # Add cluster phenotype annotations if available
+            if self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
+                phenotype_series = self.clustered_data['cluster_phenotype'].reindex(output_df.index)
+                output_df['cluster_phenotype'] = phenotype_series
+            
+            # Add manual phenotype annotations if available
+            if self.clustered_data is not None and 'manual_phenotype' in self.clustered_data.columns:
+                manual_series = self.clustered_data['manual_phenotype'].reindex(output_df.index)
+                output_df['manual_phenotype'] = manual_series
+            
+            # Save to CSV
+            output_df.to_csv(file_path, index=True)
+            
+            # Show success message with summary
+            total_cells = len(output_df)
+            n_clusters = len(output_df['cluster'].unique()) if 'cluster' in output_df.columns else 0
+            n_annotated = len(output_df[output_df['cluster_phenotype'].notna() & (output_df['cluster_phenotype'] != '')]) if 'cluster_phenotype' in output_df.columns else 0
+            n_manual = len(output_df[output_df['manual_phenotype'].notna() & (output_df['manual_phenotype'] != '')]) if 'manual_phenotype' in output_df.columns else 0
+            
+            summary = f"Saved {total_cells} cells with {n_clusters} clusters"
+            if n_annotated > 0:
+                summary += f", {n_annotated} with cluster annotations"
+            if n_manual > 0:
+                summary += f", {n_manual} with manual annotations"
+            
+            QtWidgets.QMessageBox.information(self, "Success", f"Clustering output saved to: {file_path}\n\n{summary}")
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving clustering output: {str(e)}")
+
 # --------------------------
 # Cluster Explorer Dialog
 # --------------------------
 class ClusterExplorerDialog(QtWidgets.QDialog):
-    def __init__(self, cluster_info, feature_dataframe, parent=None):
+    def __init__(self, cluster_info, feature_dataframe, parent=None, label_provider=None):
         super().__init__(parent)
         self.setWindowTitle("Cluster Explorer")
         self.setModal(True)
@@ -1375,6 +1692,7 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         self.feature_dataframe = feature_dataframe
         self.current_cluster = None
         self.cell_images = []
+        self._label_provider = label_provider
         
         self._create_ui()
         
@@ -1393,7 +1711,8 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         controls_layout.addWidget(QtWidgets.QLabel("Select Cluster:"))
         self.cluster_combo = QtWidgets.QComboBox()
         for info in self.cluster_info:
-            self.cluster_combo.addItem(f"Cluster {info['cluster_id']} ({info['size']} cells)", info)
+            label = self._get_cluster_label(info['cluster_id'])
+            self.cluster_combo.addItem(f"{label} ({info['size']} cells)", info)
         self.cluster_combo.currentIndexChanged.connect(self._on_cluster_changed)
         controls_layout.addWidget(self.cluster_combo)
         
@@ -1485,7 +1804,8 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         """Handle cluster selection change."""
         self.current_cluster = self.cluster_combo.currentData()
         if self.current_cluster:
-            self.status_label.setText(f"Selected Cluster {self.current_cluster['cluster_id']} with {self.current_cluster['size']} cells")
+            label = self._get_cluster_label(self.current_cluster['cluster_id'])
+            self.status_label.setText(f"Selected {label} with {self.current_cluster['size']} cells")
     
     def _on_rgb_mode_toggled(self):
         """Handle RGB mode checkbox toggle."""
@@ -1686,6 +2006,16 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
                 if acq.id == acq_id:
                     return acq.name
         return acq_id
+
+    def _get_cluster_label(self, cluster_id):
+        """Get annotated cluster name from parent dialog if available."""
+        provider = self._label_provider or self.parent()
+        if provider is not None and hasattr(provider, '_get_cluster_display_name'):
+            try:
+                return provider._get_cluster_display_name(cluster_id)
+            except Exception:
+                pass
+        return f"Cluster {cluster_id}"
     
     def _create_image_widget(self, image, title, is_rgb=False):
         """Create a widget to display a cell image."""
@@ -1939,3 +2269,689 @@ class GatingRulesDialog(QtWidgets.QDialog):
 
     def get_rules(self):
         return [r.copy() for r in self._rules]
+
+
+class PhenotypeSuggestionDialog(QtWidgets.QDialog):
+    def __init__(self, parent_dialog: 'CellClusteringDialog', cluster_ids, apply_callback, cache_dict=None, normalization_config=None, parent=None):
+        super().__init__(parent or parent_dialog)
+        self.setWindowTitle("Suggest Phenotypes with LLM (Based on Markers Used in Clustering)")
+        self.setModal(True)
+        self._parent_dialog = parent_dialog
+        self._cluster_ids = list(cluster_ids)
+        self._apply_callback = apply_callback
+        self._cache_dict = cache_dict or {}
+        self.normalization_config = normalization_config
+        self._create_ui()
+        # Resize dialog to 75% of the parent window size for better usability
+        try:
+            base_widget = parent_dialog if parent_dialog is not None else self.parent()
+            if base_widget is not None:
+                base_size = base_widget.size()
+                w = max(600, int(base_size.width() * 0.75))
+                h = max(400, int(base_size.height() * 0.75))
+            else:
+                # Fallback to primary screen available geometry
+                screen = QtWidgets.QApplication.primaryScreen()
+                geo = screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1200, 800)
+                w = int(geo.width() * 0.75)
+                h = int(geo.height() * 0.75)
+            self.resize(w, h)
+        except Exception:
+            pass
+
+    def _create_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+        form = QtWidgets.QFormLayout()
+
+        self.api_key_edit = QtWidgets.QLineEdit()
+        self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.api_key_edit.setPlaceholderText("sk-... OpenAI API Key")
+        form.addRow("OpenAI API Key:", self.api_key_edit)
+
+        self.context_edit = QtWidgets.QLineEdit()
+        self.context_edit.setPlaceholderText("e.g., human colorectal cancer (optional)")
+        form.addRow("Cohort/tissue context:", self.context_edit)
+
+        self.model_combo = QtWidgets.QComboBox()
+        self.model_combo.addItems(["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1"])
+        form.addRow("Model:", self.model_combo)
+
+        # Feature mode selection for markers used in LLM prompt
+        self.feature_mode_combo = QtWidgets.QComboBox()
+        self.feature_mode_combo.addItems(["Markers only", "Morphometrics only", "Both"])
+        form.addRow("Feature mode:", self.feature_mode_combo)
+
+        # Per-type K controls
+        self.k_int_spin = QtWidgets.QSpinBox()
+        self.k_int_spin.setRange(1, 30)
+        self.k_int_spin.setValue(5)
+        self.k_morpho_spin = QtWidgets.QSpinBox()
+        self.k_morpho_spin.setRange(1, 30)
+        self.k_morpho_spin.setValue(5)
+
+        # Container widgets for visibility toggling
+        self._k_int_row = QtWidgets.QWidget()
+        kint_layout = QtWidgets.QHBoxLayout(self._k_int_row)
+        kint_layout.setContentsMargins(0,0,0,0)
+        kint_layout.addWidget(self.k_int_spin)
+        form.addRow("Top-K intensity:", self._k_int_row)
+
+        self._k_morpho_row = QtWidgets.QWidget()
+        kmorph_layout = QtWidgets.QHBoxLayout(self._k_morpho_row)
+        kmorph_layout.setContentsMargins(0,0,0,0)
+        kmorph_layout.addWidget(self.k_morpho_spin)
+        form.addRow("Top-K morphometric:", self._k_morpho_row)
+
+        # Default visibility
+        def _update_feature_mode():
+            mode = self.feature_mode_combo.currentText()
+            if mode == "Markers only":
+                self._k_int_row.show()
+                self._k_morpho_row.hide()
+            elif mode == "Morphometrics only":
+                self._k_int_row.hide()
+                self._k_morpho_row.show()
+            else:
+                self._k_int_row.show()
+                self._k_morpho_row.show()
+        self.feature_mode_combo.currentTextChanged.connect(lambda _t: _update_feature_mode())
+        # Default to Both
+        self.feature_mode_combo.setCurrentText("Both")
+        _update_feature_mode()
+
+        layout.addLayout(form)
+
+        btns = QtWidgets.QHBoxLayout()
+        self.run_btn = QtWidgets.QPushButton("Run Suggestion")
+        self.run_btn.clicked.connect(self._run)
+        self.apply_btn = QtWidgets.QPushButton("Apply Names")
+        self.apply_btn.setEnabled(False)
+        self.apply_btn.clicked.connect(self._apply)
+        close_btn = QtWidgets.QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btns.addStretch()
+        btns.addWidget(self.run_btn)
+        btns.addWidget(self.apply_btn)
+        btns.addWidget(close_btn)
+        layout.addLayout(btns)
+
+        # Progress bar for long-running suggestions
+        self.progress = QtWidgets.QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
+        layout.addWidget(self.progress)
+
+        # Area to render per-cluster choices after suggestions arrive (scrollable for many clusters)
+        self.choices_widget = QtWidgets.QWidget()
+        self.choices_layout = QtWidgets.QVBoxLayout(self.choices_widget)
+        self.choices_layout.setContentsMargins(8, 8, 8, 8)
+        self.choices_layout.setSpacing(8)
+        self.choices_scroll = QtWidgets.QScrollArea()
+        self.choices_scroll.setWidgetResizable(True)
+        self.choices_scroll.setWidget(self.choices_widget)
+        layout.addWidget(self.choices_scroll)
+
+        # Holds QButtonGroup per cluster for selection
+        self._cluster_choice_groups = {}
+        
+        # Check for cached results and display them immediately
+        self._check_and_display_cached_results()
+
+        self._suggestions = {}  # cluster_id -> parsed json
+
+    def closeEvent(self, event):
+        """Handle dialog closing to preserve cache."""
+        # Ensure the current suggestions are cached for future use
+        if self._cache_dict is not None and self._suggestions:
+            self._cache_dict.update(self._suggestions)
+            print(f"[DEBUG] Preserved cache on close for clusters: {list(self._suggestions.keys())}")
+        event.accept()
+
+    def _reset_progress_bar(self):
+        """Reset the progress bar to its default state."""
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("")
+        self.run_btn.setEnabled(True)
+        self.run_btn.setText("Run Suggestion")
+
+    def _check_and_display_cached_results(self):
+        """Check if we have cached results for the current cluster set and display them."""
+        if not self._cache_dict:
+            return
+            
+        # Check if we have cached results for all current clusters
+        cached_results = {}
+        for cid in self._cluster_ids:
+            # Convert cluster ID to int for consistent comparison
+            cid_int = int(cid)
+            # Check both the original cid and converted int version
+            if cid in self._cache_dict:
+                cached_results[cid] = self._cache_dict[cid]
+            elif cid_int in self._cache_dict:
+                cached_results[cid] = self._cache_dict[cid_int]
+        
+        # Debug: Print cache status
+        print(f"[DEBUG] Cache check: {len(cached_results)}/{len(self._cluster_ids)} clusters cached")
+        print(f"[DEBUG] Current cluster IDs: {self._cluster_ids}")
+        print(f"[DEBUG] Cached cluster IDs: {list(self._cache_dict.keys())}")
+        
+        # If we have cached results for all clusters, display them
+        if cached_results and len(cached_results) == len(self._cluster_ids):
+            # Store the cached results in _suggestions so they can be applied
+            self._suggestions = cached_results.copy()
+            self._render_choices(cached_results)
+            self.apply_btn.setEnabled(True)
+            # Disable the run button since we already have results
+            self.run_btn.setEnabled(False)
+            self.run_btn.setText("Results Cached - Re-run to refresh")
+            print("[DEBUG] Displaying cached results")
+        else:
+            print("[DEBUG] No cached results found or incomplete cache")
+
+    def _apply(self):
+        display_name_map = {}
+        backend_name_map = {}
+        # Prefer user-selected guess when available
+        for cid, obj in self._suggestions.items():
+            # Ensure cid is an integer for consistent handling
+            cid_int = int(cid)
+            try:
+                selected_idx = None
+                grp = self._cluster_choice_groups.get(cid_int)
+                if grp is not None:
+                    id_ = grp.checkedId()
+                    if id_ != -1:
+                        selected_idx = id_
+                guesses = obj.get('phenotype_guesses') or []
+                chosen = None
+                if selected_idx is not None and 0 <= selected_idx < len(guesses):
+                    chosen = guesses[selected_idx]
+                elif guesses:
+                    chosen = guesses[0]
+                if chosen:
+                    name = str(chosen.get('name', '')).strip()
+                    if name:
+                        # Store human-readable name for display
+                        display_name_map[cid_int] = name
+                        
+                        # Create normalized name for backend CSV
+                        norm = name.replace(' ', '_')
+                        if norm.lower() == 't_cell':
+                            norm = 'T_cell'
+                        if 'macrophage' in norm.lower():
+                            norm = 'Myeloid_Macrophage'
+                        backend_name_map[cid_int] = norm
+            except Exception:
+                continue
+        if display_name_map:
+            self._apply_callback(display_name_map, backend_name_map)
+            # Ensure the current suggestions are cached for future use
+            if self._cache_dict is not None and self._suggestions:
+                self._cache_dict.update(self._suggestions)
+            QtWidgets.QMessageBox.information(self, "Applied", f"Applied {len(display_name_map)} suggested names.")
+
+    def _debug_validate_payload(self, payload: dict) -> bool:
+        try:
+            ok = True
+            # Basic keys
+            if not isinstance(payload, dict):
+                print("[DEBUG] Payload is not a dict")
+                return False
+            if 'input' not in payload:
+                print("[DEBUG] Payload missing 'input'")
+                ok = False
+            if 'model' not in payload:
+                print("[DEBUG] Payload missing 'model'")
+                ok = False
+            # Input structure
+            msgs = payload.get('input')
+            if not isinstance(msgs, list) or len(msgs) < 2:
+                print("[DEBUG] Payload 'input' is not a list of at least 2 messages")
+                ok = False
+            else:
+                # Check roles and content types
+                roles = [m.get('role') for m in msgs if isinstance(m, dict)]
+                if roles[:2] != ['system', 'user']:
+                    print(f"[DEBUG] Unexpected roles in messages: {roles}")
+                for m in msgs:
+                    content = m.get('content') if isinstance(m, dict) else None
+                    if not isinstance(content, list):
+                        print("[DEBUG] Message 'content' is not a list")
+                        ok = False
+                        break
+                    for block in content:
+                        if not isinstance(block, dict) or block.get('type') != 'input_text' or 'text' not in block:
+                            print("[DEBUG] Content block missing type='input_text' or 'text'")
+                            ok = False
+                            break
+            # Ensure user context JSON parses back
+            try:
+                user_blocks = msgs[1]['content'] if isinstance(msgs, list) and len(msgs) > 1 else []
+                user_texts = [b.get('text') for b in user_blocks if isinstance(b, dict) and b.get('type') == 'input_text']
+                if user_texts:
+                    json.loads(user_texts[0])
+            except Exception as e:
+                print(f"[DEBUG] User context JSON failed to parse: {e}")
+                ok = False
+            return ok
+        except Exception as e:
+            print(f"[DEBUG] Exception during payload validation: {e}")
+            return False
+
+    def _run(self):
+        # Disable the run button to prevent multiple clicks
+        self.run_btn.setEnabled(False)
+        self.run_btn.setText("Processing...")
+        
+        # Show immediate feedback that processing has started
+        self.progress.setRange(0, 0)  # Indeterminate progress
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
+        self.progress.setFormat("Starting LLM analysis...")
+        QtWidgets.QApplication.processEvents()  # Force UI update
+        
+        try:
+            api_key = self.api_key_edit.text().strip()
+            if not api_key:
+                self._reset_progress_bar()
+                QtWidgets.QMessageBox.warning(self, "API Key Required", "Please enter an OpenAI API key.")
+                return
+            if self._parent_dialog.clustered_data is None:
+                self._reset_progress_bar()
+                QtWidgets.QMessageBox.warning(self, "No Clusters", "Run clustering first.")
+                return
+            
+            mode = self.feature_mode_combo.currentText()
+            k_int = self.k_int_spin.value()
+            k_morpho = self.k_morpho_spin.value()
+            # Use k_int as the K parameter for consistency
+            self.progress.setFormat("Computing cluster statistics...")
+            QtWidgets.QApplication.processEvents()
+            stats_per_cluster = self._compute_stats(self._parent_dialog.clustered_data, K=k_int, mode=mode, k_int=k_int, k_morpho=k_morpho)
+            results = {}
+            total = max(1, len(self._cluster_ids))
+            self.progress.setRange(0, total)
+            self.progress.setValue(0)
+            self.progress.setFormat("Processing clusters with LLM...")
+            QtWidgets.QApplication.processEvents()
+            for idx, cid in enumerate(self._cluster_ids, start=1):
+                context_str = self.context_edit.text().strip() or "IMC panel of single cells"
+                payload = self._build_prompt_payload(cid, stats_per_cluster.get(cid, {}), k_int, context_str)
+                payload['model'] = self.model_combo.currentText()
+                # Validate payload before sending
+                self._debug_validate_payload(payload)
+                suggestion = self._call_openai(api_key, payload)
+                # Validate JSON
+                obj = self._validate_json(suggestion, cid)
+                if obj is None:
+                    # One retry with repair instruction
+                    suggestion = self._call_openai(api_key, payload, repair=True)
+                    obj = self._validate_json(suggestion, cid)
+                if obj is not None:
+                    # Store with consistent integer keys
+                    cid_int = int(cid)
+                    results[cid_int] = obj
+                    self._suggestions[cid_int] = obj
+                # Update progress
+                self.progress.setValue(idx)
+                QtWidgets.QApplication.processEvents()
+            if results:
+                # Cache the results
+                if self._cache_dict is not None:
+                    self._cache_dict.update(results)
+                    print(f"[DEBUG] Cached results for clusters: {list(results.keys())}")
+                    print(f"[DEBUG] Total cached clusters: {list(self._cache_dict.keys())}")
+                self._render_choices(results)
+                self.apply_btn.setEnabled(True)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "LLM Error", f"Error suggesting phenotypes: {str(e)}")
+        finally:
+            # Reset progress bar and button state
+            self._reset_progress_bar()
+
+    def _numeric_feature_columns(self, df: pd.DataFrame):
+        exclude = {'cluster', 'cluster_phenotype', 'manual_phenotype'}
+        cols = []
+        for c in df.columns:
+            if c in exclude:
+                continue
+            try:
+                if pd.api.types.is_numeric_dtype(df[c]):
+                    cols.append(c)
+            except Exception:
+                continue
+        return cols
+
+    def _base_marker_name(self, feature_name: str) -> str:
+        # Strip trailing suffix like _mean/_median/etc.
+        if '_' in feature_name:
+            return feature_name.rsplit('_', 1)[0]
+        return feature_name
+
+    def _synonymize(self, name: str) -> str:
+        m = name
+        repl = {
+            'KRT8/18': 'CK8/18',
+            'EPCAM': 'EpCAM',
+            'KRT8': 'CK8',
+            'KRT18': 'CK18',
+        }
+        k = m.upper()
+        for src, dst in repl.items():
+            if src == k:
+                return dst
+        return name
+
+    def _compute_stats(self, clustered_df: pd.DataFrame, K: int=None, mode: str="Both", k_int: int=5, k_morpho: int=5):
+        # Use K as default for k_int and k_morpho if not provided
+        if K is not None:
+            k_int = K
+            k_morpho = K
+        from math import log2
+        try:
+            from sklearn.metrics import roc_auc_score
+        except Exception:
+            roc_auc_score = None
+        eps = 1e-6
+        cols = self._numeric_feature_columns(clustered_df)
+        # Split into intensity vs morphometric by suffix
+        intensity_suffixes = ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos']
+        intensity_cols = [c for c in cols if any(c.endswith(s) for s in intensity_suffixes)]
+        morpho_cols = [c for c in cols if c not in intensity_cols]
+        
+        # Filter out DNA markers (positive in all cells) and ICSK membrane markers
+        exclude_tokens = ['DNA1', 'DNA2', 'DNA_', 'IR191', 'IR193', 'ICSK']
+        excluded_markers_int = [col for col in intensity_cols if any(tok in col.upper() for tok in exclude_tokens)]
+        intensity_cols = [col for col in intensity_cols if col not in excluded_markers_int]
+        # For morphometrics keep all (no DNA markers)
+
+        # Choose working columns based on mode
+        if mode == 'Markers only':
+            work_cols = intensity_cols
+        elif mode == 'Morphometrics only':
+            work_cols = morpho_cols
+        else:
+            work_cols = intensity_cols + morpho_cols
+        
+        # Prepare per-cluster means
+        cluster_ids = sorted(clustered_df['cluster'].unique())
+        means = clustered_df.groupby('cluster')[work_cols].mean()
+        stats = {}
+        # Precompute across-cluster ranges per feature (based on means per cluster)
+        across_range = (means.max(axis=0) - means.min(axis=0))
+        for cid in cluster_ids:
+            this_mean = means.loc[cid]
+            rest_mean = means.drop(index=cid).mean()
+            # z across clusters per feature
+            col_means = means.mean(axis=0)
+            col_stds = means.std(axis=0).replace(0, np.nan)
+            z = (this_mean - col_means) / col_stds
+            # Within-cluster distribution stats
+            in_cluster = clustered_df[clustered_df['cluster'] == cid]
+            in_min = in_cluster[work_cols].min(axis=0)
+            in_max = in_cluster[work_cols].max(axis=0)
+            in_mean = in_cluster[work_cols].mean(axis=0)
+            in_median = in_cluster[work_cols].median(axis=0)
+            # logFC with robust clipping to avoid log of non-positive values
+            ratio = (this_mean + eps) / (rest_mean + eps)
+            # Replace inf/-inf with NaN and non-positive ratios with NaN
+            ratio = ratio.replace([np.inf, -np.inf], np.nan)
+            ratio = ratio.where(ratio > 0, np.nan)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                logfc = np.log2(ratio)
+            # AUROC
+            auroc = pd.Series(index=work_cols, dtype=float)
+            if roc_auc_score is not None:
+                labels = (clustered_df['cluster'] == cid).astype(int).values
+                for f in work_cols:
+                    vals = clustered_df[f].values
+                    try:
+                        if labels.sum() > 0 and labels.sum() < len(labels):
+                            auroc[f] = roc_auc_score(labels, vals)
+                        else:
+                            auroc[f] = np.nan
+                    except Exception:
+                        auroc[f] = np.nan
+            else:
+                auroc[:] = np.nan
+            # pct_pos at threshold tau (0 by default on normalized scale)
+            tau = 0.0
+            out_cluster = clustered_df[clustered_df['cluster'] != cid]
+            pct_pos_in = (in_cluster[work_cols] > tau).sum(axis=0) / max(1, len(in_cluster))
+            pct_pos_out = (out_cluster[work_cols] > tau).sum(axis=0) / max(1, len(out_cluster))
+
+            # Ranking: by z-score only (descending)
+            ranked = z.sort_values(ascending=False).index.tolist()
+            # Select counts based on mode
+            if mode == 'Both':
+                # Split selection across intensity and morpho
+                ranked_int = [f for f in ranked if f in intensity_cols][:k_int]
+                ranked_morpho = [f for f in ranked if f in morpho_cols][:k_morpho]
+                selected_up = ranked_int + ranked_morpho
+            else:
+                k = k_int if mode == 'Markers only' else k_morpho
+                selected_up = ranked[:k]
+            top_up = []
+            for f in selected_up:
+                base = self._synonymize(self._base_marker_name(f))
+                top_up.append({
+                    'marker': base,
+                    'auroc': None if pd.isna(auroc[f]) else float(auroc[f]),
+                    'logFC': None if pd.isna(logfc[f]) else float(logfc[f]),
+                    'z': None if pd.isna(z[f]) else float(z[f]),
+                    'mean': None if pd.isna(this_mean[f]) else float(this_mean[f]),
+                    'pct_pos': None if pd.isna(pct_pos_in[f]) else float(pct_pos_in[f]),
+                    'within_min': None if pd.isna(in_min[f]) else float(in_min[f]),
+                    'within_mean': None if pd.isna(in_mean[f]) else float(in_mean[f]),
+                    'within_median': None if pd.isna(in_median[f]) else float(in_median[f]),
+                    'within_max': None if pd.isna(in_max[f]) else float(in_max[f]),
+                    'range_across_clusters': None if pd.isna(across_range[f]) else float(across_range[f])
+                })
+            # Down markers: lowest z-scores — take bottom K as requested
+            down_ranked = z.sort_values(ascending=True).index.tolist()
+            if mode == 'Both':
+                down_int = [f for f in down_ranked if f in intensity_cols][:k_int]
+                down_morpho = [f for f in down_ranked if f in morpho_cols][:k_morpho]
+                selected_down = down_int + down_morpho
+            else:
+                k = k_int if mode == 'Markers only' else k_morpho
+                selected_down = down_ranked[:k]
+            top_down = []
+            for f in selected_down:
+                base = self._synonymize(self._base_marker_name(f))
+                top_down.append({
+                    'marker': base,
+                    'auroc': None if pd.isna(auroc[f]) else float(auroc[f]),
+                    'logFC': None if pd.isna(logfc[f]) else float(logfc[f]),
+                    'z': None if pd.isna(z[f]) else float(z[f]),
+                    'within_min': None if pd.isna(in_min[f]) else float(in_min[f]),
+                    'within_mean': None if pd.isna(in_mean[f]) else float(in_mean[f]),
+                    'within_median': None if pd.isna(in_median[f]) else float(in_median[f]),
+                    'within_max': None if pd.isna(in_max[f]) else float(in_max[f]),
+                    'range_across_clusters': None if pd.isna(across_range[f]) else float(across_range[f])
+                })
+            stats[cid] = {
+                'top_up': top_up,
+                'top_down': top_down,
+            }
+        return stats
+
+    def _render_choices(self, results: dict):
+        # Clear previous choices
+        for i in reversed(range(self.choices_layout.count())):
+            item = self.choices_layout.takeAt(i)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._cluster_choice_groups = {}
+
+        # Build UI for each cluster
+        for cid in sorted(results.keys(), key=lambda x: int(str(x)) if str(x).isdigit() else str(x)):
+            obj = results[cid]
+            guesses = obj.get('phenotype_guesses') or []
+
+            group_box = QtWidgets.QGroupBox(f"Cluster {cid} – Select phenotype")
+            v = QtWidgets.QVBoxLayout(group_box)
+            btn_group = QtWidgets.QButtonGroup(group_box)
+            btn_group.setExclusive(True)
+
+            # Create a radio per guess and show rationale
+            for idx, g in enumerate(guesses):
+                name = str(g.get('name', '')).strip() or 'Unknown'
+                rb = QtWidgets.QRadioButton(f"{name}")
+                btn_group.addButton(rb, idx)
+                if idx == 0:
+                    rb.setChecked(True)
+                v.addWidget(rb)
+                rationale = str(g.get('rationale', '')).strip()
+                if rationale:
+                    rationale_lbl = QtWidgets.QLabel(rationale)
+                    rationale_lbl.setWordWrap(True)
+                    rationale_lbl.setStyleSheet("color: #555;")
+                    v.addWidget(rationale_lbl)
+
+            # If no guesses, indicate
+            if not guesses:
+                v.addWidget(QtWidgets.QLabel("No plausible types returned."))
+
+            self._cluster_choice_groups[int(cid)] = btn_group
+            self.choices_layout.addWidget(group_box)
+
+        self.choices_layout.addStretch(1)
+
+    def _build_prompt_payload(self, cid, stat_obj, K: int, context_str: str):
+        system_prompt = (
+            "You are assisting with IMC cell type suggestions. Use only the provided marker statistics. "
+            "Prefer canonical immune/epithelial/stromal names and give exactly 3 plausible phenotypes per cluster. "
+            "Consider the range of values across and within clusters for each marker to help determine if the marker is truly unique to the cluster. "
+            "Consider if the z-score and mean value is true expression of the marker or if it is due to noise. "
+            "Try to give varied phenotypes, rather than the same phenotype with different names. "
+            "Focus on different marker combinations to avoid giving the same phenotype with different names. "
+            "If uncertain, return \"Unknown\". Output valid JSON exactly matching the given schema. Do not invent markers. "
+            "Return valid JSON only and no prose/explanations."
+        )
+        schema = {
+            "cluster_id": str(cid),
+            "phenotype_guesses": [ { "name": "", "rationale": "" } ],
+            "key_markers_positive": [],
+            "key_markers_negative": [],
+            "notes": ""
+        }
+        # Determine if arcsinh transformation was used during feature extraction
+        arcsinh_used = (self.normalization_config is not None and 
+                       self.normalization_config.get('method') == 'arcsinh')
+        
+        # Set semantics based on whether arcsinh transformation was applied
+        if arcsinh_used:
+            semantics = 'intensities are arcsinh-transformed; higher = more expression'
+        else:
+            semantics = 'intensities are raw values; higher = more expression'
+        
+        user_context = {
+            'context': context_str,
+            'semantics': semantics,
+            'cluster_id': str(cid),
+            'top_up': stat_obj.get('top_up', []),
+            'top_down': stat_obj.get('top_down', []),
+        }
+        # Build Responses API input structure
+        input_msgs = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "input_text", "text": system_prompt + " Schema: {\\n  \\\"cluster_id\\\": \\\"string\\\",\\n  \\\"phenotype_guesses\\\": [\\n    { \\\"name\\\": \\\"string\\\", \\\"rationale\\\": \\\"string\\\" }\\n  ],\\n  \\\"key_markers_positive\\\": [\\\"string\\\"],\\n  \\\"key_markers_negative\\\": [\\\"string\\\"],\\n  \\\"notes\\\": \\\"string\\\"\\n}"}
+                ]
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": json.dumps(user_context)}
+                ]
+            }
+        ]
+        return {
+            'model': 'gpt-5',
+            'temperature': 0.1,
+            'max_tokens': 2000,
+            'input': input_msgs
+        }
+
+    def _call_openai(self, api_key: str, payload: dict, repair: bool=False) -> str:
+        # Use OpenAI official SDK per developer guide
+        from openai import OpenAI
+        
+        client = OpenAI(api_key=api_key, timeout=30.0)
+        data = payload.copy()
+        # Append repair instruction as another system content block if needed
+        input_payload = data.get('input')
+        if repair and isinstance(input_payload, list):
+            input_payload = input_payload + [{"role": "system", "content": [{"type": "input_text", "text": "Return valid JSON only, no prose."}]}]
+        # Debug to console: request meta
+        try:
+            pass
+        except Exception:
+            pass
+        # Responses API call
+        try:
+            print(f"[DEBUG] Making OpenAI API call to model: {data.get('model', 'gpt-5')}")
+            resp = client.responses.create(
+                model=data.get('model', 'gpt-5'),
+                max_output_tokens=data.get('max_tokens', 2000),
+                input=input_payload,
+                reasoning={'effort': 'low'}
+            )
+            print("[DEBUG] OpenAI API call successful")
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[DEBUG] OpenAI API call failed: {error_msg}")
+            
+            # Provide more specific error information
+            if "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                raise Exception(f"Connection error: {error_msg}. Please check your internet connection and try again.")
+            elif "api_key" in error_msg.lower() or "authentication" in error_msg.lower():
+                raise Exception(f"Authentication error: {error_msg}. Please check your API key.")
+            elif "rate_limit" in error_msg.lower():
+                raise Exception(f"Rate limit exceeded: {error_msg}. Please wait a moment and try again.")
+            elif "model" in error_msg.lower():
+                raise Exception(f"Model error: {error_msg}. Please try a different model.")
+            else:
+                raise Exception(f"OpenAI API error: {error_msg}")
+        # SDK v1.42+ provides output_text for assembled content
+        content = getattr(resp, 'output_text', None)
+        if not content:
+            try:
+                # Fallback: extract text from output items
+                pieces = []
+                for item in getattr(resp, 'output', []) or []:
+                    for block in item.get('content', []) or []:
+                        if block.get('type') in ('output_text', 'summary_text'):
+                            pieces.append(block.get('text', ''))
+                content = "\n".join([p for p in pieces if p]) or "{}"
+            except Exception:
+                content = "{}"
+        # If response looks empty/minimal, dump a truncated raw view to console for debugging
+        try:
+            pass
+        except Exception:
+            pass
+        return content
+
+    def _validate_json(self, s: str, cid) -> dict:
+        try:
+            obj = json.loads(s)
+            # Basic schema checks
+            if str(obj.get('cluster_id', '')) != str(cid):
+                obj['cluster_id'] = str(cid)
+            if not isinstance(obj.get('phenotype_guesses', []), list):
+                obj['phenotype_guesses'] = []
+            if not isinstance(obj.get('key_markers_positive', []), list):
+                obj['key_markers_positive'] = []
+            if not isinstance(obj.get('key_markers_negative', []), list):
+                obj['key_markers_negative'] = []
+            if 'notes' not in obj:
+                obj['notes'] = ""
+            return obj
+        except Exception:
+            return None

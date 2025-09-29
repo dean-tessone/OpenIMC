@@ -31,7 +31,7 @@ class CustomNavigationToolbar(NavigationToolbar):
             # Get custom filename from main window
             filename = self.main_window.get_save_filename()
             if filename:
-                self.figure.savefig(filename)
+                self.canvas.figure.savefig(filename)
                 return
             # If filename is None (user cancelled), don't fall back to default behavior
             return
@@ -45,7 +45,7 @@ class CustomNavigationToolbar(NavigationToolbar):
             # Get custom filename from main window
             filename = self.main_window.get_save_filename()
             if filename:
-                self.figure.savefig(filename)
+                self.canvas.figure.savefig(filename)
                 return
             # If filename is None (user cancelled), don't fall back to default behavior
             return
@@ -3104,7 +3104,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     # Load and preprocess all acquisitions in this batch
                     batch_data = self._load_batch_acquisitions(
-                        batch_acquisitions, preprocessing_config, progress_dlg
+                        batch_acquisitions, preprocessing_config, progress_dlg, denoise_source, custom_denoise_settings
                     )
                     
                     if not batch_data:
@@ -3199,7 +3199,7 @@ class MainWindow(QtWidgets.QMainWindow):
             progress_dlg.close()
     
     
-    def _load_batch_acquisitions(self, acquisitions, preprocessing_config: dict, progress_dlg) -> dict:
+    def _load_batch_acquisitions(self, acquisitions, preprocessing_config: dict, progress_dlg, denoise_source: str = "none", custom_denoise_settings: dict = None) -> dict:
         """Load and preprocess a batch of acquisitions efficiently."""
         batch_images = []
         batch_channels = []
@@ -3448,13 +3448,13 @@ class MainWindow(QtWidgets.QMainWindow):
         nuclear_imgs = []
         for channel in nuclear_channels:
             img = self.loader.get_image(self.current_acq_id, channel)
-            # Apply denoising based on source selection
-            if denoise_source == "Viewer" and use_viewer_denoising:
+            # Apply denoising based on source selection (always from raw loader image)
+            if denoise_source == "viewer" and use_viewer_denoising:
                 try:
                     img = self._apply_denoise(channel, img)
                 except Exception:
                     pass
-            elif denoise_source == "Custom" and custom_denoise_settings:
+            elif denoise_source == "custom" and custom_denoise_settings:
                 try:
                     img = self._apply_custom_denoise(channel, img, custom_denoise_settings)
                 except Exception:
@@ -3475,13 +3475,13 @@ class MainWindow(QtWidgets.QMainWindow):
             cyto_imgs = []
             for channel in cyto_channels:
                 img = self.loader.get_image(self.current_acq_id, channel)
-                # Apply denoising based on source selection
-                if denoise_source == "Viewer" and use_viewer_denoising:
+                # Apply denoising based on source selection (always from raw loader image)
+                if denoise_source == "viewer" and use_viewer_denoising:
                     try:
                         img = self._apply_denoise(channel, img)
                     except Exception:
                         pass
-                elif denoise_source == "Custom" and custom_denoise_settings:
+                elif denoise_source == "custom" and custom_denoise_settings:
                     try:
                         img = self._apply_custom_denoise(channel, img, custom_denoise_settings)
                     except Exception:
@@ -3563,6 +3563,13 @@ class MainWindow(QtWidgets.QMainWindow):
         normalization_config = dlg.get_normalization_config()
         denoise_source = dlg.get_denoise_source()
         custom_denoise_settings = dlg.get_custom_denoise_settings()
+        
+        # Store the normalization configuration for later use in clustering
+        self.feature_extraction_config = {
+            'normalization_config': normalization_config,
+            'denoise_source': denoise_source,
+            'custom_denoise_settings': custom_denoise_settings
+        }
         
         if not selected_acquisitions:
             QtWidgets.QMessageBox.warning(self, "No acquisitions selected", "Please select at least one acquisition.")
@@ -3991,8 +3998,13 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         
+        # Get normalization configuration from feature extraction
+        normalization_config = None
+        if hasattr(self, 'feature_extraction_config') and self.feature_extraction_config:
+            normalization_config = self.feature_extraction_config.get('normalization_config')
+        
         # Open clustering dialog
-        dlg = CellClusteringDialog(self.feature_dataframe, self)
+        dlg = CellClusteringDialog(self.feature_dataframe, normalization_config, self)
         dlg.exec_()
 
 

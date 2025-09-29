@@ -129,7 +129,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         denoise_source_layout = QtWidgets.QHBoxLayout()
         denoise_source_layout.addWidget(QtWidgets.QLabel("Denoising:"))
         self.denoise_source_combo = QtWidgets.QComboBox()
-        self.denoise_source_combo.addItems(["None", "Viewer", "Segmentation", "Custom"])
+        self.denoise_source_combo.addItems(["None", "Viewer", "Custom"])  # Remove ambiguous 'Segmentation' source
         self.denoise_source_combo.currentTextChanged.connect(self._on_denoise_source_changed)
         denoise_source_layout.addWidget(self.denoise_source_combo)
         denoise_source_layout.addStretch()
@@ -526,8 +526,15 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
 
             cfg_bg = None
             if self.bg_subtract_chk.isChecked():
+                bg_idx = self.bg_method_combo.currentIndex()
+                if bg_idx == 0:
+                    bg_method = "white_tophat"
+                elif bg_idx == 1:
+                    bg_method = "black_tophat"
+                else:
+                    bg_method = "rolling_ball"
                 cfg_bg = {
-                    "method": "white_tophat" if self.bg_method_combo.currentIndex() == 0 else "rolling_ball",
+                    "method": bg_method,
                     "radius": int(self.bg_radius_spin.value()),
                 }
 
@@ -539,9 +546,10 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
             # Apply the same configuration to all channels
             for channel in channels:
                 self.custom_denoise_settings.setdefault(channel, {})
-                self.custom_denoise_settings[channel]["hot"] = cfg_hot
-                self.custom_denoise_settings[channel]["speckle"] = cfg_speckle
-                self.custom_denoise_settings[channel]["background"] = cfg_bg
+                # Store copies per channel to avoid shared references
+                self.custom_denoise_settings[channel]["hot"] = dict(cfg_hot) if cfg_hot else None
+                self.custom_denoise_settings[channel]["speckle"] = dict(cfg_speckle) if cfg_speckle else None
+                self.custom_denoise_settings[channel]["background"] = dict(cfg_bg) if cfg_bg else None
             
             # Show visual confirmation
             self.apply_all_channels_btn.setText("✓ Applied to All Channels")

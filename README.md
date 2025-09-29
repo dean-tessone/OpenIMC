@@ -1,239 +1,203 @@
-# OpenMCD - IMC .mcd File Viewer
+# OpenMCD - Advanced IMC Data Analysis Platform
 
-A PyQt5-based viewer for IMC (Imaging Mass Cytometry) .mcd files using the readimc library. This application provides an intuitive graphical interface for visualizing and analyzing multi-channel imaging data from mass cytometry experiments.
+OpenMCD is a comprehensive PyQt5-based platform for analyzing Imaging Mass Cytometry (IMC) data. It provides an intuitive graphical interface for visualizing, processing, and analyzing multi-channel imaging data from mass cytometry experiments with advanced machine learning capabilities.
 
-## Features
+## 🚀 Key Features
 
-### Core Functionality
-- **Multi-acquisition Support**: View multiple acquisitions within a single .mcd file
-- **Channel Visualization**: Display individual channels or create RGB composites
-- **Flexible Display Modes**: 
-  - Single channel view with grayscale or color mapping
-  - RGB composite view with custom color channel assignments
-  - Grid view for comparing multiple channels simultaneously
-- **Dynamic Comparison Mode**: Compare the same channel across different acquisitions with advanced scaling options
-- **Metadata Display**: View acquisition metadata including dimensions, channel information, and experimental details
-- **Cell Segmentation (optional)**: Run Cellpose (cyto3/nuclei) with CPU/GPU acceleration and overlay masks
-- **Feature Extraction (optional)**: Compute per-cell morphology and intensity features with optional multiprocessing and export to CSV
-- **Cell Clustering Analysis (optional)**: Perform hierarchical and Leiden clustering on extracted cell features
-- **UMAP Dimensionality Reduction (optional)**: Visualize high-dimensional cell data in 2D space using UMAP
+### 📊 **Image Viewing & Visualization**
+- **Multi-acquisition Support**: View and analyze multiple acquisitions within a single .mcd file
+- **Flexible Display Modes**: Single channel, RGB composite, and grid view for comprehensive data exploration
+- **Custom Scaling**: Advanced intensity scaling with percentile-based optimization and manual controls
+- **Dynamic Comparison**: Compare channels across different acquisitions with linked/unlinked scaling
 
-### Advanced Features
-- **Custom Scaling**: Per-channel intensity scaling with slider controls
-- **Auto Contrast**: Automatic contrast optimization using percentile-based scaling
-- **Annotation System**: Label channels with quality assessments (High-quality, Low-quality, Artifact/Exclude)
-- **Export Capabilities**: Save annotations as CSV files for further analysis
-- **Memory Management**: Intelligent caching system for efficient handling of large datasets
-- **Multiple Clustering Algorithms**: Choose between hierarchical clustering and Leiden community detection
-- **Feature Selection**: Interactive dialog to select morphometric and intensity features for clustering
-- **Cluster Visualization**: Heatmaps, dendrograms, and cluster statistics for analysis results
-- **UMAP Integration**: 2D embedding visualization with customizable parameters (n_neighbors, min_dist)
-- **Cluster Explorer**: Detailed exploration of individual clusters with cell image visualization
-- **Enhanced Comparison Mode**: RGB composite support, linked/unlinked scaling, and arcsinh normalization
+### 🔬 **Marker Quality Control**
+- **Interactive Annotation System**: Label channels with quality assessments (High-quality, Low-quality, Artifact/Exclude)
+- **Export Capabilities**: Save and load annotations as CSV files for reproducible analysis
+- **Visual Quality Assessment**: Real-time visualization with custom scaling for marker evaluation
 
-### User Interface
-- **Intuitive Controls**: Easy-to-use interface with clear organization
-- **Real-time Updates**: Instant visualization updates when changing parameters
-- **Flexible Layout**: Resizable windows and panels for optimal viewing
-- **Color Assignment**: Custom RGB channel mapping for composite images
+### 🎯 **Advanced Segmentation**
+- **Cellpose Integration**: GPU-accelerated cell segmentation using state-of-the-art Cellpose models
+- **Multiple Models**: Support for cyto3 and nuclei segmentation models
+- **Overlay Visualization**: Real-time mask overlay on original images
+- **GPU Acceleration**: CUDA and MPS support for faster processing
 
-## Requirements
+### 📈 **Feature Extraction**
+- **Comprehensive Feature Sets**: Extract morphometric (area, perimeter, eccentricity) and intensity features (mean, median, std)
+- **Multiprocessing Support**: Parallel processing for efficient feature computation
+- **Export Options**: Save results to CSV or keep in memory for further analysis
+- **Per-cell Analysis**: Detailed feature extraction for individual cells
 
-- Python 3.11
-- PyQt5 for the graphical interface
-- readimc library for .mcd file reading
-- Standard scientific Python packages (numpy, pandas, matplotlib, scipy, scikit-image, scikit-learn, etc.)
+### 🧬 **Clustering Analysis**
+- **Multiple Algorithms**: Hierarchical clustering and Leiden community detection
+- **Feature Selection**: Interactive dialog to select relevant features for clustering
+- **Advanced Visualization**: Heatmaps, dendrograms, and cluster statistics
+- **Cluster Explorer**: Detailed exploration of individual clusters with cell visualization
 
-### Optional Dependencies
+### 🤖 **LLM-Based Cell Phenotyping**
+- **OpenAI Integration**: Leverage GPT models for intelligent cell phenotype annotation
+- **Automated Classification**: AI-powered cell type identification and characterization
+- **Custom Phenotypes**: Define and train custom phenotype categories
+- **Batch Processing**: Process large datasets with AI-assisted annotation
 
-For enhanced functionality, the following packages are optional but recommended:
+## 📋 Workflow
 
-- **Cellpose** (cellpose==3.1.1.2): For cell segmentation functionality
-- **PyTorch** (torch>=1.9.0): For GPU-accelerated segmentation (CUDA/MPS support)
-- **Leiden Algorithm** (leidenalg>=0.10.0, python-igraph>=0.11.0): For advanced clustering analysis
-- **UMAP** (umap-learn>=0.5.0): For dimensionality reduction and visualization
-- **Seaborn** (seaborn>=0.13.2): For enhanced statistical visualizations
+### 1. **Image Loading**
+- Open .mcd files containing IMC acquisitions
+- Browse and select specific acquisitions for analysis
+- View acquisition metadata and channel information
 
-## Installation
+### 2. **Marker QC**
+- Visualize individual channels with custom scaling
+- Annotate channels based on quality assessment
+- Export QC annotations for documentation and reproducibility
 
-### 1. Clone the Repository
+### 3. **Segmentation**
+- Run Cellpose segmentation (cyto3 or nuclei models)
+- Configure preprocessing parameters and GPU acceleration
+- Visualize segmentation masks with overlay options
+
+### 4. **Feature Extraction**
+- Extract comprehensive cell features (morphometric and intensity)
+- Select specific feature sets for analysis
+- Export results for downstream analysis
+
+### 5. **Clustering on QC Features**
+- Perform hierarchical or Leiden clustering on extracted features
+- Visualize results with heatmaps and dendrograms
+- Explore individual clusters with detailed statistics
+
+### 6. **Phenotype Annotation**
+- **LLM-based**: Use OpenAI GPT models for automated cell phenotyping
+- **Custom**: Define and apply custom phenotype categories
+- Export annotated results for further analysis
+
+## 🛠️ Installation & Setup
+
+### Option 1: Conda Environment (Recommended)
+
 ```bash
+# Clone the repository
 git clone <repository-url>
 cd OpenMCD
+
+# Create conda environment
+conda create -n openmcd python=3.11
+conda activate openmcd
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify installation
+python main.py
 ```
 
-### 2. Create a Virtual Environment
+### Option 2: Virtual Environment
+
 ```bash
+# Clone the repository
+git clone <repository-url>
+cd OpenMCD
+
+# Create virtual environment
 python3.11 -m venv openmcd_env
 source openmcd_env/bin/activate  # On Windows: openmcd_env\Scripts\activate
-```
 
-### 3. Install Dependencies
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### 4. Verify Installation
-```bash
+# Verify installation
 python main.py
 ```
 
-## Usage
+## 🔑 OpenAI API Key Setup
 
-### Starting the Application
+To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
+
+### 1. **Generate API Key**
+1. Visit [OpenAI Platform](https://platform.openai.com/)
+2. Sign up or log in to your account
+3. Navigate to the API section
+4. Click "Create new secret key"
+5. Copy the generated API key (starts with `sk-`)
+
+## 📦 Requirements
+
+### Core Dependencies
+- Python 3.11
+- PyQt5 (GUI framework)
+- readimc (IMC file reading)
+- numpy, pandas, matplotlib, scipy (scientific computing)
+- scikit-image, scikit-learn (image processing and ML)
+
+### Optional Dependencies
+- **Cellpose** (3.1.1.2): Cell segmentation
+- **PyTorch** (≥1.9.0): GPU acceleration
+- **Leiden Algorithm**: Advanced clustering
+- **UMAP** (≥0.5.0): Dimensionality reduction
+- **OpenAI** (≥1.42.0): LLM-based phenotyping
+
+## 🚀 Quick Start
+
 ```bash
+# Start the application
 python main.py
+
+# Basic workflow:
+# 1. Open .mcd file → 2. Select acquisition → 3. Run segmentation
+# 4. Extract features → 5. Perform clustering → 6. Annotate phenotypes
 ```
 
-### Basic Workflow
-
-1. **Open a .mcd File**
-   - Click "Open .mcd" button or use File → Open .mcd
-   - Select your IMC .mcd file from the file dialog
-
-2. **Select Acquisition**
-   - Choose an acquisition from the dropdown menu
-   - View acquisition metadata in the information panel
-
-3. **Select Channels**
-   - Check the channels you want to visualize
-   - Use "Deselect all" to clear selections
-   - Choose display mode (single channel, RGB composite, or grid view)
-
-4. **Customize Display**
-   - Toggle grayscale mode for single-channel views
-   - Enable custom scaling for fine-tuned intensity control
-   - Assign channels to RGB colors for composite views
-
-5. **View Images**
-   - Click "View selected" to display your chosen channels
-   - Use comparison mode to compare the same channel across acquisitions
-
-6. **Run Segmentation (optional)**
-   - Click "Cell Segmentation"
-   - Choose model (cyto3 or nuclei) and configure preprocessing if needed
-   - Optionally select GPU device (Auto/CPU/GPU) if PyTorch+CUDA or MPS are available
-   - Enable "Show segmentation overlay" to visualize masks after completion
-
-7. **Extract Features (optional)**
-   - Click "Extract Features"
-   - Select acquisitions (or all with masks) and feature sets
-   - Choose an output directory/filename or keep results in memory
-   - The results DataFrame includes both `acquisition_id` and `acquisition_label` for clarity
-
-8. **Cell Clustering Analysis (optional)**
-   - Click "Cell Clustering" (requires feature extraction first)
-   - Select features for clustering (morphometric and/or intensity features)
-   - Choose clustering method: Hierarchical or Leiden community detection
-   - Configure clustering parameters (number of clusters, linkage method, etc.)
-   - View results as heatmaps, dendrograms, and cluster statistics
-
-9. **UMAP Visualization (optional)**
-   - From the clustering dialog, click "Run UMAP"
-   - Select features for dimensionality reduction
-   - Customize UMAP parameters (n_neighbors, min_dist)
-   - Visualize cell populations in 2D embedding space
-   - Overlay cluster information on UMAP plots
-
-### Advanced Features
-
-#### Custom Scaling
-- Enable "Custom scaling" checkbox
-- Select a channel for scaling adjustment
-- Use sliders or buttons to set intensity range:
-  - **Auto Contrast**: Optimize contrast using 1st-99th percentiles
-  - **Percentile Scaling**: Apply robust percentile scaling
-  - **Default Range**: Use full image intensity range
-- Click "Apply" to update the display
-
-#### Comparison Mode
-- Click "Comparison mode" to open the comparison dialog
-- Select multiple acquisitions to compare
-- Choose a channel to display across all selected acquisitions
-- Use linked scaling for fair comparison or individual scaling for detailed analysis
-- Create RGB composite images by selecting multiple channels for red, green, and blue
-- Apply arcsinh normalization for improved visualization of high-dimensional data
-
-#### Annotations
-- Select channels and choose a label from the dropdown
-- Click "Apply label" to annotate channels
-- Save annotations as CSV for later analysis
-- Load previously saved annotations
-
-#### Clustering Analysis
-- **Feature Selection**: Choose from morphometric features (area, perimeter, eccentricity, etc.) and intensity features (mean, median, std, etc.)
-- **Clustering Methods**: 
-  - Hierarchical clustering with customizable linkage methods (ward, complete, average, single)
-  - Leiden community detection for graph-based clustering with two modes:
-    - **Resolution parameter**: Control cluster granularity (0.1-5.0, default 1.0)
-    - **Modularity optimization**: Automatically optimize for best modularity score
-- **Visualization**: View results as heatmaps, dendrograms, and cluster statistics
-- **Cluster Explorer**: Examine individual clusters with cell image visualization and channel-specific analysis
-
-#### UMAP Dimensionality Reduction
-- **Feature Selection**: Choose features for 2D embedding visualization
-- **Parameter Tuning**: Adjust n_neighbors (default: 15) and min_dist (default: 0.1) for optimal visualization
-- **Cluster Overlay**: Visualize clustering results on UMAP plots
-- **Interactive Exploration**: Zoom, pan, and explore the 2D embedding space
-
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ### Common Issues
 
-1. **"readimc is not installed" error**
-   - Ensure readimc is installed: `pip install readimc>=0.9.0`
+1. **"readimc is not installed"**
+   ```bash
+   pip install readimc>=0.9.0
+   ```
 
-2. **Cellpose/GPU segmentation not available**
-   - Cellpose is optional. Install to enable segmentation: `pip install cellpose`
-   - For CUDA GPUs, also install PyTorch with CUDA (see PyTorch install guide)
-   - On Apple Silicon, MPS is auto-detected when available
+2. **GPU segmentation not available**
+   ```bash
+   # Install PyTorch with CUDA support
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+   ```
 
-3. **PyQt5 installation issues**
-   - On some systems, you may need to install PyQt5 separately:
-   - Ubuntu/Debian: `sudo apt-get install python3-pyqt5`
-   - macOS: `brew install pyqt5`
+3. **OpenAI API errors**
+   - Verify your API key is correctly set
+   - Check your OpenAI account has sufficient credits
+   - Ensure internet connectivity
 
-4. **Display issues**
-   - Ensure your system supports the required OpenGL version for PyQt5
-   - Try running with different Qt backends if needed 
+4. **Memory issues with large datasets**
+   - Close other applications to free RAM
+   - Consider subsampling for clustering analysis
+   - Use multiprocessing for feature extraction
 
-5. **Memory issues with large files**
-   - The application includes caching, but very large datasets may require more RAM
-   - Consider closing other applications to free up memory
+## 📚 Acknowledgments
 
-6. **Multiprocessing during feature extraction**
-   - The app uses multiprocessing where possible; if it fails, it falls back to single-threaded processing automatically
-   - If you see pickling-related errors, ensure you start via `python main.py` (not from within embedded REPLs)
-
-7. **Clustering and UMAP dependencies**
-   - For Leiden clustering: Install `leidenalg` and `python-igraph`: `pip install leidenalg python-igraph`
-   - For UMAP visualization: Install `umap-learn`: `pip install umap-learn`
-   - For enhanced visualizations: Install `seaborn`: `pip install seaborn`
-   - These are optional - the app will work without them but clustering features will be limited
-
-8. **Memory issues with large clustering datasets**
-   - UMAP and clustering can be memory-intensive for large cell populations (>10,000 cells)
-   - Consider subsampling your data or using fewer features if you encounter memory issues
-   - The app includes progress indicators for long-running clustering operations
-
-## Acknowledgments
-
-- **Cellpose**: GPU-accelerated cell segmentation framework used for segmentation functionality.
+- **Cellpose**: GPU-accelerated cell segmentation framework
   - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
   - Project: https://www.cellpose.org/
-- **readimc**: IMC file reader used to load .mcd acquisitions and channel data.
+
+- **readimc**: IMC file reader for .mcd acquisitions
   - Project: https://github.com/BodenmillerGroup/readimc
-- **UMAP**: Uniform Manifold Approximation and Projection for dimensionality reduction.
+
+- **OpenAI**: Large language models for cell phenotyping
+  - Project: https://openai.com/
+
+- **UMAP**: Uniform Manifold Approximation and Projection
   - Paper: McInnes et al., UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction
   - Project: https://umap-learn.readthedocs.io/
-- **Leiden Algorithm**: Community detection algorithm for graph-based clustering.
+
+- **Leiden Algorithm**: Community detection for graph-based clustering
   - Paper: Traag et al., From Louvain to Leiden: guaranteeing well-connected communities
   - Project: https://github.com/vtraag/leidenalg
-- **scikit-learn**: Machine learning library providing clustering algorithms and utilities.
+
+- **scikit-learn**: Machine learning algorithms and utilities
   - Project: https://scikit-learn.org/
-- **seaborn**: Statistical data visualization library for enhanced plotting capabilities.
+
+- **seaborn**: Statistical data visualization
   - Project: https://seaborn.pydata.org/
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License.
