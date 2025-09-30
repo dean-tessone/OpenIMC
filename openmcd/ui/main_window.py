@@ -83,6 +83,7 @@ try:
 except Exception:
     _HAVE_TIFFFILE = False
 from openmcd.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
+from openmcd.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
 from openmcd.ui.dialogs.comparison_dialog import DynamicComparisonDialog
 
 
@@ -126,9 +127,12 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("IMC .mcd File Viewer")
         
-        # Set window size to full screen
+        # Set window size to full screen with minimum size constraint
         screen = QtWidgets.QApplication.desktop().screenGeometry()
         self.resize(screen.width(), screen.height())
+        
+        # Set minimum size for smaller screens
+        self.setMinimumSize(1000, 700)
 
         # State
         self.loader: Optional[MCDLoader] = None
@@ -168,6 +172,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segment_btn = QtWidgets.QPushButton("Cell Segmentation")
         self.extract_features_btn = QtWidgets.QPushButton("Extract Features")
         self.clustering_btn = QtWidgets.QPushButton("Cell Clustering")
+        self.spatial_btn = QtWidgets.QPushButton("Spatial Analysis")
         self.reset_zoom_btn = QtWidgets.QPushButton("Reset Zoom")
         
         # Visualization options
@@ -191,6 +196,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.denoise_enable_chk.toggled.connect(self._on_denoise_toggled)
         self.denoise_frame = QtWidgets.QFrame()
         self.denoise_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        self.denoise_frame.setMaximumWidth(320)  # Fit within scrollable panel
         denoise_layout = QtWidgets.QVBoxLayout(self.denoise_frame)
         denoise_layout.addWidget(QtWidgets.QLabel("Denoising (apply per selected channel):"))
 
@@ -299,6 +305,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.scaling_frame = QtWidgets.QFrame()
         self.scaling_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        self.scaling_frame.setMaximumWidth(320)  # Fit within scrollable panel
         scaling_layout = QtWidgets.QVBoxLayout(self.scaling_frame)
         scaling_layout.addWidget(QtWidgets.QLabel("Custom Intensity Range:"))
         
@@ -401,6 +408,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Color assignment for RGB composite
         self.color_assignment_frame = QtWidgets.QFrame()
         self.color_assignment_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        self.color_assignment_frame.setMaximumWidth(320)  # Fit within scrollable panel
         color_layout = QtWidgets.QVBoxLayout(self.color_assignment_frame)
         color_layout.addWidget(QtWidgets.QLabel("Color Assignment (for RGB composite):"))
         
@@ -438,14 +446,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ann_combo.addItems(self.annotation_labels)
         self.ann_apply_btn = QtWidgets.QPushButton("Apply label")
 
-        # Metadata display
+        # Metadata display (more compact for smaller screens)
         self.metadata_text = QtWidgets.QTextEdit()
-        self.metadata_text.setMaximumHeight(150)
+        self.metadata_text.setMaximumHeight(120)
         self.metadata_text.setReadOnly(True)
 
-        # Left panel layout
+        # Left panel layout with scrolling for smaller screens
         controls = QtWidgets.QWidget()
         v = QtWidgets.QVBoxLayout(controls)
+        v.setContentsMargins(5, 5, 5, 5)  # Reduce margins for more space
         v.addWidget(self.open_btn)
 
         v.addWidget(QtWidgets.QLabel("Acquisition:"))
@@ -499,24 +508,32 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addLayout(ann_row)
         v.addWidget(self.ann_apply_btn)
 
-        v.addSpacing(8)
+        v.addSpacing(4)
         v.addWidget(self.view_btn)
         v.addWidget(self.reset_zoom_btn)
         v.addWidget(self.comparison_btn)
         v.addWidget(self.segment_btn)
         v.addWidget(self.extract_features_btn)
         v.addWidget(self.clustering_btn)
-        v.addSpacing(8)
+        v.addWidget(self.spatial_btn)
+        v.addSpacing(4)
         
         v.addWidget(QtWidgets.QLabel("Metadata:"))
         v.addWidget(self.metadata_text)
         v.addStretch(1)
 
-        # Splitter
+        # Splitter with scrollable left panel for smaller screens
         splitter = QtWidgets.QSplitter(Qt.Horizontal)
-        leftw = QtWidgets.QWidget()
-        leftw.setLayout(v)
-        splitter.addWidget(leftw)
+        
+        # Create scrollable left panel with fixed width
+        left_scroll = QtWidgets.QScrollArea()
+        left_scroll.setWidget(controls)
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFixedWidth(340)  # Fixed width, no resizing
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        splitter.addWidget(left_scroll)
         # Right pane with toolbar + canvas
         rightw = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(rightw)
@@ -560,6 +577,8 @@ class MainWindow(QtWidgets.QMainWindow):
         analysis_menu = self.menuBar().addMenu("&Analysis")
         act_clustering = analysis_menu.addAction("Cell Clustering…")
         act_clustering.triggered.connect(self._open_clustering_dialog)
+        act_spatial = analysis_menu.addAction("Spatial Analysis…")
+        act_spatial.triggered.connect(self._open_spatial_dialog)
 
         # Signals
         self.open_btn.clicked.connect(self._open_dialog)
@@ -577,6 +596,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segment_btn.clicked.connect(self._run_segmentation)
         self.extract_features_btn.clicked.connect(self._extract_features)
         self.clustering_btn.clicked.connect(self._open_clustering_dialog)
+        self.spatial_btn.clicked.connect(self._open_spatial_dialog)
         self.ann_apply_btn.clicked.connect(self._apply_annotation)
 
         # Loader
@@ -4005,6 +4025,18 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Open clustering dialog
         dlg = CellClusteringDialog(self.feature_dataframe, normalization_config, self)
+        dlg.exec_()
+
+    def _open_spatial_dialog(self):
+        """Open the spatial analysis dialog."""
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Feature Data",
+                "No feature data available. Please extract features first using the 'Extract Features' button."
+            )
+            return
+        dlg = SpatialAnalysisDialog(self.feature_dataframe, self)
         dlg.exec_()
 
 
