@@ -207,10 +207,12 @@ def extract_features_for_acquisition(
             inten_df = pd.DataFrame(regionprops_table(label_image, intensity_image=ch_img, properties=("label", "mean_intensity")))
             inten_df.rename(columns={"mean_intensity": f"{ch_name}_mean"}, inplace=True)
 
-            # Compute std, p10, p90, integrated, frac_pos manually
+            # Compute std, median, mad, p10, p90, integrated, frac_pos manually
             # Build per-label lists
             labels = inten_df["label"].to_numpy()
             std_vals = np.zeros_like(labels, dtype=np.float64)
+            median_vals = np.zeros_like(labels, dtype=np.float64)
+            mad_vals = np.zeros_like(labels, dtype=np.float64)
             p10_vals = np.zeros_like(labels, dtype=np.float64)
             p90_vals = np.zeros_like(labels, dtype=np.float64)
             integrated_vals = np.zeros_like(labels, dtype=np.float64)
@@ -222,12 +224,16 @@ def extract_features_for_acquisition(
                 if pix.size == 0:
                     continue
                 std_vals[i] = float(np.std(pix))
+                median_vals[i] = float(np.median(pix))
+                mad_vals[i] = float(np.median(np.abs(pix - np.median(pix))))
                 p10_vals[i] = float(np.percentile(pix, 10))
                 p90_vals[i] = float(np.percentile(pix, 90))
                 integrated_vals[i] = float(np.mean(pix) * pix.size)
                 frac_pos_vals[i] = float(np.count_nonzero(pix > 0) / pix.size)
 
             inten_df[f"{ch_name}_std"] = std_vals
+            inten_df[f"{ch_name}_median"] = median_vals
+            inten_df[f"{ch_name}_mad"] = mad_vals
             inten_df[f"{ch_name}_p10"] = p10_vals
             inten_df[f"{ch_name}_p90"] = p90_vals
             inten_df[f"{ch_name}_integrated"] = integrated_vals

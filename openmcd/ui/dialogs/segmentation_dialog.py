@@ -8,6 +8,7 @@ from openmcd.data.mcd_loader import AcquisitionInfo, MCDLoader  # noqa: F401
 import os
 from openmcd.ui.utils import combine_channels
 from openmcd.ui.dialogs.preprocessing_dialog import PreprocessingDialog
+from openmcd.ui.dialogs.interactive_pixel_classification_dialog import InteractivePixelClassificationDialog
 
 # Optional GPU runtime
 try:
@@ -108,7 +109,7 @@ class SegmentationDialog(QtWidgets.QDialog):
         model_layout = QtWidgets.QVBoxLayout(model_group)
         
         self.model_combo = QtWidgets.QComboBox()
-        self.model_combo.addItems(["cyto3", "nuclei"])
+        self.model_combo.addItems(["cyto3", "nuclei", "Classical Watershed", "Interactive pixel level classification"])
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         model_layout.addWidget(QtWidgets.QLabel("Model:"))
         model_layout.addWidget(self.model_combo)
@@ -259,9 +260,9 @@ class SegmentationDialog(QtWidgets.QDialog):
         # Add preprocessing group to main layout
         layout.addWidget(preprocess_group)
         
-        # Parameters
-        params_group = QtWidgets.QGroupBox("Segmentation Parameters")
-        params_layout = QtWidgets.QVBoxLayout(params_group)
+        # Parameters (Cellpose-specific)
+        self.params_group = QtWidgets.QGroupBox("Segmentation Parameters")
+        params_layout = QtWidgets.QVBoxLayout(self.params_group)
         
         # Diameter
         diameter_layout = QtWidgets.QHBoxLayout()
@@ -306,11 +307,138 @@ class SegmentationDialog(QtWidgets.QDialog):
         
         params_layout.addLayout(cellprob_layout)
         
-        layout.addWidget(params_group)
+        layout.addWidget(self.params_group)
         
-        # GPU selection
-        gpu_group = QtWidgets.QGroupBox("GPU Acceleration")
-        gpu_layout = QtWidgets.QVBoxLayout(gpu_group)
+        # Watershed-specific parameters (hidden by default)
+        self.watershed_group = QtWidgets.QGroupBox("Watershed Parameters")
+        watershed_layout = QtWidgets.QVBoxLayout(self.watershed_group)
+        
+        # Nuclear fusion method
+        nuclear_fusion_layout = QtWidgets.QHBoxLayout()
+        nuclear_fusion_layout.addWidget(QtWidgets.QLabel("Nuclear fusion method:"))
+        self.nuclear_fusion_combo = QtWidgets.QComboBox()
+        self.nuclear_fusion_combo.addItems(["mean", "weighted", "pca1"])
+        nuclear_fusion_layout.addWidget(self.nuclear_fusion_combo)
+        nuclear_fusion_layout.addStretch()
+        watershed_layout.addLayout(nuclear_fusion_layout)
+        
+        # Seed threshold method
+        seed_threshold_layout = QtWidgets.QHBoxLayout()
+        seed_threshold_layout.addWidget(QtWidgets.QLabel("Seed threshold method:"))
+        self.seed_threshold_combo = QtWidgets.QComboBox()
+        self.seed_threshold_combo.addItems(["otsu", "percentile"])
+        seed_threshold_layout.addWidget(self.seed_threshold_combo)
+        seed_threshold_layout.addStretch()
+        watershed_layout.addLayout(seed_threshold_layout)
+        
+        # Min seed area
+        min_seed_layout = QtWidgets.QHBoxLayout()
+        min_seed_layout.addWidget(QtWidgets.QLabel("Min seed area (pixels):"))
+        self.min_seed_area_spin = QtWidgets.QSpinBox()
+        self.min_seed_area_spin.setRange(1, 1000)
+        self.min_seed_area_spin.setValue(3)  # Much smaller for 10-pixel cells
+        self.min_seed_area_spin.setSuffix(" px")
+        min_seed_layout.addWidget(self.min_seed_area_spin)
+        min_seed_layout.addStretch()
+        watershed_layout.addLayout(min_seed_layout)
+        
+        # Min distance between peaks
+        min_distance_layout = QtWidgets.QHBoxLayout()
+        min_distance_layout.addWidget(QtWidgets.QLabel("Min distance between peaks:"))
+        self.min_distance_peaks_spin = QtWidgets.QSpinBox()
+        self.min_distance_peaks_spin.setRange(1, 50)
+        self.min_distance_peaks_spin.setValue(3)  # Smaller for closely packed small cells
+        self.min_distance_peaks_spin.setSuffix(" px")
+        min_distance_layout.addWidget(self.min_distance_peaks_spin)
+        min_distance_layout.addStretch()
+        watershed_layout.addLayout(min_distance_layout)
+        
+        # Boundary detection method
+        boundary_layout = QtWidgets.QHBoxLayout()
+        boundary_layout.addWidget(QtWidgets.QLabel("Boundary detection:"))
+        self.boundary_method_combo = QtWidgets.QComboBox()
+        self.boundary_method_combo.addItems(["sobel", "scharr", "membrane_channels"])
+        boundary_layout.addWidget(self.boundary_method_combo)
+        boundary_layout.addStretch()
+        watershed_layout.addLayout(boundary_layout)
+        
+        # Boundary smoothing sigma
+        boundary_sigma_layout = QtWidgets.QHBoxLayout()
+        boundary_sigma_layout.addWidget(QtWidgets.QLabel("Boundary smoothing σ:"))
+        self.boundary_sigma_spin = QtWidgets.QDoubleSpinBox()
+        self.boundary_sigma_spin.setRange(0.1, 5.0)
+        self.boundary_sigma_spin.setDecimals(2)
+        self.boundary_sigma_spin.setValue(0.5)  # Less smoothing for small cells
+        self.boundary_sigma_spin.setSingleStep(0.1)
+        boundary_sigma_layout.addWidget(self.boundary_sigma_spin)
+        boundary_sigma_layout.addStretch()
+        watershed_layout.addLayout(boundary_sigma_layout)
+        
+        # Watershed compactness
+        compactness_layout = QtWidgets.QHBoxLayout()
+        compactness_layout.addWidget(QtWidgets.QLabel("Watershed compactness:"))
+        self.compactness_spin = QtWidgets.QDoubleSpinBox()
+        self.compactness_spin.setRange(0.0, 0.1)
+        self.compactness_spin.setDecimals(3)
+        self.compactness_spin.setValue(0.001)  # Lower compactness for small cells
+        self.compactness_spin.setSingleStep(0.001)
+        compactness_layout.addWidget(self.compactness_spin)
+        compactness_layout.addStretch()
+        watershed_layout.addLayout(compactness_layout)
+        
+        # Min/Max cell area
+        cell_area_layout = QtWidgets.QHBoxLayout()
+        cell_area_layout.addWidget(QtWidgets.QLabel("Min cell area:"))
+        self.min_cell_area_spin = QtWidgets.QSpinBox()
+        self.min_cell_area_spin.setRange(1, 10000)
+        self.min_cell_area_spin.setValue(20)  # Much smaller for 10-pixel cells
+        self.min_cell_area_spin.setSuffix(" px")
+        cell_area_layout.addWidget(self.min_cell_area_spin)
+        
+        cell_area_layout.addWidget(QtWidgets.QLabel("Max cell area:"))
+        self.max_cell_area_spin = QtWidgets.QSpinBox()
+        self.max_cell_area_spin.setRange(100, 100000)
+        self.max_cell_area_spin.setValue(200)  # Much smaller for 10-pixel cells
+        self.max_cell_area_spin.setSuffix(" px")
+        cell_area_layout.addWidget(self.max_cell_area_spin)
+        cell_area_layout.addStretch()
+        watershed_layout.addLayout(cell_area_layout)
+        
+        # Tiling parameters
+        tiling_layout = QtWidgets.QHBoxLayout()
+        tiling_layout.addWidget(QtWidgets.QLabel("Tile size:"))
+        self.tile_size_spin = QtWidgets.QSpinBox()
+        self.tile_size_spin.setRange(128, 2048)  # Allow smaller tiles for small ROIs
+        self.tile_size_spin.setValue(128)  # Even smaller tiles for small cells and ROIs
+        self.tile_size_spin.setSuffix(" px")
+        tiling_layout.addWidget(self.tile_size_spin)
+        
+        tiling_layout.addWidget(QtWidgets.QLabel("Overlap:"))
+        self.tile_overlap_spin = QtWidgets.QSpinBox()
+        self.tile_overlap_spin.setRange(16, 256)  # Allow smaller overlaps
+        self.tile_overlap_spin.setValue(16)  # Smaller overlap for small tiles
+        self.tile_overlap_spin.setSuffix(" px")
+        tiling_layout.addWidget(self.tile_overlap_spin)
+        tiling_layout.addStretch()
+        watershed_layout.addLayout(tiling_layout)
+        
+        # RNG seed for deterministic results
+        rng_seed_layout = QtWidgets.QHBoxLayout()
+        rng_seed_layout.addWidget(QtWidgets.QLabel("RNG seed:"))
+        self.rng_seed_spin = QtWidgets.QSpinBox()
+        self.rng_seed_spin.setRange(0, 999999)
+        self.rng_seed_spin.setValue(42)
+        rng_seed_layout.addWidget(self.rng_seed_spin)
+        rng_seed_layout.addStretch()
+        watershed_layout.addLayout(rng_seed_layout)
+        
+        # Initially hide watershed parameters
+        self.watershed_group.setVisible(False)
+        layout.addWidget(self.watershed_group)
+        
+        # GPU selection (Cellpose-specific)
+        self.gpu_group = QtWidgets.QGroupBox("GPU Acceleration")
+        gpu_layout = QtWidgets.QVBoxLayout(self.gpu_group)
         
         gpu_row = QtWidgets.QHBoxLayout()
         gpu_row.addWidget(QtWidgets.QLabel("Device:"))
@@ -326,7 +454,7 @@ class SegmentationDialog(QtWidgets.QDialog):
         self.gpu_info_label.setWordWrap(True)
         gpu_layout.addWidget(self.gpu_info_label)
         
-        layout.addWidget(gpu_group)
+        layout.addWidget(self.gpu_group)
         
         # Options
         options_group = QtWidgets.QGroupBox("Options")
@@ -411,8 +539,24 @@ class SegmentationDialog(QtWidgets.QDialog):
             self.model_desc.setText("Nuclei: Segments cell nuclei using nuclear channel")
             # When using nuclei model, hide cytoplasm selection UI in preprocessing
             # (actual hiding is applied when dialog is opened)
+            self.params_group.setVisible(True)
+            self.gpu_group.setVisible(True)
+            self.watershed_group.setVisible(False)
+        elif model == "Classical Watershed":
+            self.model_desc.setText("Classical Watershed: Marker-controlled watershed with nucleus-seeded, membrane-guided segmentation")
+            self.params_group.setVisible(False)
+            self.gpu_group.setVisible(False)
+            self.watershed_group.setVisible(True)
+        elif model == "Interactive pixel level classification":
+            self.model_desc.setText("Interactive pixel level classification: Interactive pixel-level classification with brush tool and live preview")
+            self.params_group.setVisible(False)
+            self.gpu_group.setVisible(False)
+            self.watershed_group.setVisible(False)
         else:  # cyto3
             self.model_desc.setText("Cytoplasm: Segments whole cells using cytoplasm + nuclear channels")
+            self.params_group.setVisible(True)
+            self.gpu_group.setVisible(True)
+            self.watershed_group.setVisible(False)
     
     def _on_auto_diameter_toggled(self):
         """Enable/disable diameter spinbox based on auto-estimate checkbox."""
@@ -803,3 +947,56 @@ class SegmentationDialog(QtWidgets.QDialog):
     def get_custom_denoise_settings(self):
         """Get the custom denoising settings."""
         return self.custom_denoise_settings
+    
+    # Watershed parameter getters
+    def get_nuclear_fusion_method(self):
+        """Get nuclear fusion method."""
+        return self.nuclear_fusion_combo.currentText()
+    
+    def get_seed_threshold_method(self):
+        """Get seed threshold method."""
+        return self.seed_threshold_combo.currentText()
+    
+    def get_min_seed_area(self):
+        """Get minimum seed area in pixels."""
+        return self.min_seed_area_spin.value()
+    
+    def get_min_distance_peaks(self):
+        """Get minimum distance between peaks in pixels."""
+        return self.min_distance_peaks_spin.value()
+    
+    def get_boundary_method(self):
+        """Get boundary detection method."""
+        return self.boundary_method_combo.currentText()
+    
+    def get_boundary_sigma(self):
+        """Get boundary smoothing sigma."""
+        return self.boundary_sigma_spin.value()
+    
+    def get_compactness(self):
+        """Get watershed compactness parameter."""
+        return self.compactness_spin.value()
+    
+    def get_min_cell_area(self):
+        """Get minimum cell area in pixels."""
+        return self.min_cell_area_spin.value()
+    
+    def get_max_cell_area(self):
+        """Get maximum cell area in pixels."""
+        return self.max_cell_area_spin.value()
+    
+    def get_tile_size(self):
+        """Get tile size for tiling."""
+        return self.tile_size_spin.value()
+    
+    def get_tile_overlap(self):
+        """Get tile overlap in pixels."""
+        return self.tile_overlap_spin.value()
+    
+    def get_rng_seed(self):
+        """Get RNG seed for deterministic results."""
+        return self.rng_seed_spin.value()
+    
+    def get_membrane_fusion_method(self):
+        """Get membrane fusion method (same as nuclear for now)."""
+        return self.nuclear_fusion_combo.currentText()

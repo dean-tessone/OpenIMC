@@ -13,6 +13,7 @@ from PyQt5.QtCore import Qt, QTimer
 
 from openmcd.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openmcd.processing.feature_worker import extract_features_for_acquisition
+from openmcd.processing.watershed_worker import watershed_segmentation
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -65,6 +66,7 @@ from openmcd.ui.dialogs.progress_dialog import ProgressDialog
 from openmcd.ui.dialogs.gpu_selection_dialog import GPUSelectionDialog
 from openmcd.ui.dialogs.preprocessing_dialog import PreprocessingDialog
 from openmcd.ui.dialogs.segmentation_dialog import SegmentationDialog
+from openmcd.ui.dialogs.interactive_pixel_classification_dialog import InteractivePixelClassificationDialog
 from openmcd.ui.dialogs.export import ExportDialog
 from openmcd.ui.dialogs.feature_extraction import FeatureExtractionDialog
 
@@ -2857,13 +2859,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, "No acquisitions", "Open a .mcd first.")
             return
         
-        if not _HAVE_CELLPOSE:
-            QtWidgets.QMessageBox.critical(
-                self, "Missing dependency", 
-                "Cellpose library is required for segmentation.\n"
-                "Install it with: pip install cellpose"
-            )
-            return
+        # Check dependencies - will be checked again after dialog if needed
         
         if not self.current_acq_id:
             QtWidgets.QMessageBox.information(self, "No acquisition", "Select an acquisition first.")
@@ -2887,6 +2883,21 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Get segmentation parameters
         model = dlg.get_model()
+        
+        # Handle Interactive pixel level classification segmentation
+        if model == "Interactive pixel level classification":
+            self._run_interactive_pixel_classification_segmentation(dlg)
+            return
+        
+        # Check dependencies based on selected model
+        if model != "Classical Watershed" and not _HAVE_CELLPOSE:
+            QtWidgets.QMessageBox.critical(
+                self, "Missing dependency", 
+                "Cellpose library is required for segmentation.\n"
+                "Install it with: pip install cellpose"
+            )
+            return
+        
         diameter = dlg.get_diameter()
         flow_threshold = dlg.get_flow_threshold()
         cellprob_threshold = dlg.get_cellprob_threshold()
@@ -2915,8 +2926,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "No nuclear channels", "Please select at least one nuclear channel in the preprocessing configuration.")
             return
         
-        if model == "cyto" and not cyto_channels:
+        if model == "cyto3" and not cyto_channels:
             QtWidgets.QMessageBox.warning(self, "No cytoplasm channels", "Please select at least one cytoplasm channel in the preprocessing configuration for whole-cell segmentation.")
+            return
+        
+        if model == "Classical Watershed" and not cyto_channels:
+            QtWidgets.QMessageBox.warning(self, "No membrane channels", "Please select at least one membrane/cytoplasm channel in the preprocessing configuration for watershed segmentation.")
             return
         
         try:
@@ -2925,14 +2940,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._perform_segmentation_all_acquisitions(
                     model, diameter, flow_threshold, cellprob_threshold, 
                     show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config,
-                    denoise_source, custom_denoise_settings
+                    denoise_source, custom_denoise_settings, dlg
                 )
             else:
                 # Run segmentation on current acquisition only
                 self._perform_segmentation(
                     model, diameter, flow_threshold, cellprob_threshold, 
                     show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config, use_viewer_denoising,
-                    denoise_source, custom_denoise_settings
+                    denoise_source, custom_denoise_settings, dlg
                 )
         except Exception as e:
             QtWidgets.QMessageBox.critical(
@@ -2940,10 +2955,73 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Segmentation failed with error:\n{str(e)}"
             )
     
+    def _run_interactive_pixel_classification_segmentation(self, seg_dlg):
+        """Run Interactive pixel level classification interactive segmentation."""
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.information(self, "No acquisitions", "Open a .mcd first.")
+            return
+        
+        if not self.current_acq_id:
+            QtWidgets.QMessageBox.information(self, "No acquisition", "Select an acquisition first.")
+            return
+        
+        # Get available channels
+        channels = self.loader.get_channels(self.current_acq_id)
+        if not channels:
+            QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
+            return
+        
+        try:
+            # Load image stack
+            img_stack = self.loader.get_all_channels(self.current_acq_id)
+            
+            # Get preprocessing config from segmentation dialog
+            preprocessing_config = seg_dlg.get_preprocessing_config()
+            
+            if not preprocessing_config:
+                QtWidgets.QMessageBox.warning(self, "No preprocessing configured", "Please configure preprocessing to select channels for segmentation.")
+                return
+            
+            # Get denoising settings from segmentation dialog
+            denoise_source = seg_dlg.get_denoise_source()
+            custom_denoise_settings = seg_dlg.get_custom_denoise_settings()
+            
+            # Add denoising settings to preprocessing config
+            preprocessing_config['denoise_source'] = denoise_source
+            preprocessing_config['custom_denoise_settings'] = custom_denoise_settings
+            
+            # Open Interactive pixel level classification segmentation dialog
+            dlg = InteractivePixelClassificationDialog(img_stack, channels, self, preprocessing_config)
+            if dlg.exec_() == QtWidgets.QDialog.Accepted:
+                # Get results
+                results = dlg.get_results()
+                
+                if 'instance_labels' in results:
+                    # Store segmentation results
+                    if not hasattr(self, 'segmentation_masks'):
+                        self.segmentation_masks = {}
+                    
+                    self.segmentation_masks[self.current_acq_id] = results['instance_labels']
+                    
+                    # Show overlay if requested
+                    self._show_segmentation_overlay(results['instance_labels'])
+                    
+                    QtWidgets.QMessageBox.information(
+                        self, 
+                        "Segmentation Complete", 
+                        "Interactive pixel level classification segmentation completed successfully!"
+                    )
+        
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "Interactive pixel level classification Segmentation Failed", 
+                f"Interactive pixel level classification segmentation failed with error:\n{str(e)}"
+            )
+    
     def _perform_segmentation(self, model: str, diameter: int = None, flow_threshold: float = 0.4, 
                             cellprob_threshold: float = 0.0, show_overlay: bool = True, 
                             save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None, use_viewer_denoising: bool = False,
-                            denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None):
+                            denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None, dlg = None):
         """Perform the actual segmentation using Cellpose."""
         # Create progress dialog
         progress_dlg = ProgressDialog("Cell Segmentation", self)
@@ -2969,14 +3047,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 use_gpu = True
                 gpu_device = gpu_id
             
-            # Initialize Cellpose model
-            if model == "nuclei":
+            # Initialize model based on type
+            if model == "Classical Watershed":
+                model_obj = None  # Watershed doesn't use Cellpose model
+            elif model == "nuclei":
                 model_obj = models.Cellpose(gpu=use_gpu, model_type='nuclei')
             else:  # cyto3
                 model_obj = models.Cellpose(gpu=use_gpu, model_type='cyto3')
             
             # Set device if using GPU
-            if use_gpu and gpu_device is not None:
+            if model == "Classical Watershed":
+                progress_dlg.update_progress(5, "Initializing watershed segmentation", "Using classical watershed algorithm...")
+            elif use_gpu and gpu_device is not None:
                 if gpu_device == 'mps':
                     progress_dlg.update_progress(5, "Initializing Cellpose model", "Using Apple Metal Performance Shaders...")
                 else:
@@ -3006,13 +3088,70 @@ class MainWindow(QtWidgets.QMainWindow):
             progress_dlg.update_progress(60, "Running segmentation", "Processing with Cellpose...")
             
             # Run segmentation
-            masks, flows, styles, diams = model_obj.eval(
-                images, 
-                diameter=diameter,
-                flow_threshold=flow_threshold,
-                cellprob_threshold=cellprob_threshold,
-                channels=channels
-            )
+            if model == "Classical Watershed":
+                if dlg is None:
+                    raise ValueError("Dialog object is required for watershed segmentation")
+                
+                # Get channel information from preprocessing config
+                nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+                cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+                
+                # Get watershed parameters from dialog
+                nuclear_fusion_method = dlg.get_nuclear_fusion_method()
+                seed_threshold_method = dlg.get_seed_threshold_method()
+                min_seed_area = dlg.get_min_seed_area()
+                min_distance_peaks = dlg.get_min_distance_peaks()
+                membrane_fusion_method = dlg.get_membrane_fusion_method()
+                boundary_method = dlg.get_boundary_method()
+                boundary_sigma = dlg.get_boundary_sigma()
+                compactness = dlg.get_compactness()
+                min_cell_area = dlg.get_min_cell_area()
+                max_cell_area = dlg.get_max_cell_area()
+                tile_size = dlg.get_tile_size()
+                tile_overlap = dlg.get_tile_overlap()
+                rng_seed = dlg.get_rng_seed()
+                
+                # Get nuclear and membrane channel weights from preprocessing config
+                nuclear_weights = preprocessing_config.get('nuclear_weights', {})
+                membrane_weights = preprocessing_config.get('cyto_weights', {})
+                
+                # Load full image stack for watershed
+                img_stack = self.loader.get_all_channels(self.current_acq_id)
+                channel_names = self.loader.get_channels(self.current_acq_id)
+                
+                # Run watershed segmentation
+                masks = watershed_segmentation(
+                    img_stack, channel_names, nuclear_channels, cyto_channels,
+                    denoise_settings=custom_denoise_settings if denoise_source == "custom" else None,
+                    nuclear_fusion_method=nuclear_fusion_method,
+                    nuclear_weights=nuclear_weights,
+                    seed_threshold_method=seed_threshold_method,
+                    min_seed_area=min_seed_area,
+                    min_distance_peaks=min_distance_peaks,
+                    membrane_fusion_method=membrane_fusion_method,
+                    membrane_weights=membrane_weights,
+                    boundary_method=boundary_method,
+                    boundary_sigma=boundary_sigma,
+                    compactness=compactness,
+                    min_cell_area=min_cell_area,
+                    max_cell_area=max_cell_area,
+                    tile_size=tile_size,
+                    tile_overlap=tile_overlap,
+                    rng_seed=rng_seed
+                )
+                masks = [masks]  # Convert to list format for consistency
+                flows = [None]
+                styles = [None]
+                diams = [None]
+            else:
+                # Run Cellpose segmentation
+                masks, flows, styles, diams = model_obj.eval(
+                    images, 
+                    diameter=diameter,
+                    flow_threshold=flow_threshold,
+                    cellprob_threshold=cellprob_threshold,
+                    channels=channels
+                )
             
             progress_dlg.update_progress(80, "Processing results", "Creating segmentation masks...")
             
@@ -3036,9 +3175,11 @@ class MainWindow(QtWidgets.QMainWindow):
             
             progress_dlg.close()
             
-            # Get channel information from preprocessing config
-            nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
-            cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+            # Get channel information from preprocessing config (for display purposes)
+            if model != "Classical Watershed":
+                nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+                cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+            # For watershed, these are already defined above
             
             channel_info = ""
             if nuclear_channels:
@@ -3064,10 +3205,19 @@ class MainWindow(QtWidgets.QMainWindow):
                                              flow_threshold: float = 0.4, cellprob_threshold: float = 0.0, 
                                              show_overlay: bool = True, save_masks: bool = False, 
                                              masks_directory: str = None, gpu_id = None, preprocessing_config = None,
-                                             denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None):
+                                             denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None, dlg = None):
         """Perform efficient batch segmentation on all acquisitions."""
         if not self.acquisitions:
             QtWidgets.QMessageBox.warning(self, "No acquisitions", "No acquisitions available for segmentation.")
+            return
+        
+        # Watershed segmentation is not supported in batch mode yet
+        if model == "Classical Watershed":
+            QtWidgets.QMessageBox.warning(
+                self, "Batch Watershed Not Supported", 
+                "Batch segmentation is not yet supported for Classical Watershed.\n"
+                "Please run watershed segmentation on individual acquisitions."
+            )
             return
         
         # Create progress dialog for batch processing

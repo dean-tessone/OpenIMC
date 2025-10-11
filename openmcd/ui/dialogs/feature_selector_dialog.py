@@ -93,7 +93,7 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         # Search bar for intensity markers
         self.txt_search_intensity = QtWidgets.QLineEdit()
         self.txt_search_intensity.setPlaceholderText("Search intensity markers…")
-        self.txt_search_intensity.textChanged.connect(self._apply_intensity_filter)
+        self.txt_search_intensity.textChanged.connect(self._apply_intensity_search)
         intensity_layout.addWidget(self.txt_search_intensity)
         self.lst_intensity = QtWidgets.QListWidget()
         self.lst_intensity.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
@@ -155,9 +155,9 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         if sel == "All":
             filtered = self._intensity_all
         else:
-            # Convert prefix to suffix for filtering
-            suffix = sel.lower() if sel.startswith("_") else f"_{sel.lower()}"
-            filtered = [n for n in self._intensity_all if n.endswith(suffix)]
+            # The dropdown already contains the correct suffix (e.g., "_mean", "_median")
+            # No conversion needed - just use the selection directly
+            filtered = [n for n in self._intensity_all if n.endswith(sel)]
         # Apply search filter as well (case-insensitive substring)
         query = (self.txt_search_intensity.text() if hasattr(self, 'txt_search_intensity') else "").strip().lower()
         if query:
@@ -166,6 +166,21 @@ class FeatureSelectorDialog(QtWidgets.QDialog):
         # When changing filter, keep default preference of _mean if All
         if sel == "All":
             self._apply_intensity_default_selection()
+
+    def _apply_intensity_search(self):
+        # Apply both dropdown filter and search filter
+        sel = self.cmb_filter.currentText()
+        if sel == "All":
+            filtered = self._intensity_all
+        else:
+            # The dropdown already contains the correct suffix (e.g., "_mean", "_median")
+            # No conversion needed - just use the selection directly
+            filtered = [n for n in self._intensity_all if n.endswith(sel)]
+        # Apply search filter as well (case-insensitive substring)
+        query = self.txt_search_intensity.text().strip().lower()
+        if query:
+            filtered = [n for n in filtered if query in n.lower()]
+        self._populate_checklist(self.lst_intensity, filtered)
 
     def _set_all(self, widget: QtWidgets.QListWidget, checked: bool):
         state = Qt.Checked if checked else Qt.Unchecked

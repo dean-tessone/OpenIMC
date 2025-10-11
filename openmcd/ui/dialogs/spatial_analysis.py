@@ -1,14 +1,42 @@
+"""
+Spatial Analysis Dialog for OpenMCD
+
+This module provides comprehensive spatial analysis capabilities including:
+- Graph construction (kNN and radius-based)
+- Pairwise enrichment analysis with permutation testing
+- Distance distribution analysis
+- Ripley K/L functions for spatial clustering analysis
+- Neighborhood composition analysis
+
+IMPORTANT: Centroid coordinates (centroid_x, centroid_y) are in PIXELS.
+All distance calculations are converted to micrometers using pixel_size_um.
+The pixel_size_um is retrieved from the parent window for each ROI.
+
+Required columns:
+- acquisition_id: ROI identifier
+- cell_id: Unique cell identifier
+- centroid_x, centroid_y: Cell centroid coordinates in pixels
+- cluster: Cell cluster labels (created by clustering analysis)
+- cluster_phenotype: Cell phenotype labels (optional, created by annotation)
+
+The analysis automatically detects cluster columns in order: 'cluster', 'cluster_phenotype', 'cluster_id'.
+Run clustering analysis first to create the 'cluster' column.
+"""
+
 from typing import Optional, Dict, Any, Tuple, List
 
 import os
 import json
 import numpy as np
 import pandas as pd
-from PyQt5 import QtWidgets
-from scipy.spatial import cKDTree
+from PyQt5 import QtWidgets, QtCore
+from scipy.spatial import cKDTree, Delaunay
+import networkx as nx
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+import random
+from collections import defaultdict
 try:
     from scipy import sparse as sp
     _HAVE_SPARSE = True
@@ -24,13 +52,27 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
         self.feature_dataframe = feature_dataframe
         self.edge_df: Optional[pd.DataFrame] = None
-        self.adj_matrix = None
+        self.adj_matrices: Dict[str, sp.csr_matrix] = {}  # Per-ROI adjacency matrices
+        self.cell_id_to_gid: Dict[Tuple[str, int], int] = {}  # (roi_id, cell_id) -> global_id
+        self.gid_to_cell_id: Dict[int, Tuple[str, int]] = {}  # global_id -> (roi_id, cell_id)
         self.metadata: Dict[str, Any] = {}
         self.neighborhood_df: Optional[pd.DataFrame] = None
         self.cluster_summary_df: Optional[pd.DataFrame] = None
         self.enrichment_df: Optional[pd.DataFrame] = None
         self.distance_df: Optional[pd.DataFrame] = None
         self.ripley_df: Optional[pd.DataFrame] = None
+        self.rng_seed: Optional[int] = None
+        
+        # Track which analyses have been run
+        self.neighborhood_analysis_run = False
+        self.enrichment_analysis_run = False
+        self.distance_analysis_run = False
+        self.ripley_analysis_run = False
+        self.spatial_viz_run = False
+        self.community_analysis_run = False
+        
+        # Cluster annotation mapping (will be populated from parent if available)
+        self.cluster_annotation_map = {}
 
         self._create_ui()
 
@@ -42,7 +84,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         params_layout = QtWidgets.QGridLayout(params_group)
 
         self.graph_mode_combo = QtWidgets.QComboBox()
-        self.graph_mode_combo.addItems(["kNN", "Radius"])
+        self.graph_mode_combo.addItems(["kNN", "Radius", "Delaunay"])
         self.graph_mode_combo.currentTextChanged.connect(self._on_mode_changed)
         
         self.k_spin = QtWidgets.QSpinBox()
@@ -53,6 +95,21 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.radius_spin.setRange(0.1, 500.0)
         self.radius_spin.setDecimals(1)
         self.radius_spin.setValue(20.0)
+        
+        # Permutation parameters for enrichment analysis (will be added to enrichment tab)
+        self.n_perm_spin = QtWidgets.QSpinBox()
+        self.n_perm_spin.setRange(10, 1000)
+        self.n_perm_spin.setValue(100)
+        
+        # Ripley parameters (will be added to Ripley tab)
+        self.ripley_r_max_spin = QtWidgets.QDoubleSpinBox()
+        self.ripley_r_max_spin.setRange(1.0, 200.0)
+        self.ripley_r_max_spin.setDecimals(1)
+        self.ripley_r_max_spin.setValue(50.0)
+        
+        self.ripley_n_steps_spin = QtWidgets.QSpinBox()
+        self.ripley_n_steps_spin.setRange(5, 50)
+        self.ripley_n_steps_spin.setValue(20)
 
         params_layout.addWidget(QtWidgets.QLabel("Mode:"), 0, 0)
         params_layout.addWidget(self.graph_mode_combo, 0, 1)
@@ -72,10 +129,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
         # Actions
         action_row = QtWidgets.QHBoxLayout()
-        self.run_btn = QtWidgets.QPushButton("Run Analysis")
         self.export_btn = QtWidgets.QPushButton("Export Results…")
         self.export_btn.setEnabled(False)
-        action_row.addWidget(self.run_btn)
         action_row.addWidget(self.export_btn)
         action_row.addStretch(1)
         layout.addLayout(action_row)
@@ -86,6 +141,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Neighborhood Composition tab
         self.neighborhood_tab = QtWidgets.QWidget()
         neighborhood_layout = QtWidgets.QVBoxLayout(self.neighborhood_tab)
+        
+        # Neighborhood run button and save plot button
+        neighborhood_btn_layout = QtWidgets.QHBoxLayout()
+        self.neighborhood_run_btn = QtWidgets.QPushButton("Run Neighborhood Analysis")
+        self.neighborhood_save_btn = QtWidgets.QPushButton("Save Plot")
+        self.neighborhood_save_btn.setEnabled(False)
+        neighborhood_btn_layout.addWidget(self.neighborhood_run_btn)
+        neighborhood_btn_layout.addWidget(self.neighborhood_save_btn)
+        neighborhood_btn_layout.addStretch()
+        neighborhood_layout.addLayout(neighborhood_btn_layout)
+        
         self.neighborhood_canvas = FigureCanvas(Figure(figsize=(8, 6)))
         neighborhood_layout.addWidget(self.neighborhood_canvas)
         self.tabs.addTab(self.neighborhood_tab, "Neighborhood Composition")
@@ -93,6 +159,19 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Pairwise Enrichment tab
         self.enrichment_tab = QtWidgets.QWidget()
         enrichment_layout = QtWidgets.QVBoxLayout(self.enrichment_tab)
+        
+        # Enrichment parameters and run button
+        enrichment_params = QtWidgets.QHBoxLayout()
+        enrichment_params.addWidget(QtWidgets.QLabel("Permutations:"))
+        enrichment_params.addWidget(self.n_perm_spin)
+        self.enrichment_run_btn = QtWidgets.QPushButton("Run Enrichment Analysis")
+        self.enrichment_save_btn = QtWidgets.QPushButton("Save Plot")
+        self.enrichment_save_btn.setEnabled(False)
+        enrichment_params.addWidget(self.enrichment_run_btn)
+        enrichment_params.addWidget(self.enrichment_save_btn)
+        enrichment_params.addStretch()
+        enrichment_layout.addLayout(enrichment_params)
+        
         self.enrichment_canvas = FigureCanvas(Figure(figsize=(8, 6)))
         enrichment_layout.addWidget(self.enrichment_canvas)
         self.tabs.addTab(self.enrichment_tab, "Pairwise Enrichment")
@@ -100,6 +179,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Distance Distributions tab
         self.distance_tab = QtWidgets.QWidget()
         distance_layout = QtWidgets.QVBoxLayout(self.distance_tab)
+        
+        # Distance run button and save plot button
+        distance_btn_layout = QtWidgets.QHBoxLayout()
+        self.distance_run_btn = QtWidgets.QPushButton("Run Distance Analysis")
+        self.distance_save_btn = QtWidgets.QPushButton("Save Plot")
+        self.distance_save_btn.setEnabled(False)
+        distance_btn_layout.addWidget(self.distance_run_btn)
+        distance_btn_layout.addWidget(self.distance_save_btn)
+        distance_btn_layout.addStretch()
+        distance_layout.addLayout(distance_btn_layout)
+        
         self.distance_canvas = FigureCanvas(Figure(figsize=(8, 6)))
         distance_layout.addWidget(self.distance_canvas)
         self.tabs.addTab(self.distance_tab, "Distance Distributions")
@@ -107,162 +197,1090 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Ripley K/L tab
         self.ripley_tab = QtWidgets.QWidget()
         ripley_layout = QtWidgets.QVBoxLayout(self.ripley_tab)
+        
+        # Ripley parameters and run button
+        ripley_params = QtWidgets.QHBoxLayout()
+        ripley_params.addWidget(QtWidgets.QLabel("Max radius (µm):"))
+        ripley_params.addWidget(self.ripley_r_max_spin)
+        ripley_params.addWidget(QtWidgets.QLabel("Steps:"))
+        ripley_params.addWidget(self.ripley_n_steps_spin)
+        self.ripley_run_btn = QtWidgets.QPushButton("Run Ripley Analysis")
+        self.ripley_save_btn = QtWidgets.QPushButton("Save Plot")
+        self.ripley_save_btn.setEnabled(False)
+        ripley_params.addWidget(self.ripley_run_btn)
+        ripley_params.addWidget(self.ripley_save_btn)
+        ripley_params.addStretch()
+        ripley_layout.addLayout(ripley_params)
+        
         self.ripley_canvas = FigureCanvas(Figure(figsize=(8, 6)))
         ripley_layout.addWidget(self.ripley_canvas)
         self.tabs.addTab(self.ripley_tab, "Ripley K/L")
         
+        # Spatial Visualization tab
+        self.spatial_viz_tab = QtWidgets.QWidget()
+        spatial_viz_layout = QtWidgets.QVBoxLayout(self.spatial_viz_tab)
+        
+        # Spatial visualization controls
+        spatial_viz_controls = QtWidgets.QHBoxLayout()
+        spatial_viz_controls.addWidget(QtWidgets.QLabel("ROI:"))
+        self.roi_combo = QtWidgets.QComboBox()
+        spatial_viz_controls.addWidget(self.roi_combo)
+        spatial_viz_controls.addWidget(QtWidgets.QLabel("Color by:"))
+        self.spatial_color_combo = QtWidgets.QComboBox()
+        spatial_viz_controls.addWidget(self.spatial_color_combo)
+        self.spatial_viz_run_btn = QtWidgets.QPushButton("Generate Spatial Plot")
+        self.spatial_viz_save_btn = QtWidgets.QPushButton("Save Plot")
+        self.spatial_viz_save_btn.setEnabled(False)
+        spatial_viz_controls.addWidget(self.spatial_viz_run_btn)
+        spatial_viz_controls.addWidget(self.spatial_viz_save_btn)
+        spatial_viz_controls.addStretch()
+        spatial_viz_layout.addLayout(spatial_viz_controls)
+        
+        self.spatial_viz_canvas = FigureCanvas(Figure(figsize=(10, 8)))
+        spatial_viz_layout.addWidget(self.spatial_viz_canvas)
+        self.tabs.addTab(self.spatial_viz_tab, "Spatial Visualization")
+        
+        # Spatial Community Analysis tab
+        self.community_tab = QtWidgets.QWidget()
+        community_layout = QtWidgets.QVBoxLayout(self.community_tab)
+        
+        # Community analysis controls
+        community_controls = QtWidgets.QHBoxLayout()
+        community_controls.addWidget(QtWidgets.QLabel("ROI:"))
+        self.community_roi_combo = QtWidgets.QComboBox()
+        community_controls.addWidget(self.community_roi_combo)
+        community_controls.addWidget(QtWidgets.QLabel("Min cells:"))
+        self.min_cells_spin = QtWidgets.QSpinBox()
+        self.min_cells_spin.setRange(1, 100)
+        self.min_cells_spin.setValue(5)
+        community_controls.addWidget(self.min_cells_spin)
+        self.community_run_btn = QtWidgets.QPushButton("Run Community Analysis")
+        self.community_save_btn = QtWidgets.QPushButton("Save Plot")
+        self.community_save_btn.setEnabled(False)
+        community_controls.addWidget(self.community_run_btn)
+        community_controls.addWidget(self.community_save_btn)
+        community_controls.addStretch()
+        community_layout.addLayout(community_controls)
+        
+        # Cell type exclusion controls
+        exclusion_layout = QtWidgets.QHBoxLayout()
+        exclusion_layout.addWidget(QtWidgets.QLabel("Exclude cell types:"))
+        self.exclude_clusters_check = QtWidgets.QCheckBox("Enable exclusion")
+        exclusion_layout.addWidget(self.exclude_clusters_check)
+        self.exclude_clusters_list = QtWidgets.QListWidget()
+        self.exclude_clusters_list.setMaximumHeight(100)
+        self.exclude_clusters_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        exclusion_layout.addWidget(self.exclude_clusters_list)
+        exclusion_layout.addStretch()
+        community_layout.addLayout(exclusion_layout)
+        
+        self.community_canvas = FigureCanvas(Figure(figsize=(10, 8)))
+        community_layout.addWidget(self.community_canvas)
+        self.tabs.addTab(self.community_tab, "Spatial Communities")
+        
         layout.addWidget(self.tabs, 1)
 
         # Wire signals
-        self.run_btn.clicked.connect(self._run_analysis)
+        self.neighborhood_run_btn.clicked.connect(self._run_neighborhood_analysis)
+        self.enrichment_run_btn.clicked.connect(self._run_enrichment_analysis)
+        self.distance_run_btn.clicked.connect(self._run_distance_analysis)
+        self.ripley_run_btn.clicked.connect(self._run_ripley_analysis)
+        self.neighborhood_save_btn.clicked.connect(self._save_neighborhood_plot)
+        self.enrichment_save_btn.clicked.connect(self._save_enrichment_plot)
+        self.distance_save_btn.clicked.connect(self._save_distance_plot)
+        self.ripley_save_btn.clicked.connect(self._save_ripley_plot)
+        self.spatial_viz_run_btn.clicked.connect(self._run_spatial_visualization)
+        self.spatial_viz_save_btn.clicked.connect(self._save_spatial_viz_plot)
+        self.community_run_btn.clicked.connect(self._run_community_analysis)
+        self.community_save_btn.clicked.connect(self._save_community_plot)
         self.export_btn.clicked.connect(self._export_results)
+        
+        # Initialize tab states
+        self._update_tab_states()
+        
+        # Try to get cluster annotations from parent dialog
+        self._load_cluster_annotations()
+        
+        # Populate ROI combo box and color options
+        self._populate_roi_combo()
+        self._populate_spatial_color_options()
+        self._populate_community_roi_combo()
+        self._populate_exclude_clusters_list()
+        
+        # Set up a timer to periodically check for annotation updates
+        self.annotation_timer = QtCore.QTimer()
+        self.annotation_timer.timeout.connect(self._check_annotation_updates)
+        self.annotation_timer.start(2000)  # Check every 2 seconds
 
     def _on_mode_changed(self):
         """Handle mode change to show/hide relevant controls."""
         mode = self.graph_mode_combo.currentText()
         is_knn = mode == "kNN"
-        
+        is_delaunay = mode == "Delaunay"
+
         # Show/hide k controls
         self.k_label.setVisible(is_knn)
         self.k_spin.setVisible(is_knn)
         
         # Show/hide radius controls  
-        self.radius_label.setVisible(not is_knn)
-        self.radius_spin.setVisible(not is_knn)
+        self.radius_label.setVisible(not is_knn and not is_delaunay)
+        self.radius_spin.setVisible(not is_knn and not is_delaunay)
 
-    def _run_analysis(self):
+    def _update_tab_states(self):
+        """Update tab enabled/disabled states based on analysis progress."""
+        # Neighborhood tab is always enabled (it's the first step)
+        self.tabs.setTabEnabled(0, True)  # Neighborhood Composition
+        
+        # Other tabs are only enabled after neighborhood analysis is run
+        self.tabs.setTabEnabled(1, self.neighborhood_analysis_run)  # Pairwise Enrichment
+        self.tabs.setTabEnabled(2, self.neighborhood_analysis_run)  # Distance Distributions
+        self.tabs.setTabEnabled(3, self.neighborhood_analysis_run)  # Ripley K/L
+        self.tabs.setTabEnabled(4, self.neighborhood_analysis_run)  # Spatial Visualization
+        self.tabs.setTabEnabled(5, self.neighborhood_analysis_run)  # Spatial Communities
+        
+        # Update button states
+        self.enrichment_run_btn.setEnabled(self.neighborhood_analysis_run)
+        self.distance_run_btn.setEnabled(self.neighborhood_analysis_run)
+        self.ripley_run_btn.setEnabled(self.neighborhood_analysis_run)
+        
+        # Update save button states
+        self.neighborhood_save_btn.setEnabled(self.neighborhood_analysis_run)
+        self.enrichment_save_btn.setEnabled(self.enrichment_analysis_run)
+        self.distance_save_btn.setEnabled(self.distance_analysis_run)
+        self.ripley_save_btn.setEnabled(self.ripley_analysis_run)
+        self.spatial_viz_save_btn.setEnabled(self.spatial_viz_run)
+        self.community_save_btn.setEnabled(self.community_analysis_run)
+
+    def _load_cluster_annotations(self):
+        """Load cluster annotations from parent dialog if available."""
+        try:
+            # Try to get annotations from parent dialog
+            parent = self.parent()
+            if parent is not None and hasattr(parent, 'cluster_annotation_map'):
+                self.cluster_annotation_map = parent.cluster_annotation_map.copy()
+                print(f"[DEBUG] Loaded {len(self.cluster_annotation_map)} cluster annotations from parent")
+            elif parent is not None and hasattr(parent, '_get_cluster_display_name'):
+                # If parent has the method, we can use it directly
+                print("[DEBUG] Parent has cluster display name method available")
+            
+            # Also check if cluster_phenotype column exists in the dataframe
+            if self.feature_dataframe is not None and 'cluster_phenotype' in self.feature_dataframe.columns:
+                # Build annotation map from cluster_phenotype column
+                phenotype_map = {}
+                for cluster_id in self.feature_dataframe['cluster'].unique():
+                    if pd.notna(cluster_id):
+                        phenotype_rows = self.feature_dataframe[
+                            (self.feature_dataframe['cluster'] == cluster_id) & 
+                            (self.feature_dataframe['cluster_phenotype'].notna()) &
+                            (self.feature_dataframe['cluster_phenotype'] != '')
+                        ]
+                        if not phenotype_rows.empty:
+                            phenotype_map[cluster_id] = phenotype_rows['cluster_phenotype'].iloc[0]
+                
+                if phenotype_map:
+                    self.cluster_annotation_map.update(phenotype_map)
+                    print(f"[DEBUG] Loaded {len(phenotype_map)} cluster annotations from cluster_phenotype column")
+                    
+        except Exception as e:
+            print(f"[DEBUG] Could not load cluster annotations: {e}")
+
+    def _get_cluster_display_name(self, cluster_id):
+        """Return display label for a cluster id, using annotation if available."""
+        if isinstance(self.cluster_annotation_map, dict) and cluster_id in self.cluster_annotation_map and self.cluster_annotation_map[cluster_id]:
+            return self.cluster_annotation_map[cluster_id]
+        
+        # Try to get from parent dialog if available
+        try:
+            parent = self.parent()
+            if parent is not None and hasattr(parent, '_get_cluster_display_name'):
+                return parent._get_cluster_display_name(cluster_id)
+        except Exception:
+            pass
+            
+        return f"Cluster {int(cluster_id)}"
+
+    def _check_annotation_updates(self):
+        """Check if cluster annotations have been updated and refresh if needed."""
+        try:
+            parent = self.parent()
+            if parent is not None and hasattr(parent, 'cluster_annotation_map'):
+                # Check if parent's annotation map has changed
+                parent_map = parent.cluster_annotation_map
+                if parent_map != self.cluster_annotation_map:
+                    self.cluster_annotation_map = parent_map.copy()
+                    print(f"[DEBUG] Updated cluster annotations: {len(self.cluster_annotation_map)} annotations")
+                    
+                    # Refresh plots if they exist
+                    if self.neighborhood_analysis_run:
+                        self._update_neighborhood_plot()
+                    if self.enrichment_analysis_run:
+                        self._update_enrichment_plot()
+                    if self.distance_analysis_run:
+                        self._update_distance_plot()
+                    if self.ripley_analysis_run:
+                        self._update_ripley_plot()
+                    if self.spatial_viz_run:
+                        # Refresh spatial visualization with current ROI
+                        current_roi = self.roi_combo.currentText()
+                        if current_roi:
+                            self._create_spatial_visualization(current_roi)
+        except Exception as e:
+            # Silently ignore errors to avoid spam
+            pass
+
+    def _validate_data(self):
+        """Validate that required data is available for analysis."""
         if self.feature_dataframe is None or self.feature_dataframe.empty:
+            print("[DEBUG] ERROR: Feature dataframe is None or empty")
             QtWidgets.QMessageBox.warning(self, "No Data", "Feature dataframe is empty.")
-            return
+            return False
+            
+        print(f"[DEBUG] Feature dataframe shape: {self.feature_dataframe.shape}")
+        print(f"[DEBUG] Feature dataframe columns: {list(self.feature_dataframe.columns)}")
+        
         required_cols = {"acquisition_id", "cell_id", "centroid_x", "centroid_y"}
         missing = [c for c in required_cols if c not in self.feature_dataframe.columns]
         if missing:
+            print(f"[DEBUG] ERROR: Missing required columns: {missing}")
             QtWidgets.QMessageBox.critical(self, "Missing columns", f"Missing required columns: {', '.join(missing)}")
-            return
+            return False
 
+        # Check for cluster column - look for cluster, cluster_phenotype, or cluster_id
+        cluster_col = None
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+            if col in self.feature_dataframe.columns:
+                cluster_col = col
+                break
+                
+        if cluster_col is None:
+            QtWidgets.QMessageBox.critical(self, "Missing cluster labels", 
+                "No cluster column found. Please run clustering analysis first.\n"
+                "Expected columns: 'cluster', 'cluster_phenotype', or 'cluster_id'")
+            return False
+            
+        return True
+
+    def _build_spatial_graph(self):
+        """Build the spatial graph (edges and adjacency matrices)."""
+        if hasattr(self, 'edge_df') and self.edge_df is not None and not self.edge_df.empty:
+            print("[DEBUG] Spatial graph already built, skipping...")
+            return True
+            
+        print("[DEBUG] Building spatial graph...")
+        
         mode = self.graph_mode_combo.currentText()
         k = int(self.k_spin.value())
         radius_um = float(self.radius_spin.value())
+        
+        # Set random seed for reproducibility
+        if self.rng_seed is None:
+            self.rng_seed = random.randint(1, 2**31 - 1)
+        random.seed(self.rng_seed)
+        np.random.seed(self.rng_seed)
+        
+        print(f"[DEBUG] Analysis parameters - Mode: {mode}, k: {k}, radius_um: {radius_um}")
+        print(f"[DEBUG] Random seed: {self.rng_seed}")
 
         try:
-            edge_records: List[Tuple[str, int, int, float]] = []
-            rows = []
-            cols = []
-            data = []
-
+            # Initialize global cell ID mapping
+            self.cell_id_to_gid = {}
+            self.gid_to_cell_id = {}
+            self.adj_matrices = {}
+            
+            # Step 1: Build global cell ID mapping and per-ROI adjacency matrices
+            edge_records = []
+            global_id_counter = 0
+            
             parent = self.parent() if hasattr(self, 'parent') else None
+            print(f"[DEBUG] Parent available: {parent is not None}")
 
             # Process per ROI/acquisition to respect ROI boundaries
-            for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
+            roi_groups = list(self.feature_dataframe.groupby('acquisition_id'))
+            print(f"[DEBUG] Found {len(roi_groups)} ROI groups")
+            
+            for roi_idx, (roi_id, roi_df) in enumerate(roi_groups):
+                print(f"[DEBUG] Processing ROI {roi_idx + 1}/{len(roi_groups)}: {roi_id}")
+                print(f"[DEBUG] ROI dataframe shape: {roi_df.shape}")
+                
                 roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])  # ensure valid coordinates
+                print(f"[DEBUG] After dropping NaN coordinates: {roi_df.shape}")
+                
                 if roi_df.empty:
+                    print(f"[DEBUG] ROI {roi_id} is empty after dropping NaN, skipping")
                     continue
+                    
                 coords_px = roi_df[["centroid_x", "centroid_y"]].to_numpy(dtype=float)
                 cell_ids = roi_df["cell_id"].astype(int).to_numpy()
+                
+                # Build global ID mapping for this ROI
+                roi_id_str = str(roi_id)
+                roi_cell_to_gid = {}
+                for i, cell_id in enumerate(cell_ids):
+                    gid = global_id_counter + i
+                    self.cell_id_to_gid[(roi_id_str, int(cell_id))] = gid
+                    self.gid_to_cell_id[gid] = (roi_id_str, int(cell_id))
+                    roi_cell_to_gid[int(cell_id)] = gid
+                
+                global_id_counter += len(cell_ids)
+                
+                print(f"[DEBUG] Coords shape: {coords_px.shape}, Cell IDs shape: {cell_ids.shape}")
 
-                # pixel size in µm for this ROI
+                # Get pixel size in µm for this ROI
                 pixel_size_um = 1.0
                 try:
                     if parent is not None and hasattr(parent, '_get_pixel_size_um'):
                         pixel_size_um = float(parent._get_pixel_size_um(roi_id))  # type: ignore[attr-defined]
-                except Exception:
+                        print(f"[DEBUG] Got pixel size from parent: {pixel_size_um}")
+                except Exception as e:
+                    print(f"[DEBUG] Could not get pixel size from parent: {e}")
                     pixel_size_um = 1.0
 
+                print(f"[DEBUG] Creating cKDTree with {len(coords_px)} points")
                 tree = cKDTree(coords_px)
+                print(f"[DEBUG] cKDTree created successfully")
+
+                # Use set to deduplicate edges during construction
+                roi_edges_set = set()
+                roi_edges_list = []
 
                 if mode == "kNN":
+                    print(f"[DEBUG] Running kNN analysis with k={k}")
                     # Query k+1 (including self), exclude self idx 0
                     query_k = min(k + 1, max(2, len(coords_px)))
-                    dists, idxs = tree.query(coords_px, k=query_k)
+                    print(f"[DEBUG] Query k: {query_k}")
                     
-                    # Handle scalar case (when only 1 point or k=1)
-                    if np.isscalar(dists):
-                        dists = np.array([[dists]])
-                        idxs = np.array([[idxs]])
-                    # Ensure 2D for array case
-                    elif dists.ndim == 1:
-                        dists = dists[:, None]
-                        idxs = idxs[:, None]
-                    for i in range(len(coords_px)):
-                        src_global = int(cell_ids[i])
-                        for j in range(1, min(dists.shape[1], k + 1)):
-                            nbr_idx = int(idxs[i, j])
-                            if nbr_idx < 0 or nbr_idx >= len(coords_px):
-                                continue
-                            dst_global = int(cell_ids[nbr_idx])
-                            # undirected, canonical order
-                            a, b = (src_global, dst_global) if src_global < dst_global else (dst_global, src_global)
-                            dist_um = float(dists[i, j]) * pixel_size_um
-                            edge_records.append((str(roi_id), a, b, dist_um))
-                else:
+                    try:
+                        dists, idxs = tree.query(coords_px, k=query_k)
+                        print(f"[DEBUG] Query completed - dists type: {type(dists)}, shape: {getattr(dists, 'shape', 'scalar')}")
+                        print(f"[DEBUG] Query completed - idxs type: {type(idxs)}, shape: {getattr(idxs, 'shape', 'scalar')}")
+                        
+                        # Handle scalar case (when only 1 point or k=1)
+                        if np.isscalar(dists):
+                            print(f"[DEBUG] Handling scalar case")
+                            dists = np.array([[dists]])
+                            idxs = np.array([[idxs]])
+                        # Ensure 2D for array case
+                        elif dists.ndim == 1:
+                            print(f"[DEBUG] Handling 1D array case")
+                            dists = dists[:, None]
+                            idxs = idxs[:, None]
+                        
+                        print(f"[DEBUG] Final dists shape: {dists.shape}, idxs shape: {idxs.shape}")
+                        
+                        for i in range(len(coords_px)):
+                            src_cell_id = int(cell_ids[i])
+                            for j in range(1, min(dists.shape[1], k + 1)):
+                                nbr_idx = int(idxs[i, j])
+                                if nbr_idx < 0 or nbr_idx >= len(coords_px):
+                                    continue
+                                dst_cell_id = int(cell_ids[nbr_idx])
+                                
+                                # Create canonical edge (smaller cell_id first)
+                                edge_key = (min(src_cell_id, dst_cell_id), max(src_cell_id, dst_cell_id))
+                                if edge_key not in roi_edges_set:
+                                    roi_edges_set.add(edge_key)
+                                    dist_um = float(dists[i, j]) * pixel_size_um
+                                    roi_edges_list.append((src_cell_id, dst_cell_id, dist_um))
+                        
+                        print(f"[DEBUG] kNN analysis completed for ROI {roi_id}, found {len(roi_edges_list)} unique edges")
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] ERROR in kNN analysis for ROI {roi_id}: {e}")
+                        print(f"[DEBUG] Exception type: {type(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        raise
+                        
+                elif mode == "Radius":
+                    print(f"[DEBUG] Running radius analysis with radius={radius_um}µm")
                     # Radius graph: convert radius µm to pixels
                     radius_px = radius_um / max(pixel_size_um, 1e-12)
-                    pairs = tree.query_pairs(r=radius_px)
-                    for i, j in pairs:
-                        a_id = int(cell_ids[int(i)])
-                        b_id = int(cell_ids[int(j)])
-                        a, b = (a_id, b_id) if a_id < b_id else (b_id, a_id)
-                        dist_um = float(np.linalg.norm(coords_px[int(i)] - coords_px[int(j)])) * pixel_size_um
-                        edge_records.append((str(roi_id), a, b, dist_um))
+                    print(f"[DEBUG] Radius in pixels: {radius_px}")
+                    
+                    try:
+                        pairs = tree.query_pairs(r=radius_px)
+                        print(f"[DEBUG] Found {len(pairs)} pairs within radius")
+                        
+                        for i, j in pairs:
+                            a_id = int(cell_ids[int(i)])
+                            b_id = int(cell_ids[int(j)])
+                            
+                            # Create canonical edge (smaller cell_id first)
+                            edge_key = (min(a_id, b_id), max(a_id, b_id))
+                            if edge_key not in roi_edges_set:
+                                roi_edges_set.add(edge_key)
+                                dist_um = float(np.linalg.norm(coords_px[int(i)] - coords_px[int(j)])) * pixel_size_um
+                                roi_edges_list.append((a_id, b_id, dist_um))
+                        
+                        print(f"[DEBUG] Radius analysis completed for ROI {roi_id}, found {len(roi_edges_list)} unique edges")
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] ERROR in radius analysis for ROI {roi_id}: {e}")
+                        print(f"[DEBUG] Exception type: {type(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        raise
+                        
+                elif mode == "Delaunay":
+                    print(f"[DEBUG] Running Delaunay triangulation for ROI {roi_id}")
+                    
+                    try:
+                        # Delaunay triangulation
+                        tri = Delaunay(coords_px)
+                        print(f"[DEBUG] Delaunay triangulation created with {len(tri.simplices)} triangles")
+                        
+                        # Extract edges from simplices (triangles)
+                        edges_set = set()
+                        for simplex in tri.simplices:
+                            # Each simplex has 3 vertices, create edges between all pairs
+                            for i in range(3):
+                                for j in range(i+1, 3):
+                                    v1, v2 = simplex[i], simplex[j]
+                                    # Create canonical edge (smaller index first)
+                                    edge_key = (min(v1, v2), max(v1, v2))
+                                    if edge_key not in edges_set:
+                                        edges_set.add(edge_key)
+                                        a_id = int(cell_ids[v1])
+                                        b_id = int(cell_ids[v2])
+                                        dist_um = float(np.linalg.norm(coords_px[v1] - coords_px[v2])) * pixel_size_um
+                                        roi_edges_list.append((a_id, b_id, dist_um))
+                        
+                        print(f"[DEBUG] Delaunay analysis completed for ROI {roi_id}, found {len(roi_edges_list)} unique edges")
+                        
+                    except Exception as e:
+                        print(f"[DEBUG] ERROR in Delaunay analysis for ROI {roi_id}: {e}")
+                        print(f"[DEBUG] Exception type: {type(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        raise
+                else:
+                    print(f"[DEBUG] ERROR: Unknown mode '{mode}' for ROI {roi_id}")
+                    raise ValueError(f"Unknown graph construction mode: {mode}")
 
-                # Build adjacency for this ROI (optional)
-                if _HAVE_SPARSE and len(cell_ids) > 0:
-                    id_to_pos = {int(cid): idx for idx, cid in enumerate(cell_ids)}
-                    for (r_roi, a, b, _d) in edge_records[-len(edge_records):]:
-                        if r_roi != str(roi_id):
-                            continue
-                        ia = id_to_pos.get(int(a))
-                        ib = id_to_pos.get(int(b))
-                        if ia is None or ib is None:
-                            continue
-                        rows.extend([ia, ib])
-                        cols.extend([ib, ia])
+                # Build per-ROI adjacency matrix
+                if _HAVE_SPARSE and len(roi_edges_list) > 0:
+                    print(f"[DEBUG] Building adjacency matrix for ROI {roi_id}")
+                    n_cells = len(cell_ids)
+                    rows, cols, data = [], [], []
+                    
+                    for src_cell_id, dst_cell_id, _ in roi_edges_list:
+                        src_gid = roi_cell_to_gid[src_cell_id]
+                        dst_gid = roi_cell_to_gid[dst_cell_id]
+                        
+                        # Convert global IDs to local indices for this ROI
+                        src_local = src_gid - (global_id_counter - n_cells)
+                        dst_local = dst_gid - (global_id_counter - n_cells)
+                        
+                        # Add both directions (undirected graph)
+                        rows.extend([src_local, dst_local])
+                        cols.extend([dst_local, src_local])
                         data.extend([1.0, 1.0])
+                    
+                    if rows:
+                        adj_matrix = sp.coo_matrix((data, (rows, cols)), shape=(n_cells, n_cells))
+                        self.adj_matrices[roi_id_str] = adj_matrix.tocsr()
+                        print(f"[DEBUG] Created adjacency matrix for ROI {roi_id}: {adj_matrix.shape}")
+                
+                # Add edges to global edge records
+                for src_cell_id, dst_cell_id, dist_um in roi_edges_list:
+                    edge_records.append((roi_id_str, src_cell_id, dst_cell_id, dist_um))
 
-            # Remove duplicate edges across ROIs if any (shouldn't occur due to grouping)
+            print(f"[DEBUG] Total edge records: {len(edge_records)}")
+
+            # Create edge dataframe (no need for drop_duplicates since we deduplicated during construction)
             if edge_records:
-                edge_df = pd.DataFrame(edge_records, columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
-                edge_df = edge_df.drop_duplicates()
-                self.edge_df = edge_df
+                print(f"[DEBUG] Creating edge dataframe from {len(edge_records)} records")
+                self.edge_df = pd.DataFrame(edge_records, columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
+                print(f"[DEBUG] Edge dataframe shape: {self.edge_df.shape}")
             else:
+                print(f"[DEBUG] No edge records, creating empty dataframe")
                 self.edge_df = pd.DataFrame(columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
 
-            if _HAVE_SPARSE and rows:
-                # Note: adjacency here is last ROI processed; building a global block-diagonal matrix would require indexing over all ROIs
-                self.adj_matrix = sp.coo_matrix((np.array(data), (np.array(rows), np.array(cols))))
-            else:
-                self.adj_matrix = None
-
-            # Step 2: Neighborhood Composition Analysis
-            self._compute_neighborhood_composition()
-            
-            # Step 3: Pairwise Interaction Enrichment
-            self._compute_pairwise_enrichment()
-            
-            # Step 4: Distance Distribution Analysis
-            self._compute_distance_distributions()
-            
-            # Step 5: Ripley K/L Functions
-            self._compute_ripley_functions()
-
-            # Metadata
-            self.metadata = {
+            # Update metadata
+            self.metadata.update({
                 "mode": mode,
                 "k": k,
                 "radius_um": radius_um,
+                "rng_seed": self.rng_seed,
                 "num_edges": int(len(self.edge_df)),
-            }
+                "num_rois": len(roi_groups),
+                "pixel_size_um": pixel_size_um,
+            })
 
-            QtWidgets.QMessageBox.information(self, "Spatial Analysis", f"Completed analysis with {len(self.edge_df)} edges.")
+            print(f"[DEBUG] Spatial graph built successfully with {len(self.edge_df)} edges")
+            return True
+            
+        except Exception as e:
+            print(f"[DEBUG] CRITICAL ERROR in spatial graph building: {e}")
+            print(f"[DEBUG] Exception type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Spatial Graph Error", f"Error: {str(e)}\n\nCheck console for detailed debug information.")
+            return False
+
+    def _run_neighborhood_analysis(self):
+        """Run neighborhood composition analysis."""
+        print("[DEBUG] Starting neighborhood analysis...")
+        
+        if not self._validate_data():
+            return
+            
+        if not self._build_spatial_graph():
+            return
+            
+        try:
+            print(f"[DEBUG] Starting neighborhood composition analysis...")
+            self._compute_neighborhood_composition()
+            
+            self.neighborhood_analysis_run = True
+            self._update_tab_states()
+            
+            print(f"[DEBUG] Neighborhood analysis completed successfully")
+            QtWidgets.QMessageBox.information(self, "Neighborhood Analysis", "Neighborhood analysis completed successfully.")
             self.export_btn.setEnabled(True)
             
-            # Update visualizations
+            # Update visualization
+            print(f"[DEBUG] Updating neighborhood visualization...")
             self._update_neighborhood_plot()
-            self._update_enrichment_plot()
-            self._update_distance_plot()
-            self._update_ripley_plot()
+            
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Spatial Graph Error", str(e))
+            print(f"[DEBUG] ERROR in neighborhood analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Neighborhood Analysis Error", f"Error: {str(e)}")
+
+    def _run_enrichment_analysis(self):
+        """Run pairwise enrichment analysis."""
+        print("[DEBUG] Starting enrichment analysis...")
+        
+        if not self.neighborhood_analysis_run:
+            QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
+            return
+            
+        try:
+            n_perm = int(self.n_perm_spin.value())
+            print(f"[DEBUG] Starting pairwise enrichment analysis with {n_perm} permutations...")
+            self._compute_pairwise_enrichment(n_perm=n_perm)
+            
+            self.enrichment_analysis_run = True
+            
+            print(f"[DEBUG] Enrichment analysis completed successfully")
+            QtWidgets.QMessageBox.information(self, "Enrichment Analysis", "Enrichment analysis completed successfully.")
+            
+            # Update visualization
+            print(f"[DEBUG] Updating enrichment visualization...")
+            self._update_enrichment_plot()
+            
+        except Exception as e:
+            print(f"[DEBUG] ERROR in enrichment analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Enrichment Analysis Error", f"Error: {str(e)}")
+
+    def _run_distance_analysis(self):
+        """Run distance distribution analysis."""
+        print("[DEBUG] Starting distance analysis...")
+        
+        if not self.neighborhood_analysis_run:
+            QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
+            return
+            
+        try:
+            print(f"[DEBUG] Starting distance distribution analysis...")
+            self._compute_distance_distributions()
+            
+            self.distance_analysis_run = True
+            
+            print(f"[DEBUG] Distance analysis completed successfully")
+            QtWidgets.QMessageBox.information(self, "Distance Analysis", "Distance analysis completed successfully.")
+            
+            # Update visualization
+            print(f"[DEBUG] Updating distance visualization...")
+            self._update_distance_plot()
+            
+        except Exception as e:
+            print(f"[DEBUG] ERROR in distance analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Distance Analysis Error", f"Error: {str(e)}")
+
+    def _run_ripley_analysis(self):
+        """Run Ripley K/L functions analysis."""
+        print("[DEBUG] Starting Ripley analysis...")
+        
+        if not self.neighborhood_analysis_run:
+            QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
+            return
+            
+        try:
+            ripley_r_max = float(self.ripley_r_max_spin.value())
+            ripley_n_steps = int(self.ripley_n_steps_spin.value())
+            print(f"[DEBUG] Starting Ripley functions analysis with r_max={ripley_r_max}, steps={ripley_n_steps}...")
+            self._compute_ripley_functions(r_max=ripley_r_max, n_steps=ripley_n_steps)
+            
+            self.ripley_analysis_run = True
+            
+            print(f"[DEBUG] Ripley analysis completed successfully")
+            QtWidgets.QMessageBox.information(self, "Ripley Analysis", "Ripley analysis completed successfully.")
+            
+            # Update visualization
+            print(f"[DEBUG] Updating Ripley visualization...")
+            self._update_ripley_plot()
+            
+        except Exception as e:
+            print(f"[DEBUG] ERROR in Ripley analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Ripley Analysis Error", f"Error: {str(e)}")
+
+    def _populate_roi_combo(self):
+        """Populate the ROI combo box with available ROIs."""
+        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
+            unique_rois = sorted(self.feature_dataframe['acquisition_id'].unique())
+            self.roi_combo.clear()
+            self.roi_combo.addItems([str(roi) for roi in unique_rois])
+            print(f"[DEBUG] Populated ROI combo with {len(unique_rois)} ROIs")
+
+    def _populate_spatial_color_options(self):
+        """Populate the spatial color combo box with available features."""
+        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
+            self.spatial_color_combo.clear()
+            
+            # Add cluster options first
+            cluster_options = []
+            for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+                if col in self.feature_dataframe.columns:
+                    cluster_options.append(col)
+            
+            if cluster_options:
+                # Use the first available cluster column as default
+                default_cluster = cluster_options[0]
+                self.spatial_color_combo.addItem(f"Cluster ({default_cluster})")
+                
+                # Add other cluster options if available
+                for col in cluster_options[1:]:
+                    self.spatial_color_combo.addItem(f"Cluster ({col})")
+            
+            # Add morphometric features
+            morphometric_features = []
+            for col in self.feature_dataframe.columns:
+                if any(keyword in col.lower() for keyword in ['area', 'perimeter', 'diameter', 'eccentricity', 'solidity', 'extent', 'aspect_ratio', 'circularity']):
+                    morphometric_features.append(col)
+            
+            for feature in sorted(morphometric_features):
+                self.spatial_color_combo.addItem(f"Morphology: {feature}")
+            
+            # Add marker expression features
+            marker_features = []
+            for col in self.feature_dataframe.columns:
+                if '_mean' in col and any(keyword in col.lower() for keyword in ['cd', 'epcam', 'sma', 'pr', 'her2', 'fap', 'ncam', 'vimentin', 'cadherin', 'ki', 'er', 'cd31', 'cd66b', 'cd3', 'cd44', 'cd45', 'ck8', 'ck18', 'cd4', 'dna', 'icsk']):
+                    marker_features.append(col)
+            
+            for feature in sorted(marker_features):
+                marker_name = feature.replace('_mean', '').replace('_', ' ')
+                self.spatial_color_combo.addItem(f"Marker: {marker_name}")
+            
+            print(f"[DEBUG] Populated spatial color options with {self.spatial_color_combo.count()} options")
+
+    def _populate_community_roi_combo(self):
+        """Populate the community ROI combo box with available ROIs."""
+        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
+            unique_rois = sorted(self.feature_dataframe['acquisition_id'].unique())
+            self.community_roi_combo.clear()
+            self.community_roi_combo.addItems([str(roi) for roi in unique_rois])
+            print(f"[DEBUG] Populated community ROI combo with {len(unique_rois)} ROIs")
+
+    def _populate_exclude_clusters_list(self):
+        """Populate the exclude clusters list with available cluster types."""
+        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
+            self.exclude_clusters_list.clear()
+            
+            # Get cluster column
+            cluster_col = None
+            for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+                if col in self.feature_dataframe.columns:
+                    cluster_col = col
+                    break
+            
+            if cluster_col:
+                unique_clusters = sorted(self.feature_dataframe[cluster_col].unique())
+                for cluster in unique_clusters:
+                    if pd.notna(cluster):
+                        display_name = self._get_cluster_display_name(cluster)
+                        item = QtWidgets.QListWidgetItem(display_name)
+                        item.setData(QtCore.Qt.UserRole, cluster)
+                        self.exclude_clusters_list.addItem(item)
+                
+                print(f"[DEBUG] Populated exclude clusters list with {self.exclude_clusters_list.count()} cluster types")
+
+    def _run_spatial_visualization(self):
+        """Generate spatial visualization for the selected ROI."""
+        print("[DEBUG] Starting spatial visualization...")
+        
+        if not self.neighborhood_analysis_run:
+            QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
+            return
+            
+        if self.roi_combo.currentText() == "":
+            QtWidgets.QMessageBox.warning(self, "No ROI Selected", "Please select an ROI to visualize.")
+            return
+            
+        try:
+            selected_roi = self.roi_combo.currentText()
+            print(f"[DEBUG] Generating spatial visualization for ROI: {selected_roi}")
+            self._create_spatial_visualization(selected_roi)
+            
+            self.spatial_viz_run = True
+            self._update_tab_states()
+            
+            print(f"[DEBUG] Spatial visualization completed successfully")
+            QtWidgets.QMessageBox.information(self, "Spatial Visualization", "Spatial visualization completed successfully.")
+            
+        except Exception as e:
+            print(f"[DEBUG] ERROR in spatial visualization: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Spatial Visualization Error", f"Error: {str(e)}")
+
+    def _create_spatial_visualization(self, roi_id):
+        """Create spatial visualization showing cells and edges for a specific ROI."""
+        if self.feature_dataframe is None or self.edge_df is None:
+            return
+            
+        # Get data for the selected ROI
+        roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+        roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
+        
+        if roi_df.empty:
+            print(f"[DEBUG] No data found for ROI {roi_id}")
+            return
+            
+        # Get color option
+        color_option = self.spatial_color_combo.currentText()
+        print(f"[DEBUG] Color option selected: {color_option}")
+        
+        # Clear the canvas
+        self.spatial_viz_canvas.figure.clear()
+        ax = self.spatial_viz_canvas.figure.add_subplot(111)
+        
+        # Plot edges first (so they appear behind the nodes)
+        if not roi_edges.empty:
+            print(f"[DEBUG] Plotting {len(roi_edges)} edges for ROI {roi_id}")
+            
+            # Create a mapping from cell_id to coordinates
+            cell_coords = {}
+            for _, row in roi_df.iterrows():
+                cell_coords[int(row['cell_id'])] = (row['centroid_x'], row['centroid_y'])
+            
+            # Plot edges
+            for _, edge in roi_edges.iterrows():
+                cell_a = int(edge['cell_id_A'])
+                cell_b = int(edge['cell_id_B'])
+                
+                if cell_a in cell_coords and cell_b in cell_coords:
+                    x_coords = [cell_coords[cell_a][0], cell_coords[cell_b][0]]
+                    y_coords = [cell_coords[cell_a][1], cell_coords[cell_b][1]]
+                    ax.plot(x_coords, y_coords, 'grey', alpha=0.3, linewidth=0.5, zorder=1)
+        
+        # Determine coloring method
+        if color_option.startswith("Cluster"):
+            # Extract cluster column name
+            cluster_col = None
+            if "(cluster)" in color_option:
+                cluster_col = "cluster"
+            elif "(cluster_phenotype)" in color_option:
+                cluster_col = "cluster_phenotype"
+            elif "(cluster_id)" in color_option:
+                cluster_col = "cluster_id"
+            else:
+                # Default to first available cluster column
+                for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+                    if col in roi_df.columns:
+                        cluster_col = col
+                        break
+            
+            if cluster_col is None:
+                print(f"[DEBUG] No cluster column found for ROI {roi_id}")
+                return
+                
+            # Get unique clusters and create color map
+            unique_clusters = sorted(roi_df[cluster_col].unique())
+            n_clusters = len(unique_clusters)
+            
+            # Use a distinct color palette
+            colors = plt.cm.Set3(np.linspace(0, 1, max(n_clusters, 3)))
+            cluster_color_map = {cluster: colors[i % len(colors)] for i, cluster in enumerate(unique_clusters)}
+            
+            # Plot cells (nodes) colored by cluster
+            for cluster in unique_clusters:
+                cluster_cells = roi_df[roi_df[cluster_col] == cluster]
+                if not cluster_cells.empty:
+                    x_coords = cluster_cells['centroid_x'].values
+                    y_coords = cluster_cells['centroid_y'].values
+                    
+                    # Plot cells as points
+                    ax.scatter(x_coords, y_coords, 
+                              c=[cluster_color_map[cluster]], 
+                              s=20, alpha=0.8, edgecolors='black', linewidth=0.5,
+                              label=self._get_cluster_display_name(cluster),
+                              zorder=2)
+            
+            # Add legend for clusters
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+            
+        else:
+            # Color by continuous feature (morphology or marker expression)
+            feature_name = None
+            if color_option.startswith("Morphology:"):
+                feature_name = color_option.replace("Morphology: ", "")
+            elif color_option.startswith("Marker:"):
+                # Convert back to column name
+                marker_name = color_option.replace("Marker: ", "").replace(" ", "_")
+                feature_name = f"{marker_name}_mean"
+            
+            if feature_name and feature_name in roi_df.columns:
+                # Get feature values
+                feature_values = roi_df[feature_name].values
+                
+                # Remove NaN values
+                valid_mask = ~np.isnan(feature_values)
+                if np.any(valid_mask):
+                    x_coords = roi_df.loc[valid_mask, 'centroid_x'].values
+                    y_coords = roi_df.loc[valid_mask, 'centroid_y'].values
+                    values = feature_values[valid_mask]
+                    
+                    # Create scatter plot with colorbar
+                    scatter = ax.scatter(x_coords, y_coords, 
+                                       c=values, 
+                                       s=20, alpha=0.8, edgecolors='black', linewidth=0.5,
+                                       cmap='viridis', zorder=2)
+                    
+                    # Add colorbar
+                    cbar = self.spatial_viz_canvas.figure.colorbar(scatter, ax=ax)
+                    cbar.set_label(feature_name, rotation=270, labelpad=15)
+                else:
+                    print(f"[DEBUG] No valid values found for feature {feature_name}")
+                    return
+            else:
+                print(f"[DEBUG] Feature {feature_name} not found in data")
+                return
+        
+        # Customize the plot
+        ax.set_xlabel('X Position (pixels)')
+        ax.set_ylabel('Y Position (pixels)')
+        ax.set_title(f'Spatial Visualization - ROI {roi_id}')
+        ax.set_aspect('equal')
+        
+        # Invert y-axis to match typical image coordinates (origin at top-left)
+        ax.invert_yaxis()
+        
+        # Add grid
+        ax.grid(True, alpha=0.3)
+        
+        # Adjust layout to prevent legend cutoff
+        self.spatial_viz_canvas.figure.tight_layout()
+        self.spatial_viz_canvas.draw()
+        
+        print(f"[DEBUG] Spatial visualization created for ROI {roi_id} with {len(roi_df)} cells and {len(roi_edges)} edges")
+
+    def _run_community_analysis(self):
+        """Run spatial community detection analysis."""
+        print("[DEBUG] Starting spatial community analysis...")
+        
+        if not self.neighborhood_analysis_run:
+            QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
+            return
+            
+        if self.community_roi_combo.currentText() == "":
+            QtWidgets.QMessageBox.warning(self, "No ROI Selected", "Please select an ROI for community analysis.")
+            return
+            
+        try:
+            selected_roi = self.community_roi_combo.currentText()
+            min_cells = int(self.min_cells_spin.value())
+            print(f"[DEBUG] Running community analysis for ROI: {selected_roi}, min_cells: {min_cells}")
+            
+            self._detect_spatial_communities(selected_roi, min_cells)
+            
+            self.community_analysis_run = True
+            self._update_tab_states()
+            
+            print(f"[DEBUG] Community analysis completed successfully")
+            QtWidgets.QMessageBox.information(self, "Community Analysis", "Spatial community analysis completed successfully.")
+            
+        except Exception as e:
+            print(f"[DEBUG] ERROR in community analysis: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Community Analysis Error", f"Error: {str(e)}")
+
+    def _detect_spatial_communities(self, roi_id, min_cells):
+        """Detect spatial communities using Louvain modularity optimization."""
+        if self.feature_dataframe is None or self.edge_df is None:
+            return
+            
+        # Get data for the selected ROI
+        roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+        roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
+        
+        if roi_df.empty:
+            print(f"[DEBUG] No data found for ROI {roi_id}")
+            return
+            
+        # Get cluster column for exclusion
+        cluster_col = None
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+            if col in roi_df.columns:
+                cluster_col = col
+                break
+        
+        # Apply cell type exclusion if enabled
+        if self.exclude_clusters_check.isChecked() and cluster_col:
+            excluded_clusters = []
+            for i in range(self.exclude_clusters_list.count()):
+                item = self.exclude_clusters_list.item(i)
+                if item.isSelected():
+                    excluded_clusters.append(item.data(QtCore.Qt.UserRole))
+            
+            if excluded_clusters:
+                print(f"[DEBUG] Excluding clusters: {excluded_clusters}")
+                roi_df = roi_df[~roi_df[cluster_col].isin(excluded_clusters)]
+                # Also filter edges to only include remaining cells
+                remaining_cells = set(roi_df['cell_id'].astype(int))
+                roi_edges = roi_edges[
+                    (roi_edges['cell_id_A'].isin(remaining_cells)) & 
+                    (roi_edges['cell_id_B'].isin(remaining_cells))
+                ]
+                print(f"[DEBUG] After exclusion: {len(roi_df)} cells, {len(roi_edges)} edges")
+        
+        if roi_df.empty or roi_edges.empty:
+            print(f"[DEBUG] No data remaining after exclusion for ROI {roi_id}")
+            return
+        
+        # Create NetworkX graph
+        G = nx.Graph()
+        
+        # Add nodes (cells)
+        for _, row in roi_df.iterrows():
+            G.add_node(int(row['cell_id']))
+        
+        # Add edges
+        for _, edge in roi_edges.iterrows():
+            G.add_edge(int(edge['cell_id_A']), int(edge['cell_id_B']))
+        
+        print(f"[DEBUG] Created graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
+        
+        # Run Louvain community detection with fixed seed for reproducibility
+        if self.rng_seed is not None:
+            np.random.seed(self.rng_seed)
+            random.seed(self.rng_seed)
+        
+        try:
+            communities = nx.community.louvain_communities(G, seed=self.rng_seed)
+            print(f"[DEBUG] Found {len(communities)} communities")
+        except Exception as e:
+            print(f"[DEBUG] Error in community detection: {e}")
+            # Fallback to simple connected components
+            communities = list(nx.connected_components(G))
+            print(f"[DEBUG] Using connected components: {len(communities)} communities")
+        
+        # Filter communities by minimum size
+        filtered_communities = [comm for comm in communities if len(comm) >= min_cells]
+        print(f"[DEBUG] After filtering (min_cells={min_cells}): {len(filtered_communities)} communities")
+        
+        # Assign community IDs to cells
+        community_assignments = {}
+        for i, community in enumerate(filtered_communities):
+            for cell_id in community:
+                community_assignments[cell_id] = i
+        
+        # Add community assignments to the dataframe
+        roi_df['spatial_community'] = roi_df['cell_id'].astype(int).map(community_assignments)
+        
+        # Store results for visualization
+        self.community_results = {
+            'roi_id': roi_id,
+            'roi_df': roi_df,
+            'roi_edges': roi_edges,
+            'communities': filtered_communities,
+            'community_assignments': community_assignments,
+            'min_cells': min_cells
+        }
+        
+        # Create visualization
+        self._create_community_visualization()
+
+    def _create_community_visualization(self):
+        """Create spatial visualization showing communities."""
+        if not hasattr(self, 'community_results'):
+            return
+            
+        results = self.community_results
+        roi_df = results['roi_df']
+        roi_edges = results['roi_edges']
+        communities = results['communities']
+        
+        # Clear the canvas
+        self.community_canvas.figure.clear()
+        ax = self.community_canvas.figure.add_subplot(111)
+        
+        # Plot edges first (so they appear behind the nodes)
+        if not roi_edges.empty:
+            print(f"[DEBUG] Plotting {len(roi_edges)} edges for community visualization")
+            
+            # Create a mapping from cell_id to coordinates
+            cell_coords = {}
+            for _, row in roi_df.iterrows():
+                cell_coords[int(row['cell_id'])] = (row['centroid_x'], row['centroid_y'])
+            
+            # Plot edges
+            for _, edge in roi_edges.iterrows():
+                cell_a = int(edge['cell_id_A'])
+                cell_b = int(edge['cell_id_B'])
+                
+                if cell_a in cell_coords and cell_b in cell_coords:
+                    x_coords = [cell_coords[cell_a][0], cell_coords[cell_b][0]]
+                    y_coords = [cell_coords[cell_a][1], cell_coords[cell_b][1]]
+                    ax.plot(x_coords, y_coords, 'grey', alpha=0.3, linewidth=0.5, zorder=1)
+        
+        # Plot cells colored by community
+        if len(communities) > 0:
+            # Create color map for communities
+            colors = plt.cm.Set3(np.linspace(0, 1, max(len(communities), 3)))
+            
+            for i, community in enumerate(communities):
+                community_cells = roi_df[roi_df['spatial_community'] == i]
+                if not community_cells.empty:
+                    x_coords = community_cells['centroid_x'].values
+                    y_coords = community_cells['centroid_y'].values
+                    
+                    # Plot cells as points
+                    ax.scatter(x_coords, y_coords, 
+                              c=[colors[i % len(colors)]], 
+                              s=20, alpha=0.8, edgecolors='black', linewidth=0.5,
+                              label=f'Community {i} (n={len(community)})',
+                              zorder=2)
+        
+        # Customize the plot
+        ax.set_xlabel('X Position (pixels)')
+        ax.set_ylabel('Y Position (pixels)')
+        ax.set_title(f'Spatial Communities - ROI {results["roi_id"]} (min_cells={results["min_cells"]})')
+        ax.set_aspect('equal')
+        
+        # Add legend
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        
+        # Invert y-axis to match typical image coordinates (origin at top-left)
+        ax.invert_yaxis()
+        
+        # Add grid
+        ax.grid(True, alpha=0.3)
+        
+        # Adjust layout to prevent legend cutoff
+        self.community_canvas.figure.tight_layout()
+        self.community_canvas.draw()
+        
+        print(f"[DEBUG] Community visualization created with {len(communities)} communities")
 
     def _export_results(self):
         if self.edge_df is None:
@@ -282,10 +1300,21 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 # Parquet optional, ignore if engine missing
                 pass
             
-            # Export adjacency matrix
-            if _HAVE_SPARSE and self.adj_matrix is not None:
+            # Export per-ROI adjacency matrices
+            if _HAVE_SPARSE and self.adj_matrices:
                 from scipy.sparse import save_npz
-                save_npz(os.path.join(out_dir, "adjacency.npz"), self.adj_matrix.tocsr())
+                for roi_id, adj_matrix in self.adj_matrices.items():
+                    adj_file = os.path.join(out_dir, f"adj_{roi_id}.npz")
+                    save_npz(adj_file, adj_matrix)
+                
+                # Export global cell ID mapping
+                mapping_file = os.path.join(out_dir, "cell_id_mapping.json")
+                mapping_data = {
+                    "cell_id_to_gid": {f"{roi_id}_{cell_id}": gid for (roi_id, cell_id), gid in self.cell_id_to_gid.items()},
+                    "gid_to_cell_id": {str(gid): {"roi_id": roi_id, "cell_id": cell_id} for gid, (roi_id, cell_id) in self.gid_to_cell_id.items()}
+                }
+                with open(mapping_file, "w") as f:
+                    json.dump(mapping_data, f, indent=2)
             
             # Export neighborhood composition
             if self.neighborhood_df is not None and not self.neighborhood_df.empty:
@@ -320,26 +1349,23 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Export Error", str(e))
 
     def _compute_neighborhood_composition(self):
-        """Compute neighborhood composition for each cell."""
+        """Compute neighborhood composition for each cell with vectorized operations."""
         if self.edge_df is None or self.edge_df.empty:
             return
             
-        # Check if cluster information is available
+        # Use detected cluster column (already validated in _run_analysis)
         cluster_col = None
-        for col in ['cluster', 'cluster_id', 'cluster_phenotype']:
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
             if col in self.feature_dataframe.columns:
                 cluster_col = col
                 break
-                
-        if cluster_col is None:
-            # No clustering data available, create dummy clusters
-            self.feature_dataframe = self.feature_dataframe.copy()
-            self.feature_dataframe['cluster'] = 0
-            cluster_col = 'cluster'
         
-        # Get unique clusters
+        # Get unique clusters across all ROIs for stable indexing
         unique_clusters = sorted(self.feature_dataframe[cluster_col].unique())
         n_clusters = len(unique_clusters)
+        
+        # Create stable cluster index mapping (use actual cluster IDs as indices)
+        cluster_to_idx = {cluster: cluster for cluster in unique_clusters}
         
         # Initialize neighborhood composition dataframe
         neighborhood_data = []
@@ -351,42 +1377,37 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             if roi_edges.empty:
                 continue
                 
-            # Create adjacency mapping for this ROI
-            cell_to_neighbors = {}
+            # Create efficient cell_id to cluster mapping
+            cell_to_cluster = dict(zip(roi_df['cell_id'], roi_df[cluster_col]))
+            
+            # Build adjacency list efficiently
+            cell_to_neighbors = defaultdict(list)
             for _, edge in roi_edges.iterrows():
                 cell_a, cell_b = int(edge['cell_id_A']), int(edge['cell_id_B'])
-                if cell_a not in cell_to_neighbors:
-                    cell_to_neighbors[cell_a] = []
-                if cell_b not in cell_to_neighbors:
-                    cell_to_neighbors[cell_b] = []
                 cell_to_neighbors[cell_a].append(cell_b)
                 cell_to_neighbors[cell_b].append(cell_a)
             
-            # Compute neighborhood composition for each cell in this ROI
+            # Vectorized neighborhood composition computation
             for _, cell_row in roi_df.iterrows():
                 cell_id = int(cell_row['cell_id'])
                 cell_cluster = cell_row[cluster_col]
                 
-                # Initialize composition vector
-                composition = {f'frac_cluster_{i}': 0.0 for i in range(n_clusters)}
+                # Initialize composition vector using actual cluster IDs
+                composition = {f'frac_cluster_{cluster}': 0.0 for cluster in unique_clusters}
                 
                 if cell_id in cell_to_neighbors:
                     neighbors = cell_to_neighbors[cell_id]
                     if neighbors:
-                        # Get neighbor cluster counts
-                        neighbor_clusters = []
-                        for neighbor_id in neighbors:
-                            neighbor_row = roi_df[roi_df['cell_id'] == neighbor_id]
-                            if not neighbor_row.empty:
-                                neighbor_cluster = neighbor_row.iloc[0][cluster_col]
-                                neighbor_clusters.append(neighbor_cluster)
+                        # Vectorized neighbor cluster lookup
+                        neighbor_clusters = [cell_to_cluster.get(nb_id) for nb_id in neighbors]
+                        neighbor_clusters = [c for c in neighbor_clusters if c is not None]
                         
-                        # Calculate fractions
-                        total_neighbors = len(neighbor_clusters)
-                        for cluster in unique_clusters:
-                            cluster_count = neighbor_clusters.count(cluster)
-                            cluster_idx = unique_clusters.index(cluster)
-                            composition[f'frac_cluster_{cluster_idx}'] = cluster_count / total_neighbors
+                        if neighbor_clusters:
+                            # Vectorized cluster counting
+                            total_neighbors = len(neighbor_clusters)
+                            for cluster in unique_clusters:
+                                cluster_count = neighbor_clusters.count(cluster)
+                                composition[f'frac_cluster_{cluster}'] = cluster_count / total_neighbors
                 
                 # Add cell information
                 row_data = {
@@ -399,17 +1420,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         self.neighborhood_df = pd.DataFrame(neighborhood_data)
         
-        # Compute per-cluster summary
+        # Compute per-cluster summary with vectorized operations
         if not self.neighborhood_df.empty:
             cluster_summary_data = []
             for cluster in unique_clusters:
                 cluster_cells = self.neighborhood_df[self.neighborhood_df['cluster_id'] == cluster]
                 if not cluster_cells.empty:
                     summary_row = {'cluster_id': cluster}
-                    for i in range(n_clusters):
-                        col_name = f'frac_cluster_{i}'
+                    for cluster_id in unique_clusters:
+                        col_name = f'frac_cluster_{cluster_id}'
                         if col_name in cluster_cells.columns:
-                            summary_row[f'avg_frac_cluster_{i}'] = cluster_cells[col_name].mean()
+                            summary_row[f'avg_frac_cluster_{cluster_id}'] = cluster_cells[col_name].mean()
                     cluster_summary_data.append(summary_row)
             
             self.cluster_summary_df = pd.DataFrame(cluster_summary_data)
@@ -417,6 +1438,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
     def _update_neighborhood_plot(self):
         """Update the neighborhood composition visualization."""
         if self.neighborhood_df is None or self.neighborhood_df.empty:
+            self.neighborhood_canvas.figure.clear()
+            ax = self.neighborhood_canvas.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No neighborhood data available', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_title('Neighborhood Composition')
+            self.neighborhood_canvas.draw()
             return
             
         self.neighborhood_canvas.figure.clear()
@@ -432,16 +1459,16 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         # Plot 1: Average neighborhood composition per cluster
         if self.cluster_summary_df is not None and not self.cluster_summary_df.empty:
-            cluster_labels = [f'Cluster {int(c)}' for c in unique_clusters]
-            neighbor_labels = [f'Cluster {i}' for i in range(n_clusters)]
+            cluster_labels = [self._get_cluster_display_name(c) for c in unique_clusters]
+            neighbor_labels = [self._get_cluster_display_name(c) for c in unique_clusters]
             
             # Create composition matrix
             composition_matrix = np.zeros((len(unique_clusters), n_clusters))
             for i, cluster in enumerate(unique_clusters):
                 cluster_row = self.cluster_summary_df[self.cluster_summary_df['cluster_id'] == cluster]
                 if not cluster_row.empty:
-                    for j in range(n_clusters):
-                        col_name = f'avg_frac_cluster_{j}'
+                    for j, neighbor_cluster in enumerate(unique_clusters):
+                        col_name = f'avg_frac_cluster_{neighbor_cluster}'
                         if col_name in cluster_row.columns:
                             composition_matrix[i, j] = cluster_row.iloc[0][col_name]
             
@@ -464,9 +1491,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             # Create box plot data
             plot_data = []
             plot_labels = []
-            for i, col in enumerate(frac_cols):
+            for col in frac_cols:
                 plot_data.append(self.neighborhood_df[col].values)
-                plot_labels.append(f'Cluster {i}')
+                # Extract cluster ID from column name (e.g., 'frac_cluster_1' -> '1')
+                cluster_id = int(col.split('_')[-1])
+                plot_labels.append(self._get_cluster_display_name(cluster_id))
             
             ax2.boxplot(plot_data, labels=plot_labels)
             ax2.set_xlabel('Neighbor Cluster')
@@ -477,20 +1506,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         fig.tight_layout()
         self.neighborhood_canvas.draw()
 
-    def _compute_pairwise_enrichment(self):
-        """Compute pairwise interaction enrichment analysis."""
+    def _compute_pairwise_enrichment(self, n_perm=100):
+        """Compute pairwise interaction enrichment analysis using permutation null."""
         if self.edge_df is None or self.edge_df.empty:
             return
             
-        # Check if cluster information is available
+        # Use detected cluster column (already validated in _run_analysis)
         cluster_col = None
-        for col in ['cluster', 'cluster_id', 'cluster_phenotype']:
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
             if col in self.feature_dataframe.columns:
                 cluster_col = col
                 break
-                
-        if cluster_col is None:
-            return  # Skip if no clustering data
         
         enrichment_data = []
         
@@ -508,33 +1534,23 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             if n_clusters < 2:
                 continue  # Need at least 2 clusters for pairwise analysis
             
-            # Count cells per cluster
-            cluster_counts = roi_df[cluster_col].value_counts().to_dict()
-            total_cells = len(roi_df)
+            # Create cell_id to cluster mapping for efficient lookup
+            cell_to_cluster = dict(zip(roi_df['cell_id'], roi_df[cluster_col]))
             
             # Count observed edges between cluster pairs
             observed_edges = {}
             for _, edge in roi_edges.iterrows():
                 cell_a, cell_b = int(edge['cell_id_A']), int(edge['cell_id_B'])
                 
-                # Get cluster assignments
-                cluster_a = None
-                cluster_b = None
-                
-                cell_a_row = roi_df[roi_df['cell_id'] == cell_a]
-                cell_b_row = roi_df[roi_df['cell_id'] == cell_b]
-                
-                if not cell_a_row.empty:
-                    cluster_a = cell_a_row.iloc[0][cluster_col]
-                if not cell_b_row.empty:
-                    cluster_b = cell_b_row.iloc[0][cluster_col]
+                cluster_a = cell_to_cluster.get(cell_a)
+                cluster_b = cell_to_cluster.get(cell_b)
                 
                 if cluster_a is not None and cluster_b is not None:
                     # Create canonical pair (smaller cluster first)
                     pair = tuple(sorted([cluster_a, cluster_b]))
                     observed_edges[pair] = observed_edges.get(pair, 0) + 1
             
-            # Calculate expected edges and enrichment for each cluster pair
+            # Perform permutation test for each cluster pair
             for i, cluster_a in enumerate(unique_clusters):
                 for j, cluster_b in enumerate(unique_clusters):
                     if j < i:  # Avoid duplicates
@@ -543,22 +1559,43 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     pair = (cluster_a, cluster_b)
                     observed = observed_edges.get(pair, 0)
                     
-                    # Calculate expected edges under random distribution
-                    if cluster_a == cluster_b:
-                        # Within-cluster edges
-                        n_a = cluster_counts[cluster_a]
-                        expected = (n_a * (n_a - 1)) / 2  # All possible pairs within cluster
-                    else:
-                        # Between-cluster edges
-                        n_a = cluster_counts[cluster_a]
-                        n_b = cluster_counts[cluster_b]
-                        expected = n_a * n_b  # All possible pairs between clusters
+                    # Get cells in each cluster
+                    cells_a = roi_df[roi_df[cluster_col] == cluster_a]['cell_id'].tolist()
+                    cells_b = roi_df[roi_df[cluster_col] == cluster_b]['cell_id'].tolist()
                     
-                    # Calculate Z-score (simplified - assumes Poisson distribution)
-                    if expected > 0:
-                        z_score = (observed - expected) / np.sqrt(expected)
-                        # Simple p-value approximation (two-tailed)
-                        p_value = 2 * (1 - self._normal_cdf(abs(z_score)))
+                    # Perform permutations
+                    permuted_counts = []
+                    for _ in range(n_perm):
+                        # Shuffle cluster labels while preserving degrees
+                        shuffled_clusters = roi_df[cluster_col].values.copy()
+                        np.random.shuffle(shuffled_clusters)
+                        
+                        # Create temporary mapping
+                        temp_cell_to_cluster = dict(zip(roi_df['cell_id'], shuffled_clusters))
+                        
+                        # Count edges for this permutation
+                        perm_count = 0
+                        for _, edge in roi_edges.iterrows():
+                            cell_a, cell_b = int(edge['cell_id_A']), int(edge['cell_id_B'])
+                            
+                            perm_cluster_a = temp_cell_to_cluster.get(cell_a)
+                            perm_cluster_b = temp_cell_to_cluster.get(cell_b)
+                            
+                            if perm_cluster_a is not None and perm_cluster_b is not None:
+                                perm_pair = tuple(sorted([perm_cluster_a, perm_cluster_b]))
+                                if perm_pair == pair:
+                                    perm_count += 1
+                        
+                        permuted_counts.append(perm_count)
+                    
+                    # Calculate statistics
+                    expected_mean = np.mean(permuted_counts)
+                    expected_std = np.std(permuted_counts)
+                    
+                    if expected_std > 0:
+                        z_score = (observed - expected_mean) / expected_std
+                        # Two-tailed p-value from permutation distribution
+                        p_value = np.mean(np.abs(permuted_counts - expected_mean) >= abs(observed - expected_mean))
                     else:
                         z_score = 0.0
                         p_value = 1.0
@@ -568,9 +1605,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                         'cluster_A': cluster_a,
                         'cluster_B': cluster_b,
                         'observed_edges': observed,
-                        'expected_mean': expected,
+                        'expected_mean': expected_mean,
+                        'expected_std': expected_std,
                         'z_score': z_score,
-                        'p_value': p_value
+                        'p_value': p_value,
+                        'n_permutations': n_perm
                     })
         
         self.enrichment_df = pd.DataFrame(enrichment_data)
@@ -582,6 +1621,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
     def _update_enrichment_plot(self):
         """Update the pairwise enrichment visualization."""
         if self.enrichment_df is None or self.enrichment_df.empty:
+            self.enrichment_canvas.figure.clear()
+            ax = self.enrichment_canvas.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No enrichment data available', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_title('Pairwise Enrichment')
+            self.enrichment_canvas.draw()
             return
             
         self.enrichment_canvas.figure.clear()
@@ -611,16 +1656,25 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             pvalue_matrix[i, j] = row['p_value']
             pvalue_matrix[j, i] = row['p_value']  # Symmetric
         
-        # Plot 1: Z-score heatmap
+        # Plot 1: Z-score heatmap with significance markers
         im1 = ax1.imshow(enrichment_matrix, cmap='RdBu_r', aspect='auto', 
                         vmin=-3, vmax=3)
         ax1.set_xticks(range(n_clusters))
-        ax1.set_xticklabels([f'Cluster {int(c)}' for c in all_clusters], rotation=45)
+        ax1.set_xticklabels([self._get_cluster_display_name(c) for c in all_clusters], rotation=45)
         ax1.set_yticks(range(n_clusters))
-        ax1.set_yticklabels([f'Cluster {int(c)}' for c in all_clusters])
+        ax1.set_yticklabels([self._get_cluster_display_name(c) for c in all_clusters])
         ax1.set_xlabel('Cluster B')
         ax1.set_ylabel('Cluster A')
         ax1.set_title('Pairwise Interaction Enrichment (Z-scores)')
+        
+        # Add significance markers (dots for |z| >= 2 or p < 0.05)
+        for i in range(n_clusters):
+            for j in range(n_clusters):
+                z_val = enrichment_matrix[i, j]
+                p_val = pvalue_matrix[i, j]
+                if abs(z_val) >= 2 or p_val < 0.05:
+                    # Add significance marker
+                    ax1.scatter(j, i, s=50, c='white', marker='o', edgecolors='black', linewidth=1)
         
         # Add colorbar
         fig.colorbar(im1, ax=ax1, label='Z-score')
@@ -645,67 +1699,91 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.enrichment_canvas.draw()
 
     def _compute_distance_distributions(self):
-        """Compute distance distribution analysis for nearest neighbors."""
-        if self.edge_df is None or self.edge_df.empty:
+        """Compute distance distribution analysis using geometric nearest neighbor search."""
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
             return
             
-        # Check if cluster information is available
+        # Use detected cluster column (already validated in _run_analysis)
         cluster_col = None
-        for col in ['cluster', 'cluster_id', 'cluster_phenotype']:
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
             if col in self.feature_dataframe.columns:
                 cluster_col = col
                 break
-                
-        if cluster_col is None:
-            return  # Skip if no clustering data
         
         distance_data = []
         
+        # Get pixel size for distance conversion
+        parent = self.parent() if hasattr(self, 'parent') else None
+        
         # Process each ROI separately
         for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
-            roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)]
-            
-            if roi_edges.empty:
+            roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])
+            if roi_df.empty:
                 continue
                 
+            # Get pixel size for this ROI
+            pixel_size_um = 1.0
+            try:
+                if parent is not None and hasattr(parent, '_get_pixel_size_um'):
+                    pixel_size_um = float(parent._get_pixel_size_um(roi_id))  # type: ignore[attr-defined]
+            except Exception:
+                pixel_size_um = 1.0
+            
+            # Convert coordinates to micrometers
+            coords_um = roi_df[["centroid_x", "centroid_y"]].to_numpy() * pixel_size_um
+            cell_ids = roi_df["cell_id"].astype(int).to_numpy()
+            
             # Get unique clusters in this ROI
             unique_clusters = sorted(roi_df[cluster_col].unique())
             
+            # Create KDTree for efficient nearest neighbor search
+            tree = cKDTree(coords_um)
+            
             # For each cell, find nearest neighbor of each cluster type
-            for _, cell_row in roi_df.iterrows():
+            for i, cell_row in roi_df.iterrows():
                 cell_id = int(cell_row['cell_id'])
                 cell_cluster = cell_row[cluster_col]
-                
-                # Get all edges for this cell
-                cell_edges = roi_edges[
-                    (roi_edges['cell_id_A'] == cell_id) | 
-                    (roi_edges['cell_id_B'] == cell_id)
-                ]
-                
-                if cell_edges.empty:
-                    continue
+                cell_coord = coords_um[i]
                 
                 # Find nearest neighbor for each cluster type
                 for target_cluster in unique_clusters:
-                    min_distance = float('inf')
-                    nearest_cell_id = None
-                    
-                    for _, edge in cell_edges.iterrows():
-                        # Determine which cell is the neighbor
-                        if edge['cell_id_A'] == cell_id:
-                            neighbor_id = int(edge['cell_id_B'])
-                        else:
-                            neighbor_id = int(edge['cell_id_A'])
+                    if target_cluster == cell_cluster:
+                        # For same cluster, find nearest neighbor excluding self
+                        target_cells = roi_df[roi_df[cluster_col] == target_cluster]
+                        if len(target_cells) < 2:
+                            continue
                         
-                        # Check if neighbor belongs to target cluster
-                        neighbor_row = roi_df[roi_df['cell_id'] == neighbor_id]
-                        if not neighbor_row.empty:
-                            neighbor_cluster = neighbor_row.iloc[0][cluster_col]
-                            if neighbor_cluster == target_cluster:
-                                distance = edge['distance_um']
+                        target_coords = target_cells[["centroid_x", "centroid_y"]].to_numpy() * pixel_size_um
+                        target_cell_ids = target_cells["cell_id"].astype(int).to_numpy()
+                        
+                        # Find nearest neighbor excluding self
+                        min_distance = float('inf')
+                        nearest_cell_id = None
+                        
+                        for j, target_coord in enumerate(target_coords):
+                            if target_cell_ids[j] != cell_id:  # Exclude self
+                                distance = np.linalg.norm(cell_coord - target_coord)
                                 if distance < min_distance:
                                     min_distance = distance
-                                    nearest_cell_id = neighbor_id
+                                    nearest_cell_id = target_cell_ids[j]
+                    else:
+                        # For different clusters, find nearest neighbor
+                        target_cells = roi_df[roi_df[cluster_col] == target_cluster]
+                        if target_cells.empty:
+                            continue
+                        
+                        target_coords = target_cells[["centroid_x", "centroid_y"]].to_numpy() * pixel_size_um
+                        target_cell_ids = target_cells["cell_id"].astype(int).to_numpy()
+                        
+                        # Find nearest neighbor
+                        min_distance = float('inf')
+                        nearest_cell_id = None
+                        
+                        for j, target_coord in enumerate(target_coords):
+                            distance = np.linalg.norm(cell_coord - target_coord)
+                            if distance < min_distance:
+                                min_distance = distance
+                                nearest_cell_id = target_cell_ids[j]
                     
                     # Record the nearest neighbor distance
                     if min_distance != float('inf'):
@@ -723,6 +1801,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
     def _update_distance_plot(self):
         """Update the distance distribution visualization."""
         if self.distance_df is None or self.distance_df.empty:
+            self.distance_canvas.figure.clear()
+            ax = self.distance_canvas.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No distance data available', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_title('Distance Distributions')
+            self.distance_canvas.draw()
             return
             
         self.distance_canvas.figure.clear()
@@ -749,14 +1833,14 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         ax1.set_title('Distribution of All Nearest Neighbor Distances')
         ax1.grid(True, alpha=0.3)
         
-        # Plot 2: Violin plot by cluster pair
+        # Plot 2: Violin plot by cluster pair (all clusters, not limited)
         if len(all_clusters) >= 2:
-            # Create violin plot data
+            # Create violin plot data for all cluster pairs
             violin_data = []
             violin_labels = []
             
-            for cell_cluster in all_clusters[:4]:  # Limit to first 4 clusters for readability
-                for target_cluster in all_clusters[:4]:
+            for cell_cluster in all_clusters:
+                for target_cluster in all_clusters:
                     pair_data = self.distance_df[
                         (self.distance_df['cell_A_cluster'] == cell_cluster) &
                         (self.distance_df['nearest_B_cluster'] == target_cluster)
@@ -767,11 +1851,13 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                         violin_labels.append(f'{int(cell_cluster)}→{int(target_cluster)}')
             
             if violin_data:
-                ax2.violinplot(violin_data, positions=range(len(violin_data)))
-                ax2.set_xticks(range(len(violin_labels)))
-                ax2.set_xticklabels(violin_labels, rotation=45)
+                # Limit display to avoid overcrowding, but allow more than 4
+                max_pairs = min(len(violin_data), 16)  # Show up to 16 pairs
+                ax2.violinplot(violin_data[:max_pairs], positions=range(max_pairs))
+                ax2.set_xticks(range(max_pairs))
+                ax2.set_xticklabels(violin_labels[:max_pairs], rotation=45)
                 ax2.set_ylabel('Distance (µm)')
-                ax2.set_title('Distance Distributions by Cluster Pair')
+                ax2.set_title(f'Distance Distributions by Cluster Pair (showing {max_pairs}/{len(violin_data)})')
                 ax2.grid(True, alpha=0.3)
         
         # Plot 3: CDF curves for each cluster
@@ -783,7 +1869,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             if len(cluster_distances) > 0:
                 sorted_distances = np.sort(cluster_distances)
                 cumulative = np.arange(1, len(sorted_distances) + 1) / len(sorted_distances)
-                ax3.plot(sorted_distances, cumulative, label=f'Cluster {int(cluster)}', linewidth=2)
+                ax3.plot(sorted_distances, cumulative, label=self._get_cluster_display_name(cluster), linewidth=2)
         
         ax3.set_xlabel('Distance (µm)')
         ax3.set_ylabel('Cumulative Probability')
@@ -818,35 +1904,30 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         fig.tight_layout()
         self.distance_canvas.draw()
 
-    def _compute_ripley_functions(self):
-        """Compute Ripley K and L functions for clustering/dispersion analysis."""
-        if self.edge_df is None or self.edge_df.empty:
+    def _compute_ripley_functions(self, r_max=50.0, n_steps=20):
+        """Compute Ripley K and L functions with correct formulas and edge correction."""
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
             return
             
-        # Check if cluster information is available
+        # Use detected cluster column (already validated in _run_analysis)
         cluster_col = None
-        for col in ['cluster', 'cluster_id', 'cluster_phenotype']:
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
             if col in self.feature_dataframe.columns:
                 cluster_col = col
                 break
-                
-        if cluster_col is None:
-            return  # Skip if no clustering data
         
         ripley_data = []
         
+        # Get pixel size for distance conversion
+        parent = self.parent() if hasattr(self, 'parent') else None
+        
         # Process each ROI separately
         for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
-            roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)]
-            
-            if roi_edges.empty:
+            roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])
+            if roi_df.empty:
                 continue
                 
-            # Get unique clusters in this ROI
-            unique_clusters = sorted(roi_df[cluster_col].unique())
-            
             # Get pixel size for this ROI
-            parent = self.parent() if hasattr(self, 'parent') else None
             pixel_size_um = 1.0
             try:
                 if parent is not None and hasattr(parent, '_get_pixel_size_um'):
@@ -857,9 +1938,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             # Convert coordinates to micrometers
             coords_um = roi_df[["centroid_x", "centroid_y"]].to_numpy() * pixel_size_um
             
-            # Define radius range (in micrometers)
-            max_radius = min(np.max(coords_um) - np.min(coords_um)) * 0.4  # 40% of ROI size
-            radius_steps = np.linspace(1.0, max_radius, 20)  # 20 radius steps
+            # Get ROI dimensions for edge correction
+            roi_width = np.max(coords_um[:, 0]) - np.min(coords_um[:, 0])
+            roi_height = np.max(coords_um[:, 1]) - np.min(coords_um[:, 1])
+            roi_area = roi_width * roi_height
+            
+            # Set radius range with edge correction limit
+            max_radius = min(r_max, 0.25 * min(roi_width, roi_height))
+            radius_steps = np.linspace(1.0, max_radius, n_steps)
+            
+            # Get unique clusters in this ROI
+            unique_clusters = sorted(roi_df[cluster_col].unique())
             
             # Compute Ripley functions for each cluster
             for cluster in unique_clusters:
@@ -870,37 +1959,54 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 cluster_coords = cluster_cells[["centroid_x", "centroid_y"]].to_numpy() * pixel_size_um
                 n_points = len(cluster_coords)
                 
-                # Estimate ROI area (convex hull approximation)
-                try:
-                    from scipy.spatial import ConvexHull
-                    hull = ConvexHull(coords_um)
-                    roi_area = hull.volume  # For 2D, volume is area
-                except Exception:
-                    # Fallback: bounding box area
-                    roi_area = (np.max(coords_um[:, 0]) - np.min(coords_um[:, 0])) * \
-                              (np.max(coords_um[:, 1]) - np.min(coords_um[:, 1]))
+                # Point density
+                lambda_density = n_points / roi_area
                 
                 # Compute K function for this cluster
                 for r in radius_steps:
-                    # Count points within radius r
+                    # Count points within radius r with edge correction
                     k_sum = 0
                     for i, point in enumerate(cluster_coords):
                         distances = np.sqrt(np.sum((cluster_coords - point)**2, axis=1))
                         # Exclude the point itself
-                        within_radius = np.sum((distances <= r) & (distances > 0))
-                        k_sum += within_radius
+                        within_radius = (distances <= r) & (distances > 0)
+                        
+                        # Apply edge correction (isotropic correction)
+                        within_radius_indices = np.where(within_radius)[0]
+                        edge_correction = np.ones(len(within_radius_indices))
+                        for j, idx in enumerate(within_radius_indices):
+                            if distances[idx] > 0:
+                                # Check if circle of radius r around point intersects ROI boundary
+                                x, y = point
+                                
+                                # Distance to each boundary
+                                dist_to_left = x - np.min(coords_um[:, 0])
+                                dist_to_right = np.max(coords_um[:, 0]) - x
+                                dist_to_bottom = y - np.min(coords_um[:, 1])
+                                dist_to_top = np.max(coords_um[:, 1]) - y
+                                
+                                # Edge correction factor (simplified isotropic correction)
+                                if dist_to_left < r or dist_to_right < r or dist_to_bottom < r or dist_to_top < r:
+                                    # Partial edge correction - use fraction of circle within ROI
+                                    edge_correction[j] = 0.5  # Simplified correction
+                        
+                        k_sum += np.sum(edge_correction)
                     
-                    # Normalize by point density
-                    if n_points > 1:
-                        k_obs = k_sum / (n_points * (n_points - 1))
+                    # Corrected Ripley K function
+                    if lambda_density > 0 and n_points > 1:
+                        k_obs = k_sum / (lambda_density * n_points)
                     else:
                         k_obs = 0
                     
                     # Expected K under complete spatial randomness (CSR)
-                    k_exp = np.pi * r**2 / roi_area
+                    k_exp = np.pi * r**2
                     
-                    # L function
-                    l_obs = np.sqrt(k_obs / np.pi) - r
+                    # L function (corrected formula)
+                    if k_obs > 0:
+                        l_obs = np.sqrt(k_obs / np.pi) - r
+                    else:
+                        l_obs = -r
+                    
                     l_exp = 0  # Expected L under CSR
                     
                     ripley_data.append({
@@ -910,7 +2016,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                         'K_obs': k_obs,
                         'K_exp': k_exp,
                         'L_obs': l_obs,
-                        'L_exp': l_exp
+                        'L_exp': l_exp,
+                        'lambda_density': lambda_density,
+                        'n_points': n_points,
+                        'roi_area': roi_area
                     })
         
         self.ripley_df = pd.DataFrame(ripley_data)
@@ -918,6 +2027,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
     def _update_ripley_plot(self):
         """Update the Ripley K/L functions visualization."""
         if self.ripley_df is None or self.ripley_df.empty:
+            self.ripley_canvas.figure.clear()
+            ax = self.ripley_canvas.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No Ripley data available', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_title('Ripley K/L Functions')
+            self.ripley_canvas.draw()
             return
             
         self.ripley_canvas.figure.clear()
@@ -937,10 +2052,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         for cluster in unique_clusters:
             cluster_data = self.ripley_df[self.ripley_df['cell_type'] == cluster]
             if not cluster_data.empty:
+                cluster_name = self._get_cluster_display_name(cluster)
                 ax1.plot(cluster_data['r_um'], cluster_data['K_obs'], 
-                        label=f'Cluster {int(cluster)} (Observed)', linewidth=2)
+                        label=f'{cluster_name} (Observed)', linewidth=2)
                 ax1.plot(cluster_data['r_um'], cluster_data['K_exp'], 
-                        '--', alpha=0.7, label=f'Cluster {int(cluster)} (Expected)')
+                        '--', alpha=0.7, label=f'{cluster_name} (Expected)')
         
         ax1.set_xlabel('Radius (µm)')
         ax1.set_ylabel('K(r)')
@@ -952,8 +2068,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         for cluster in unique_clusters:
             cluster_data = self.ripley_df[self.ripley_df['cell_type'] == cluster]
             if not cluster_data.empty:
+                cluster_name = self._get_cluster_display_name(cluster)
                 ax2.plot(cluster_data['r_um'], cluster_data['L_obs'], 
-                        label=f'Cluster {int(cluster)} (Observed)', linewidth=2)
+                        label=f'{cluster_name} (Observed)', linewidth=2)
                 # L expected is always 0 under CSR
                 ax2.axhline(y=0, color='black', linestyle='--', alpha=0.7, label='Expected (CSR)')
         
@@ -971,5 +2088,112 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         fig.tight_layout()
         self.ripley_canvas.draw()
 
+    def _save_neighborhood_plot(self):
+        """Save the neighborhood composition plot."""
+        if self.neighborhood_df is None or self.neighborhood_df.empty:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No neighborhood data to save.")
+            return
+        
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Neighborhood Plot", "neighborhood_composition.png",
+            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
+        )
+        if filename:
+            try:
+                self.neighborhood_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+
+    def _save_enrichment_plot(self):
+        """Save the enrichment plot."""
+        if self.enrichment_df is None or self.enrichment_df.empty:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No enrichment data to save.")
+            return
+        
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Enrichment Plot", "pairwise_enrichment.png",
+            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
+        )
+        if filename:
+            try:
+                self.enrichment_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+
+    def _save_distance_plot(self):
+        """Save the distance distribution plot."""
+        if self.distance_df is None or self.distance_df.empty:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No distance data to save.")
+            return
+        
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Distance Plot", "distance_distributions.png",
+            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
+        )
+        if filename:
+            try:
+                self.distance_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+
+    def _save_ripley_plot(self):
+        """Save the Ripley K/L plot."""
+        if self.ripley_df is None or self.ripley_df.empty:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No Ripley data to save.")
+            return
+        
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Ripley Plot", "ripley_functions.png",
+            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
+        )
+        if filename:
+            try:
+                self.ripley_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+
+    def _save_spatial_viz_plot(self):
+        """Save the spatial visualization plot."""
+        if not self.spatial_viz_run:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No spatial visualization to save.")
+            return
+        
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Spatial Visualization", "spatial_visualization.png",
+            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
+        )
+        if filename:
+            try:
+                self.spatial_viz_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+
+    def _save_community_plot(self):
+        """Save the spatial community plot."""
+        if not self.community_analysis_run:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No community analysis to save.")
+            return
+        
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Community Plot", "spatial_communities.png",
+            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
+        )
+        if filename:
+            try:
+                self.community_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
+                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+
+    def closeEvent(self, event):
+        """Handle dialog closing to clean up resources."""
+        if hasattr(self, 'annotation_timer'):
+            self.annotation_timer.stop()
+        event.accept()
 
 

@@ -376,6 +376,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Perform clustering
             self.clustered_data, self.cluster_labels = self._perform_clustering(data, n_clusters, cluster_method)
             
+            # Automatically add cluster column to main feature dataframe
+            if self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
+                # Ensure cluster column exists in main dataframe
+                if 'cluster' not in self.feature_dataframe.columns:
+                    self.feature_dataframe['cluster'] = 0  # Initialize with default value
+                
+                # Update cluster assignments for the clustered cells
+                self.feature_dataframe.loc[self.clustered_data.index, 'cluster'] = self.clustered_data['cluster'].values
+                print(f"[DEBUG] Added cluster column to feature dataframe with {len(self.clustered_data)} cells")
+            else:
+                print(f"[DEBUG] Warning: Clustering completed but no cluster column found in results")
+            
             # Default to heatmap view after clustering
             self._create_heatmap()
             
