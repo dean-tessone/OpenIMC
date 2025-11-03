@@ -1,6 +1,6 @@
-# OpenMCD - Advanced IMC Data Analysis Platform
+# OpenIMC - Advanced IMC Data Analysis Platform
 
-OpenMCD is a comprehensive PyQt5-based platform for analyzing Imaging Mass Cytometry (IMC) data. It provides an intuitive graphical interface for visualizing, processing, and analyzing multi-channel imaging data from mass cytometry experiments with advanced machine learning capabilities.
+OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imaging Mass Cytometry (IMC) data. It provides an intuitive graphical interface for visualizing, processing, and analyzing multi-channel imaging data from mass cytometry experiments with advanced machine learning capabilities.
 
 ## Key Features
 
@@ -96,7 +96,7 @@ python main.py
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd OpenMCD
+cd OpenIMC
 
 # Create virtual environment
 python3.11 -m venv openmcd_env
