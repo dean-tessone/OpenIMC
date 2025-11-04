@@ -23,6 +23,9 @@ torchvision>=0.10.0
 scikit-image>=0.25.0
 scikit-learn>=1.0.0
 psutil>=5.8.0
+# Ilastik integration (uses headless mode via command-line)
+# Ilastik must be installed separately - see https://www.ilastik.org/download
+# Required dependencies (tifffile, h5py) are already listed above
 
 #Clustering
 leidenalg>=0.10.0

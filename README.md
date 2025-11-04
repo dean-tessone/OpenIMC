@@ -11,15 +11,15 @@ OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imagi
 - **Dynamic Comparison**: Compare channels across different acquisitions with linked/unlinked scaling
 
 ### **Marker Quality Control**
-- **Interactive Annotation System**: Label channels with quality assessments (High-quality, Low-quality, Artifact/Exclude)
-- **Export Capabilities**: Save and load annotations as CSV files for reproducible analysis
 - **Visual Quality Assessment**: Real-time visualization with custom scaling for marker evaluation
 
 ### **Advanced Segmentation**
 - **Cellpose Integration**: GPU-accelerated cell segmentation using state-of-the-art Cellpose models
 - **Multiple Models**: Support for cyto3 and nuclei segmentation models
+- **Ilastik Integration**: Load and run inference with trained Ilastik models (.ilp project files)
+- **Classical Watershed**: Marker-controlled watershed segmentation with nucleus-seeded, membrane-guided segmentation
 - **Overlay Visualization**: Real-time mask overlay on original images
-- **GPU Acceleration**: CUDA and MPS support for faster processing
+- **GPU Acceleration**: CUDA and MPS support for faster processing (Cellpose)
 
 ### **Feature Extraction**
 - **Comprehensive Feature Sets**: Extract morphometric (area, perimeter, eccentricity) and intensity features (mean, median, std)
@@ -48,11 +48,11 @@ OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imagi
 
 ### 2. **Marker QC**
 - Visualize individual channels with custom scaling
-- Annotate channels based on quality assessment
-- Export QC annotations for documentation and reproducibility
 
 ### 3. **Segmentation**
-- Run Cellpose segmentation (cyto3 or nuclei models)
+- **Cellpose**: Run GPU-accelerated segmentation (cyto3 or nuclei models)
+- **Ilastik**: Load and run inference with your trained Ilastik models
+- **Watershed**: Use classical marker-controlled watershed segmentation
 - Configure preprocessing parameters and GPU acceleration
 - Visualize segmentation masks with overlay options
 
@@ -78,11 +78,11 @@ OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imagi
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd OpenMCD
+cd OpenIMC
 
 # Create conda environment
-conda create -n openmcd python=3.11
-conda activate openmcd
+conda create -n openimc python=3.11
+conda activate openimc
 
 # Install dependencies
 pip install -r requirements.txt
@@ -99,8 +99,8 @@ git clone <repository-url>
 cd OpenIMC
 
 # Create virtual environment
-python3.11 -m venv openmcd_env
-source openmcd_env/bin/activate  # On Windows: openmcd_env\Scripts\activate
+python3.11 -m venv openimc_env
+source openimc_env/bin/activate  # On Windows: openimc_env\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -109,16 +109,39 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## OpenAI API Key Setup
+## Optional Software Setup
+
+### Ilastik Installation
+
+To use Ilastik segmentation, you need to install Ilastik separately (it's not a Python package):
+
+1. **Download Ilastik**
+   - Visit https://www.ilastik.org/download
+   - Download the appropriate version for your operating system
+   - Follow the installation instructions for your platform
+
+2. **Verify Installation**
+   - Ensure the `ilastik` command is available in your PATH
+   - Test by running: `ilastik --version` in your terminal
+   - The integration uses Ilastik's headless mode, so the full installation is required
+
+3. **Using Ilastik Models**
+   - Train your segmentation model in Ilastik's GUI
+   - Save your trained project as a `.ilp` file
+   - In OpenIMC, select "Ilastik" as the segmentation method
+   - Browse and select your `.ilp` project file
+   - Run inference on your images
+
+### OpenAI API Key Setup
 
 To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 
-### 1. **Generate API Key**
-1. Visit [OpenAI Platform](https://platform.openai.com/)
-2. Sign up or log in to your account
-3. Navigate to the API section
-4. Click "Create new secret key"
-5. Copy the generated API key (starts with `sk-`)
+1. **Generate API Key**
+   - Visit [OpenAI Platform](https://platform.openai.com/)
+   - Sign up or log in to your account
+   - Navigate to the API section
+   - Click "Create new secret key"
+   - Copy the generated API key (starts with `sk-`)
 
 ## Requirements
 
@@ -132,6 +155,7 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 ### Optional Dependencies
 - **Cellpose** (3.1.1.2): Cell segmentation
 - **PyTorch** (≥1.9.0): GPU acceleration
+- **Ilastik**: Pixel classification and segmentation (must be installed separately)
 - **Leiden Algorithm**: Advanced clustering
 - **UMAP** (≥0.5.0): Dimensionality reduction
 - **OpenAI** (≥1.42.0): LLM-based phenotyping
@@ -162,12 +186,18 @@ python main.py
    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
    ```
 
-3. **OpenAI API errors**
+3. **Ilastik not found**
+   - Install Ilastik from https://www.ilastik.org/download
+   - Ensure the `ilastik` command is available in your PATH
+   - For headless mode, Ilastik must be properly installed and accessible from command line
+   - The integration uses Ilastik's headless mode, so full installation is required
+
+4. **OpenAI API errors**
    - Verify your API key is correctly set
    - Check your OpenAI account has sufficient credits
    - Ensure internet connectivity
 
-4. **Memory issues with large datasets**
+5. **Memory issues with large datasets**
    - Close other applications to free RAM
    - Consider subsampling for clustering analysis
    - Use multiprocessing for feature extraction
@@ -177,6 +207,11 @@ python main.py
 - **Cellpose**: GPU-accelerated cell segmentation framework
   - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
   - Project: https://www.cellpose.org/
+
+- **Ilastik**: Interactive learning and segmentation toolkit
+  - Paper: Berg et al., ilastik: interactive machine learning for (bio)image analysis
+  - Project: https://www.ilastik.org/
+  - Download: https://www.ilastik.org/download
 
 - **readimc**: IMC file reader for .mcd acquisitions
   - Project: https://github.com/BodenmillerGroup/readimc

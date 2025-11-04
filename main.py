@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 import sys
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtGui
 
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
+    # Set consistent font size across all windows for readability on small and large screens
+    # 10pt is a good default that scales well with DPI
+    font = QtGui.QFont()
+    font.setPointSize(10)
+    app.setFont(font)
+
     # Import modular MainWindow wrapper
-    from openmcd.ui.main_window import MainWindow  # type: ignore
+    from openimc.ui.main_window import MainWindow  # type: ignore
 
     win = MainWindow()
     win.show()
