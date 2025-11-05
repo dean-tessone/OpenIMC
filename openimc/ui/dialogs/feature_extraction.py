@@ -98,30 +98,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         preprocess_group = QtWidgets.QGroupBox("Image Preprocessing")
         preprocess_layout = QtWidgets.QHBoxLayout(preprocess_group)
         
-        # Normalization (left side)
-        norm_frame = QtWidgets.QFrame()
-        norm_layout = QtWidgets.QVBoxLayout(norm_frame)
-        norm_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.normalize_chk = QtWidgets.QCheckBox("Arcsinh normalization")
-        self.normalize_chk.setChecked(False)
-        self.normalize_chk.setToolTip("Apply arcsinh transformation to intensity values")
-        norm_layout.addWidget(self.normalize_chk)
-        
-        cofactor_layout = QtWidgets.QHBoxLayout()
-        cofactor_layout.addWidget(QtWidgets.QLabel("Cofactor:"))
-        self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
-        self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
-        self.arcsinh_cofactor_spin.setDecimals(1)
-        self.arcsinh_cofactor_spin.setValue(10.0)
-        self.arcsinh_cofactor_spin.setSingleStep(0.1)
-        cofactor_layout.addWidget(self.arcsinh_cofactor_spin)
-        cofactor_layout.addStretch()
-        norm_layout.addLayout(cofactor_layout)
-        
-        preprocess_layout.addWidget(norm_frame)
-        
-        # Denoising (right side)
+        # Denoising (left side - happens first)
         denoise_frame = QtWidgets.QFrame()
         denoise_layout = QtWidgets.QVBoxLayout(denoise_frame)
         denoise_layout.setContentsMargins(0, 0, 0, 0)
@@ -136,6 +113,38 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         denoise_layout.addLayout(denoise_source_layout)
         
         preprocess_layout.addWidget(denoise_frame)
+        
+        # Normalization (right side - arcsinh applied after feature extraction)
+        norm_frame = QtWidgets.QFrame()
+        norm_layout = QtWidgets.QVBoxLayout(norm_frame)
+        norm_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.normalize_chk = QtWidgets.QCheckBox("Arcsinh normalization")
+        self.normalize_chk.setChecked(False)
+        self.normalize_chk.setToolTip("Apply arcsinh transformation to extracted intensity features (mean, median, std, etc.), not to raw images")
+        norm_layout.addWidget(self.normalize_chk)
+        
+        cofactor_layout = QtWidgets.QHBoxLayout()
+        cofactor_layout.addWidget(QtWidgets.QLabel("Cofactor:"))
+        self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
+        self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
+        self.arcsinh_cofactor_spin.setDecimals(1)
+        self.arcsinh_cofactor_spin.setValue(10.0)
+        self.arcsinh_cofactor_spin.setSingleStep(0.1)
+        cofactor_layout.addWidget(self.arcsinh_cofactor_spin)
+        cofactor_layout.addStretch()
+        norm_layout.addLayout(cofactor_layout)
+        
+        # Note about arcsinh being applied after feature extraction
+        arcsinh_note = QtWidgets.QLabel(
+            "Note: Arcsinh scaling is applied after feature extraction\n"
+            "on the denoised or raw images."
+        )
+        arcsinh_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        arcsinh_note.setWordWrap(True)
+        norm_layout.addWidget(arcsinh_note)
+        
+        preprocess_layout.addWidget(norm_frame)
         
         layout.addWidget(preprocess_group)
         

@@ -6,6 +6,7 @@ import pandas as pd
 from skimage.measure import regionprops, regionprops_table
 
 from openimc.data.mcd_loader import MCDLoader
+from openimc.data.ometiff_loader import OMETIFFLoader
 from openimc.ui.utils import arcsinh_normalize
 
 # Optional scikit-image for denoising
@@ -127,9 +128,8 @@ def extract_features_for_acquisition(
                 denoised_img = _apply_denoise_to_channel(ch_img, ch_name, cfg)
                 img_stack[..., idx] = denoised_img
         
-        if arcsinh_enabled:
-            print(f"[feature_worker] Applying arcsinh normalization with cofactor={cofactor}")
-            img_stack = arcsinh_normalize(img_stack, cofactor=cofactor)
+        # Note: arcsinh normalization is NOT applied to images before feature extraction.
+        # Instead, arcsinh transform is applied to the extracted intensity features after extraction.
 
         # Ensure mask is int labels
         label_image = mask.astype(np.int32, copy=False)
@@ -240,6 +240,24 @@ def extract_features_for_acquisition(
             inten_df[f"{ch_name}_integrated"] = integrated_vals
             inten_df[f"{ch_name}_frac_pos"] = frac_pos_vals
 
+            # Apply arcsinh transformation to extracted intensity features if enabled
+            # Note: frac_pos is a proportion (0-1), so it should not be transformed
+            if arcsinh_enabled:
+                print(f"[feature_worker] Applying arcsinh transformation to extracted intensity features with cofactor={cofactor}")
+                intensity_feature_cols = [
+                    f"{ch_name}_mean",
+                    f"{ch_name}_median",
+                    f"{ch_name}_std",
+                    f"{ch_name}_mad",
+                    f"{ch_name}_p10",
+                    f"{ch_name}_p90",
+                    f"{ch_name}_integrated"
+                ]
+                for col in intensity_feature_cols:
+                    if col in inten_df.columns:
+                        # Apply arcsinh transform to the feature values (1D array)
+                        inten_df[col] = arcsinh_normalize(inten_df[col].values, cofactor=cofactor)
+
             # Merge with morphology on label
             morph_df = morph_df.merge(inten_df, on="label", how="left")
 
@@ -261,5 +279,67 @@ def extract_features_for_acquisition(
     except Exception as e:
         print(f"[feature_worker] ERROR in extraction acq_id={acq_id}: {e}")
         # Return empty on error to keep pipeline robust
+        return pd.DataFrame()
+
+
+def load_and_extract_features(
+    acq_id: str,
+    mask: np.ndarray,
+    selected_features: Dict[str, bool],
+    acq_info: Dict,
+    acq_label: str,
+    file_path: str,
+    loader_type: str,  # "mcd" or "ometiff"
+    arcsinh_enabled: bool,
+    cofactor: float,
+    denoise_source: str = "None",
+    custom_denoise_settings: Dict = None,
+    source_file: Optional[str] = None,
+) -> pd.DataFrame:
+    """Load image data and extract features in a single worker process.
+    
+    This function combines image loading and feature extraction to enable
+    parallelization of both I/O and computation.
+    
+    Arguments MUST be picklable. Returns an empty DataFrame on error.
+    """
+    try:
+        print(f"[feature_worker] Loading and extracting features for acq_id={acq_id}, loader_type={loader_type}")
+        
+        # Create loader and load image data
+        if loader_type == "mcd":
+            loader = MCDLoader()
+            loader.open(file_path)
+            img_stack = loader.get_all_channels(acq_id)
+            loader.close()
+        elif loader_type == "ometiff":
+            loader = OMETIFFLoader()
+            loader.open(file_path)
+            img_stack = loader.get_all_channels(acq_id)
+            # OMETIFFLoader doesn't need explicit close, but we can clear cache
+        else:
+            raise ValueError(f"Unknown loader type: {loader_type}")
+        
+        print(f"[feature_worker] Loaded image stack shape: {img_stack.shape} for acq_id={acq_id}")
+        
+        # Now extract features using the existing extraction function
+        return extract_features_for_acquisition(
+            acq_id=acq_id,
+            mask=mask,
+            selected_features=selected_features,
+            acq_info=acq_info,
+            acq_label=acq_label,
+            img_stack=img_stack,
+            arcsinh_enabled=arcsinh_enabled,
+            cofactor=cofactor,
+            denoise_source=denoise_source,
+            custom_denoise_settings=custom_denoise_settings,
+            source_file=source_file
+        )
+        
+    except Exception as e:
+        print(f"[feature_worker] ERROR in load_and_extract_features for acq_id={acq_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return pd.DataFrame()
 

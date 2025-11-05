@@ -111,6 +111,8 @@ class ExportDialog(QtWidgets.QDialog):
         layout.addWidget(dir_group)
         
         # Intensity Scaling section
+        # Note: arcsinh normalization is not applied to exported images.
+        # Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
         scaling_group = QtWidgets.QGroupBox("Intensity Scaling")
         scaling_layout = QtWidgets.QVBoxLayout(scaling_group)
         scaling_layout.setSpacing(4)
@@ -119,22 +121,11 @@ class ExportDialog(QtWidgets.QDialog):
         norm_method_layout = QtWidgets.QHBoxLayout()
         norm_method_layout.addWidget(QtWidgets.QLabel("Method:"))
         self.norm_method_combo = QtWidgets.QComboBox()
-        self.norm_method_combo.addItems(["None", "arcsinh", "percentile_clip"])
+        self.norm_method_combo.addItems(["None", "percentile_clip"])
         self.norm_method_combo.currentTextChanged.connect(self._on_norm_method_changed)
         norm_method_layout.addWidget(self.norm_method_combo)
         norm_method_layout.addStretch()
         scaling_layout.addLayout(norm_method_layout)
-        
-        self.arcsinh_frame = QtWidgets.QFrame()
-        arcsinh_layout = QtWidgets.QHBoxLayout(self.arcsinh_frame)
-        arcsinh_layout.addWidget(QtWidgets.QLabel("Cofactor:"))
-        self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
-        self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
-        self.arcsinh_cofactor_spin.setValue(10.0)
-        self.arcsinh_cofactor_spin.setDecimals(1)
-        arcsinh_layout.addWidget(self.arcsinh_cofactor_spin)
-        arcsinh_layout.addStretch()
-        scaling_layout.addWidget(self.arcsinh_frame)
         
         self.percentile_frame = QtWidgets.QFrame()
         percentile_layout = QtWidgets.QHBoxLayout(self.percentile_frame)
@@ -589,7 +580,6 @@ class ExportDialog(QtWidgets.QDialog):
     def _on_norm_method_changed(self):
         """Handle changes to normalization method."""
         method = self.norm_method_combo.currentText()
-        self.arcsinh_frame.setVisible(method == "arcsinh")
         self.percentile_frame.setVisible(method == "percentile_clip")
     
     def get_normalization_method(self) -> str:
@@ -598,7 +588,8 @@ class ExportDialog(QtWidgets.QDialog):
     
     def get_arcsinh_cofactor(self) -> float:
         """Get the arcsinh cofactor value."""
-        return self.arcsinh_cofactor_spin.value()
+        # Arcsinh is no longer available for export, return default value
+        return 10.0
     
     def get_percentile_params(self):
         """Get the percentile parameters."""

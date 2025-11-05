@@ -66,7 +66,11 @@ def parse_denoise_settings(denoise_json: Optional[str]) -> Dict:
 
 
 def preprocess_command(args):
-    """Preprocess images: denoising and arcsinh scaling, export to OME-TIFF."""
+    """Preprocess images: denoising and export to OME-TIFF.
+    
+    Note: arcsinh normalization is not applied to exported images.
+    Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
+    """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_data(args.input)
     
@@ -99,12 +103,12 @@ def preprocess_command(args):
                 denoise_source = "custom" if channel_name in denoise_settings else "none"
                 channel_denoise = denoise_settings.get(channel_name, {})
                 
-                # Process channel
+                # Process channel - only denoising, no arcsinh normalization
                 processed = process_channel_for_export(
                     channel_img, channel_name, denoise_source,
                     {channel_name: channel_denoise} if channel_denoise else {},
-                    "arcsinh" if args.arcsinh else "None",
-                    args.arcsinh_cofactor if args.arcsinh else 10.0,
+                    "None",  # No normalization applied to exported images
+                    10.0,  # Unused but kept for function signature
                     (1.0, 99.0),
                     None  # viewer_denoise_func not used in CLI
                 )
@@ -1014,11 +1018,11 @@ Examples:
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
     
     # Preprocess command
-    preprocess_parser = subparsers.add_parser('preprocess', help='Preprocess images (denoising, arcsinh, export to OME-TIFF)')
+    preprocess_parser = subparsers.add_parser('preprocess', help='Preprocess images (denoising, export to OME-TIFF). Note: arcsinh normalization is not applied to exported images.')
     preprocess_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
     preprocess_parser.add_argument('output', help='Output directory for processed OME-TIFF files')
-    preprocess_parser.add_argument('--arcsinh', action='store_true', help='Apply arcsinh normalization')
-    preprocess_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='Arcsinh cofactor (default: 10.0)')
+    preprocess_parser.add_argument('--arcsinh', action='store_true', help='(Deprecated) Arcsinh normalization is not applied to exported images. Use during feature extraction instead.')
+    preprocess_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='(Deprecated) Arcsinh cofactor (default: 10.0). Not used for export.')
     preprocess_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')
     preprocess_parser.set_defaults(func=preprocess_command)
     
@@ -1055,7 +1059,7 @@ Examples:
     extract_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (uses first if not specified)')
     extract_parser.add_argument('--morphological', action='store_true', help='Extract morphological features')
     extract_parser.add_argument('--intensity', action='store_true', help='Extract intensity features')
-    extract_parser.add_argument('--arcsinh', action='store_true', help='Apply arcsinh normalization before feature extraction')
+    extract_parser.add_argument('--arcsinh', action='store_true', help='Apply arcsinh transformation to extracted intensity features (mean, median, std, etc.), not to raw images')
     extract_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='Arcsinh cofactor (default: 10.0)')
     extract_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')
     extract_parser.set_defaults(func=extract_features_command)

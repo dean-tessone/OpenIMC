@@ -172,11 +172,12 @@ def process_channel_for_export(
         result = _apply_custom_denoise_to_channel(result, channel_name, custom_denoise_settings)
     
     # Apply normalization
-    if normalization_method == "arcsinh":
-        result = arcsinh_normalize(result, cofactor=arcsinh_cofactor)
-    elif normalization_method == "percentile_clip":
+    # Note: arcsinh normalization is not applied to exported images.
+    # Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
+    if normalization_method == "percentile_clip":
         p_low, p_high = percentile_params
         result = percentile_clip_normalize(result, p_low=p_low, p_high=p_high)
+    # Arcsinh normalization is intentionally not applied here - it should be applied on extracted features
     
     return result
 

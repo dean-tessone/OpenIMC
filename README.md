@@ -187,10 +187,12 @@ python -m openimc <command> [options]
 
 #### Available Commands
 
-**1. Preprocess images** - Apply denoising and arcsinh scaling, export to OME-TIFF:
+**1. Preprocess images** - Apply denoising, export to OME-TIFF:
 ```bash
-openimc preprocess input.mcd output/ --arcsinh --arcsinh-cofactor 10.0
+openimc preprocess input.mcd output/ --denoise-settings '{"channel1": {"hot": {"method": "median3"}}}'
 ```
+
+Note: Arcsinh normalization is not applied to exported images. Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
 
 **2. Segment cells** - Run Cellpose or watershed segmentation:
 ```bash

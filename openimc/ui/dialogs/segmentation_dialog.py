@@ -177,14 +177,25 @@ class SegmentationDialog(QtWidgets.QDialog):
         scaling_layout.addLayout(norm_method_layout)
         
         self.arcsinh_frame = QtWidgets.QFrame()
-        arcsinh_layout = QtWidgets.QHBoxLayout(self.arcsinh_frame)
-        arcsinh_layout.addWidget(QtWidgets.QLabel("Cofactor:"))
+        arcsinh_layout = QtWidgets.QVBoxLayout(self.arcsinh_frame)
+        cofactor_row = QtWidgets.QHBoxLayout()
+        cofactor_row.addWidget(QtWidgets.QLabel("Cofactor:"))
         self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
         self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
         self.arcsinh_cofactor_spin.setValue(10.0)
         self.arcsinh_cofactor_spin.setDecimals(1)
-        arcsinh_layout.addWidget(self.arcsinh_cofactor_spin)
-        arcsinh_layout.addStretch()
+        cofactor_row.addWidget(self.arcsinh_cofactor_spin)
+        cofactor_row.addStretch()
+        arcsinh_layout.addLayout(cofactor_row)
+        
+        # Note about arcsinh in segmentation
+        arcsinh_note = QtWidgets.QLabel(
+            "Note: Arcsinh transform on the raw images can improve segmentation performance\n"
+            "but is not saved on images."
+        )
+        arcsinh_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        arcsinh_note.setWordWrap(True)
+        arcsinh_layout.addWidget(arcsinh_note)
         scaling_layout.addWidget(self.arcsinh_frame)
         
         self.percentile_frame = QtWidgets.QFrame()

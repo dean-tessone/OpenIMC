@@ -13,7 +13,7 @@ from PyQt5.QtCore import Qt, QTimer
 
 from openimc.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openimc.data.ometiff_loader import OMETIFFLoader
-from openimc.processing.feature_worker import extract_features_for_acquisition
+from openimc.processing.feature_worker import extract_features_for_acquisition, load_and_extract_features
 from openimc.processing.watershed_worker import watershed_segmentation
 from openimc.processing.export_worker import process_channel_for_export
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -328,6 +328,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scaling_frame.setMaximumWidth(400)  # Fit within scrollable panel
         scaling_layout = QtWidgets.QVBoxLayout(self.scaling_frame)
         scaling_layout.addWidget(QtWidgets.QLabel("Custom Intensity Range:"))
+        
+        # Note about arcsinh transform
+        arcsinh_note = QtWidgets.QLabel(
+            "Note: Arcsinh transform should be applied on extracted\n"
+            "intensity features, not on raw images during export."
+        )
+        arcsinh_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        arcsinh_note.setWordWrap(True)
+        scaling_layout.addWidget(arcsinh_note)
         
         # Channel selection for per-channel scaling
         channel_row = QtWidgets.QHBoxLayout()
@@ -4491,18 +4500,20 @@ class MainWindow(QtWidgets.QMainWindow):
     
 
     def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings):
-        """Perform the actual feature extraction using multiprocessing."""
+        """Perform the actual feature extraction using multiprocessing.
+        
+        This now parallelizes both image loading and feature extraction for better performance.
+        """
         # Create progress dialog
         progress_dlg = ProgressDialog("Feature Extraction", self)
-        progress_dlg.set_maximum(len(selected_acquisitions) * 2)  # Loading + Processing phases
+        progress_dlg.set_maximum(len(selected_acquisitions))  # One phase: loading + extraction combined
         progress_dlg.show()
         
         try:
             # Prepare arguments for multiprocessing
             mp_args = []
-            progress_dlg.update_progress(0, "Pre-loading image data", "Loading acquisitions")
             
-            for i, acq_id in enumerate(selected_acquisitions):
+            for acq_id in selected_acquisitions:
                 try:
                     current_acq_info = self._get_acquisition_info(acq_id)
                     if current_acq_info is None:
@@ -4513,16 +4524,6 @@ class MainWindow(QtWidgets.QMainWindow):
                     arcsinh_enabled = normalization_config is not None and normalization_config.get('method') == 'arcsinh'
                     cofactor = normalization_config.get('cofactor', 10.0) if normalization_config else 10.0
                     
-                    # Pre-load image data to avoid concurrent file access
-                    print(f"[main] Pre-loading image data for acquisition {acq_id}")
-                    progress_dlg.update_progress(i, f"Loading acquisition {i+1}/{len(selected_acquisitions)}", f"Loading {acq_id}")
-                    loader = self._get_loader_for_acquisition(acq_id)
-                    if loader is None:
-                        print(f"[main] No loader found for acquisition {acq_id}, skipping")
-                        continue
-                    img_stack = loader.get_all_channels(acq_id)
-                    print(f"[main] Loaded image stack shape: {img_stack.shape}")
-                    
                     # Convert AcquisitionInfo to dictionary for pickling
                     acq_info_dict = {
                         'channels': current_acq_info.channels,
@@ -4531,8 +4532,23 @@ class MainWindow(QtWidgets.QMainWindow):
                         'id': current_acq_info.id
                     }
                     
-                    # Get source file path
+                    # Get source file path and determine loader type
                     source_file = current_acq_info.source_file if hasattr(current_acq_info, 'source_file') else None
+                    
+                    # Determine file path and loader type
+                    if acq_id in self.acq_to_file:
+                        file_path = self.acq_to_file[acq_id]
+                        loader_type = "mcd"
+                    elif self.current_path:
+                        if os.path.isdir(self.current_path):
+                            file_path = self.current_path
+                            loader_type = "ometiff"
+                        else:
+                            file_path = self.current_path
+                            loader_type = "mcd"
+                    else:
+                        print(f"[main] Cannot determine file path for acquisition {acq_id}, skipping")
+                        continue
                     
                     mp_args.append((
                         acq_id, 
@@ -4540,68 +4556,74 @@ class MainWindow(QtWidgets.QMainWindow):
                         selected_features, 
                         acq_info_dict, 
                         current_acq_info.name,  # acq_label
-                        img_stack,  # pre-loaded image data
+                        file_path,  # file path for loading
+                        loader_type,  # "mcd" or "ometiff"
                         arcsinh_enabled, 
                         cofactor,
                         denoise_source,
                         custom_denoise_settings,
                         source_file
                     ))
-                except StopIteration:
+                except Exception as e:
+                    print(f"[main] Error preparing arguments for {acq_id}: {e}")
                     continue
             
             if not mp_args:
                 QtWidgets.QMessageBox.warning(self, "No valid acquisitions", "No valid acquisitions found for feature extraction.")
                 return
             
-            # Use multiprocessing for faster feature extraction
+            # Use multiprocessing for parallel loading and feature extraction
             max_workers = min(mp.cpu_count(), len(mp_args))
-            progress_dlg.update_progress(len(selected_acquisitions), "Starting feature extraction", f"Using {max_workers} CPU cores")
+            progress_dlg.update_progress(0, "Starting parallel loading and extraction", f"Using {max_workers} CPU cores")
             
             all_features = []
             try:
                 with mp.Pool(processes=max_workers) as pool:
-                    # Submit all tasks
+                    # Submit all tasks - each worker loads and extracts in parallel
                     futures = []
-                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in mp_args:
+                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in mp_args:
                         future = pool.apply_async(
-                            extract_features_for_acquisition,
-                            (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file)
+                            load_and_extract_features,
+                            (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file)
                         )
                         futures.append((acq_id, future))
                     
-                    # Collect results
+                    # Collect results as they complete
                     completed = 0
                     for acq_id, future in futures:
                         if progress_dlg.is_cancelled():
                             break
                         try:
-                            result = future.get(timeout=300)  # 5 minute timeout per acquisition
+                            result = future.get(timeout=600)  # 10 minute timeout per acquisition (includes loading)
                             if result is not None and not result.empty:
                                 all_features.append(result)
                         except Exception as e:
                             print(f"Feature extraction failed for acquisition {acq_id}: {e}")
+                            import traceback
+                            traceback.print_exc()
                             continue
                         
                         completed += 1
                         progress_dlg.update_progress(
-                            len(selected_acquisitions) + completed,
+                            completed,
                             f"Processed acquisition {completed}/{len(futures)}",
                             f"Extracted features from {len(all_features)} acquisitions"
                         )
                         
             except Exception as mp_error:
                 print(f"Multiprocessing failed, falling back to sequential processing: {mp_error}")
+                import traceback
+                traceback.print_exc()
                 progress_dlg.update_progress(0, "Multiprocessing failed, using sequential processing", "Processing acquisitions one by one")
                 
                 # Fallback to sequential processing
-                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in enumerate(mp_args):
+                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in enumerate(mp_args):
                     if progress_dlg.is_cancelled():
                         break
                     
                     try:
-                        result = extract_features_for_acquisition(
-                            acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file
+                        result = load_and_extract_features(
+                            acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file
                         )
                         
                         if result is not None and not result.empty:
@@ -4609,10 +4631,12 @@ class MainWindow(QtWidgets.QMainWindow):
                             
                     except Exception as e:
                         print(f"Feature extraction failed for acquisition {acq_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         continue
                     
                     progress_dlg.update_progress(
-                        len(selected_acquisitions) + i + 1,
+                        i + 1,
                         f"Processed acquisition {i+1}/{len(mp_args)}",
                         f"Extracted features from {len(all_features)} acquisitions"
                     )
