@@ -608,12 +608,14 @@ def cluster_command(args):
             leidenalg.RBConfigurationVertexPartition,
             weights='weight',
             resolution_parameter=args.resolution,
-            seed=42,
+            seed=args.seed,
         )
         cluster_labels = np.array(partition.membership) + 1  # Start from 1 (matching GUI)
         
     elif args.method == 'hdbscan':
         import hdbscan
+        # Set random seed for reproducibility
+        np.random.seed(args.seed)
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=args.min_cluster_size,
             min_samples=args.min_samples
@@ -805,9 +807,9 @@ def spatial_command(args):
             g.add_edges(edge_list)
             g.es['weight'] = weights
         
-        # Run community detection
+        # Run community detection with seed
         import leidenalg
-        partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition)
+        partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition, seed=args.seed)
         communities = partition.membership
         
         # Map community labels back to dataframe
@@ -852,7 +854,7 @@ def cluster_figures_command(args):
     print("Generating UMAP embedding...")
     try:
         import umap
-        reducer = umap.UMAP(n_components=2, random_state=42)
+        reducer = umap.UMAP(n_components=2, random_state=args.seed)
         
         # Select feature columns
         exclude_cols = {'label', 'acquisition_id', 'acquisition_name', 'well', 'cluster', 'centroid_x', 'centroid_y'}
@@ -1076,6 +1078,7 @@ Examples:
     cluster_parser.add_argument('--resolution', type=float, default=1.0, help='Resolution parameter for Leiden clustering (default: 1.0)')
     cluster_parser.add_argument('--min-cluster-size', type=int, default=10, help='Minimum cluster size (hdbscan, default: 10)')
     cluster_parser.add_argument('--min-samples', type=int, default=5, help='Minimum samples (hdbscan, default: 5)')
+    cluster_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
     cluster_parser.set_defaults(func=cluster_command)
     
     # Spatial command
@@ -1086,6 +1089,7 @@ Examples:
     spatial_parser.add_argument('--k-neighbors', type=int, default=10, help='k for k-nearest neighbors (default: 10)')
     spatial_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0, used for distance_um conversion)')
     spatial_parser.add_argument('--detect-communities', action='store_true', help='Also detect spatial communities')
+    spatial_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
     spatial_parser.set_defaults(func=spatial_command)
     
     # Cluster figures command
@@ -1096,6 +1100,7 @@ Examples:
     cluster_figures_parser.add_argument('--font-size', type=float, default=10.0, help='Font size in points (default: 10.0)')
     cluster_figures_parser.add_argument('--width', type=float, default=8.0, help='Figure width in inches (default: 8.0)')
     cluster_figures_parser.add_argument('--height', type=float, default=6.0, help='Figure height in inches (default: 6.0)')
+    cluster_figures_parser.add_argument('--seed', type=int, default=42, help='Random seed for UMAP reproducibility (default: 42)')
     cluster_figures_parser.set_defaults(func=cluster_figures_command)
     
     # Spatial figures command

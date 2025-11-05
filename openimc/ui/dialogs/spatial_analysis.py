@@ -69,7 +69,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.enrichment_df: Optional[pd.DataFrame] = None
         self.distance_df: Optional[pd.DataFrame] = None
         self.ripley_df: Optional[pd.DataFrame] = None
-        self.rng_seed: Optional[int] = None
+        self.rng_seed: int = 42  # Default seed for reproducibility
         
         # Track which analyses have been run
         self.neighborhood_analysis_run = False
@@ -129,6 +129,14 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.radius_label = QtWidgets.QLabel("Radius (µm):")
         params_layout.addWidget(self.radius_label, 0, 4)
         params_layout.addWidget(self.radius_spin, 0, 5)
+        
+        # Random seed
+        params_layout.addWidget(QtWidgets.QLabel("Random Seed:"), 0, 6)
+        self.seed_spinbox = QtWidgets.QSpinBox()
+        self.seed_spinbox.setRange(0, 2**31 - 1)
+        self.seed_spinbox.setValue(42)
+        self.seed_spinbox.setToolTip("Random seed for reproducibility (default: 42)")
+        params_layout.addWidget(self.seed_spinbox, 0, 7)
         
         # Initially show kNN controls, hide radius
         self._on_mode_changed()
@@ -489,9 +497,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         k = int(self.k_spin.value())
         radius_um = float(self.radius_spin.value())
         
-        # Set random seed for reproducibility
-        if self.rng_seed is None:
-            self.rng_seed = random.randint(1, 2**31 - 1)
+        # Get seed from UI and set for reproducibility
+        self.rng_seed = self.seed_spinbox.value()
         random.seed(self.rng_seed)
         np.random.seed(self.rng_seed)
         
@@ -733,7 +740,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 "mode": mode,
                 "k": k,
                 "radius_um": radius_um,
-                "rng_seed": self.rng_seed,
+                "seed": self.seed_spinbox.value(),
                 "num_edges": int(len(self.edge_df)),
                 "num_rois": len(roi_groups),
                 "pixel_size_um": pixel_size_um
@@ -836,7 +843,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             logger = get_logger()
             acquisitions = list(self.feature_dataframe['acquisition_id'].unique()) if 'acquisition_id' in self.feature_dataframe.columns else []
             params = {
-                "n_permutations": n_perm
+                "n_permutations": n_perm,
+                "seed": self.seed_spinbox.value()
             }
             # Get source file name from parent if available
             source_file = None
@@ -1232,7 +1240,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             logger = get_logger()
             params = {
                 "roi_id": selected_roi,
-                "min_cells": min_cells
+                "min_cells": min_cells,
+                "seed": self.seed_spinbox.value()
             }
             # Get source file name from parent if available
             source_file = None
@@ -1311,12 +1320,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         print(f"[DEBUG] Created graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
         
         # Run Louvain community detection with fixed seed for reproducibility
-        if self.rng_seed is not None:
-            np.random.seed(self.rng_seed)
-            random.seed(self.rng_seed)
+        seed = self.seed_spinbox.value()
+        np.random.seed(seed)
+        random.seed(seed)
         
         try:
-            communities = nx.community.louvain_communities(G, seed=self.rng_seed)
+            communities = nx.community.louvain_communities(G, seed=seed)
             print(f"[DEBUG] Found {len(communities)} communities")
         except Exception as e:
             print(f"[DEBUG] Error in community detection: {e}")
@@ -1988,9 +1997,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     cells_a = roi_df[roi_df[cluster_col] == cluster_a]['cell_id'].tolist()
                     cells_b = roi_df[roi_df[cluster_col] == cluster_b]['cell_id'].tolist()
                     
-                    # Perform permutations
+                    # Perform permutations with seed for reproducibility
+                    seed = self.seed_spinbox.value()
+                    np.random.seed(seed)
+                    random.seed(seed)
+                    
                     permuted_counts = []
-                    for _ in range(n_perm):
+                    for perm_idx in range(n_perm):
+                        # Use a different seed for each permutation to ensure reproducibility
+                        # but still get different permutations
+                        np.random.seed(seed + perm_idx)
+                        random.seed(seed + perm_idx)
                         # Shuffle cluster labels while preserving degrees
                         shuffled_clusters = roi_df[cluster_col].values.copy()
                         np.random.shuffle(shuffled_clusters)

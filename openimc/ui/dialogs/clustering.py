@@ -71,6 +71,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.cluster_backend_names = {}  # Store normalized names for CSV export
         self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
         self.llm_phenotype_cache = {}  # Cache for LLM phenotype suggestions
+        self.seed = 42  # Default seed for reproducibility
         
         self._create_ui()
         self._setup_plot()
@@ -111,6 +112,14 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.clustering_scaling_combo.setCurrentText("Z-score")
         self.clustering_scaling_combo.setToolTip("Scaling method applied to features before clustering")
         options_layout.addWidget(self.clustering_scaling_combo)
+        
+        # Random seed
+        options_layout.addWidget(QtWidgets.QLabel("Random Seed:"))
+        self.seed_spinbox = QtWidgets.QSpinBox()
+        self.seed_spinbox.setRange(0, 2**31 - 1)
+        self.seed_spinbox.setValue(42)
+        self.seed_spinbox.setToolTip("Random seed for reproducibility (default: 42)")
+        options_layout.addWidget(self.seed_spinbox)
         
         # Number of clusters (only for hierarchical)
         self.n_clusters_label = QtWidgets.QLabel("Number of clusters:")
@@ -531,15 +540,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     params["resolution_parameter"] = self.resolution_spinbox.value()
                 else:
                     params["optimization_method"] = "modularity"
-                params["seed"] = 42
+                params["seed"] = self.seed_spinbox.value()
             elif cluster_method == "hdbscan":
                 params["min_cluster_size"] = self.min_cluster_size_spinbox.value()
                 params["min_samples"] = self.min_samples_spinbox.value()
                 params["cluster_selection_method"] = self.cluster_selection_combo.currentText()
                 params["metric"] = self.metric_combo.currentText()
                 params["distance_metric"] = self.metric_combo.currentText()
+                params["seed"] = self.seed_spinbox.value()
             else:
                 params["linkage_method"] = cluster_method
+                # Hierarchical clustering is deterministic, but we log seed for consistency
+                params["seed"] = self.seed_spinbox.value()
             
             # Get acquisition IDs from clustered data
             acquisitions = []
@@ -775,6 +787,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
         g.add_edges(edges)
         g.es['weight'] = weights
         
+        # Get seed from UI
+        seed = self.seed_spinbox.value()
+        
         # Perform Leiden clustering
         if self.resolution_radio.isChecked():
             # Use resolution parameter
@@ -784,7 +799,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 leidenalg.RBConfigurationVertexPartition,
                 weights='weight',
                 resolution_parameter=resolution,
-                seed=42,
+                seed=seed,
             )
         else:
             # Use modularity optimization
@@ -792,7 +807,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 g,
                 leidenalg.ModularityVertexPartition,
                 weights='weight',
-                seed=42,
+                seed=seed,
             )
         
         # Get cluster labels
@@ -817,6 +832,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
         min_samples = self.min_samples_spinbox.value()
         cluster_selection_method = self.cluster_selection_combo.currentText()
         metric = self.metric_combo.currentText()
+        seed = self.seed_spinbox.value()
+        
+        # Set random seed for reproducibility
+        np.random.seed(seed)
         
         # Create HDBSCAN clusterer
         clusterer = hdbscan.HDBSCAN(
@@ -1458,19 +1477,21 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Allow user to choose n_neighbors
             default_n = 15
             max_n = max(2, min(default_n, data_scaled.shape[0] - 1))
-            # Simple input dialog for n_neighbors with bounds
+            # Get seed from UI to show in dialog
+            seed = self.seed_spinbox.value()
+            # Simple input dialog for n_neighbors with bounds, including seed info
             n_neighbors, ok = QtWidgets.QInputDialog.getInt(
                 self,
                 "UMAP n_neighbors",
-                f"Set n_neighbors (2–{max(2, data_scaled.shape[0]-1)}):",
+                f"Set n_neighbors (2–{max(2, data_scaled.shape[0]-1)}):\n\nNote: Using random seed {seed} from clustering options above.",
                 value=max_n,
                 min=2,
                 max=max(2, data_scaled.shape[0]-1)
             )
             if not ok:
                 return
-            # Perform UMAP
-            reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=int(n_neighbors), min_dist=0.1)
+            # Perform UMAP with seed from UI
+            reducer = umap.UMAP(n_components=2, random_state=seed, n_neighbors=int(n_neighbors), min_dist=0.1)
             self.umap_embedding = reducer.fit_transform(data_scaled.values)
             # Persist for coloring
             self.umap_index = data.index.to_list()
