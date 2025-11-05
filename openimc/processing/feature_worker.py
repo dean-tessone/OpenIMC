@@ -104,6 +104,7 @@ def extract_features_for_acquisition(
     cofactor: float,
     denoise_source: str = "None",
     custom_denoise_settings: Dict = None,
+    source_file: Optional[str] = None,
 ) -> pd.DataFrame:
     """Module-level worker that extracts features for a single acquisition.
 
@@ -246,6 +247,13 @@ def extract_features_for_acquisition(
         morph_df.rename(columns={"label": "cell_id"}, inplace=True)
         morph_df.insert(0, "acquisition_id", acq_id)
         morph_df.insert(1, "acquisition_label", acq_label)
+        # Add source file name (just the filename, not full path)
+        if source_file:
+            import os
+            source_filename = os.path.basename(source_file)
+        else:
+            source_filename = None
+        morph_df.insert(2, "source_file", source_filename)
 
         print(f"[feature_worker] Finished extraction acq_id={acq_id}, rows={len(morph_df)}")
         return morph_df

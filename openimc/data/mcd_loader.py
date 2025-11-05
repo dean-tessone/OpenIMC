@@ -21,6 +21,7 @@ class AcquisitionInfo:
     channel_metals: List[str]
     channel_labels: List[str]
     metadata: Dict
+    source_file: Optional[str] = None  # Path to the source .mcd file
 
 
 class MCDLoader:
@@ -111,8 +112,12 @@ class MCDLoader:
         if not self._acq_map:
             raise RuntimeError("No acquisitions found in this .mcd file.")
 
-    def list_acquisitions(self) -> List[AcquisitionInfo]:
-        """List all acquisitions in the .mcd file."""
+    def list_acquisitions(self, source_file: Optional[str] = None) -> List[AcquisitionInfo]:
+        """List all acquisitions in the .mcd file.
+        
+        Args:
+            source_file: Optional path to the source .mcd file to include in AcquisitionInfo
+        """
         infos: List[AcquisitionInfo] = []
         for acq_id in self._acq_map:
             infos.append(
@@ -125,6 +130,7 @@ class MCDLoader:
                     channel_metals=self._acq_channel_metals.get(acq_id, []),
                     channel_labels=self._acq_channel_labels.get(acq_id, []),
                     metadata=self._acq_metadata.get(acq_id, {}),
+                    source_file=source_file,
                 )
             )
         return infos

@@ -32,7 +32,7 @@ def _apply_preprocessing_pipeline(
     enable_tophat: bool = False,
     tophat_radius: int = 15,
     normalization_method: str = "arcsinh",
-    arcsinh_cofactor: float = 5.0,
+    arcsinh_cofactor: float = 10.0,
     percentile_params: Tuple[float, float] = (1.0, 99.0)
 ) -> np.ndarray:
     """
@@ -360,7 +360,7 @@ def watershed_segmentation(
     enable_tophat: bool = False,
     tophat_radius: int = 15,
     normalization_method: str = "arcsinh",
-    arcsinh_cofactor: float = 5.0,
+    arcsinh_cofactor: float = 10.0,
     percentile_params: Tuple[float, float] = (1.0, 99.0),
     # Nuclear fusion parameters
     nuclear_fusion_method: str = "mean",

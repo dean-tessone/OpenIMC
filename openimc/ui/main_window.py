@@ -29,32 +29,46 @@ class CustomNavigationToolbar(NavigationToolbar):
         self.main_window = main_window
     
     def save_figure(self, *args):
-        """Override save_figure method to use custom filename."""
-        if self.main_window and hasattr(self.main_window, 'get_save_filename'):
-            # Get custom filename from main window
-            filename = self.main_window.get_save_filename()
-            if filename:
-                self.canvas.figure.savefig(filename)
-                return
-            # If filename is None (user cancelled), don't fall back to default behavior
+        """Override save_figure method to use custom save options dialog."""
+        if self.main_window and hasattr(self.main_window, '_get_suggested_save_filename'):
+            # Get suggested filename from main window
+            suggested_filename = self.main_window._get_suggested_save_filename()
+            # Use the suggested filename but show full options dialog
+            save_figure_with_options(
+                self.canvas.figure,
+                suggested_filename,
+                self.main_window
+            )
             return
             
         # Fallback to default behavior only if main window method is not available
-        super().save_figure(*args)
+        # But still use our enhanced dialog
+        save_figure_with_options(
+            self.canvas.figure,
+            "figure.png",
+            self.parent()
+        )
     
     def _save(self):
-        """Override _save method to use custom filename."""
-        if self.main_window and hasattr(self.main_window, 'get_save_filename'):
-            # Get custom filename from main window
-            filename = self.main_window.get_save_filename()
-            if filename:
-                self.canvas.figure.savefig(filename)
-                return
-            # If filename is None (user cancelled), don't fall back to default behavior
+        """Override _save method to use custom save options dialog."""
+        if self.main_window and hasattr(self.main_window, '_get_suggested_save_filename'):
+            # Get suggested filename from main window
+            suggested_filename = self.main_window._get_suggested_save_filename()
+            # Use the suggested filename but show full options dialog
+            save_figure_with_options(
+                self.canvas.figure,
+                suggested_filename,
+                self.main_window
+            )
             return
             
         # Fallback to default behavior only if main window method is not available
-        super()._save()
+        # But still use our enhanced dialog
+        save_figure_with_options(
+            self.canvas.figure,
+            "figure.png",
+            self.parent()
+        )
 from openimc.ui.mpl_canvas import MplCanvas
 from openimc.ui.utils import (
     PreprocessingCache,
@@ -89,6 +103,7 @@ except Exception:
 from openimc.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
 from openimc.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
 from openimc.ui.dialogs.comparison_dialog import DynamicComparisonDialog
+from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.utils.logger import get_logger
 
 
@@ -142,6 +157,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # State
         self.loader: Optional[Union[MCDLoader, OMETIFFLoader]] = None
         self.current_path: Optional[str] = None
+        # Multi-file support: track multiple MCD files and their loaders
+        self.mcd_loaders: Dict[str, MCDLoader] = {}  # Maps file path to MCDLoader
+        self.acq_to_file: Dict[str, str] = {}  # Maps acquisition ID to source file path
         self.acquisitions: List[AcquisitionInfo] = []
         self.current_acq_id: Optional[str] = None
         # Image cache and prefetching
@@ -358,7 +376,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cofactor_spinbox = QtWidgets.QDoubleSpinBox()
         self.cofactor_spinbox.setRange(0.1, 100.0)
         self.cofactor_spinbox.setDecimals(1)
-        self.cofactor_spinbox.setValue(5.0)
+        self.cofactor_spinbox.setValue(10.0)
         self.cofactor_spinbox.setSingleStep(0.5)
         arcsinh_layout.addWidget(self.cofactor_spinbox)
         arcsinh_layout.addStretch()
@@ -600,17 +618,22 @@ class MainWindow(QtWidgets.QMainWindow):
         msg_box = QtWidgets.QMessageBox(self)
         msg_box.setWindowTitle("Select Import Type")
         msg_box.setText("How would you like to import data?")
-        msg_box.addButton("Open .mcd File", QtWidgets.QMessageBox.YesRole)
+        msg_box.addButton("Open .mcd File(s)", QtWidgets.QMessageBox.YesRole)
         msg_box.addButton("Open OME-TIFF Folder", QtWidgets.QMessageBox.NoRole)
         msg_box.addButton(QtWidgets.QMessageBox.Cancel)
         choice = msg_box.exec_()
         
-        if choice == 0:  # YesRole - Open .mcd file
-            path, _ = QtWidgets.QFileDialog.getOpenFileName(
-                self, "Open IMC .mcd file", "", "IMC MCD files (*.mcd);;All files (*.*)"
+        if choice == 0:  # YesRole - Open .mcd file(s)
+            paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
+                self, "Open IMC .mcd file(s)", "", "IMC MCD files (*.mcd);;All files (*.*)"
             )
-            if path:
-                self._load_data(path)
+            if paths:
+                if len(paths) == 1:
+                    # Single file - use existing path
+                    self._load_data(paths[0])
+                else:
+                    # Multiple files - load them all
+                    self._load_multiple_mcd_files(paths)
         elif choice == 1:  # NoRole - Open OME-TIFF folder
             path = QtWidgets.QFileDialog.getExistingDirectory(
                 self, "Select Folder with OME-TIFF files", ""
@@ -619,15 +642,167 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._load_data(path)
         # else: Cancel - do nothing
 
-    def _load_data(self, path: str):
-        """Load data from either a .mcd file or a directory of OME-TIFF files."""
-        # Close existing loader if any
+    def _load_multiple_mcd_files(self, paths: List[str]):
+        """Load multiple .mcd files and combine their acquisitions."""
+        # Close existing loaders
+        self._close_all_loaders()
+        
+        # Track all acquisitions and their source files
+        all_acquisitions = []
+        file_channel_sets = {}  # Maps file path to set of all channels in that file
+        
+        # Load each MCD file
+        for path in paths:
+            if not os.path.isfile(path):
+                QtWidgets.QMessageBox.warning(self, "Invalid file", f"Skipping invalid path: {path}")
+                continue
+            
+            if not path.lower().endswith('.mcd'):
+                QtWidgets.QMessageBox.warning(self, "Invalid file", f"Skipping non-MCD file: {path}")
+                continue
+            
+            try:
+                loader = MCDLoader()
+                loader.open(path)
+                self.mcd_loaders[path] = loader
+                
+                # Get acquisitions for this file
+                file_acqs = loader.list_acquisitions(source_file=path)
+                all_acquisitions.extend(file_acqs)
+                
+                # Track channels for mismatch detection (union of all channels in this file)
+                file_channels = set()
+                for acq in file_acqs:
+                    file_channels.update(acq.channels)
+                    self.acq_to_file[acq.id] = path
+                file_channel_sets[path] = file_channels
+                
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(self, "Load failed", f"Failed to load {os.path.basename(path)}:\n{e}")
+                continue
+        
+        if not all_acquisitions:
+            QtWidgets.QMessageBox.critical(self, "No acquisitions", "No acquisitions could be loaded from the selected files.")
+            return
+        
+        # Check for channel mismatches (compare channels per file)
+        channel_sets_list = list(file_channel_sets.values())
+        self._check_channel_mismatches(channel_sets_list, list(file_channel_sets.keys()))
+        
+        # Update state
+        self.acquisitions = all_acquisitions
+        self.current_path = paths[0] if paths else None
+        
+        # Update window title
+        if len(paths) == 1:
+            stem = os.path.splitext(os.path.basename(paths[0]))[0]
+            self.setWindowTitle(f"IMC File Viewer - {stem} (MCD)")
+        else:
+            self.setWindowTitle(f"IMC File Viewer - {len(paths)} MCD files")
+        
+        # Update acquisition combo box with file names
+        self.acq_combo.clear()
+        for ai in self.acquisitions:
+            file_name = os.path.basename(ai.source_file) if ai.source_file else "Unknown"
+            label = f"{ai.name}"
+            if ai.well:
+                label += f" ({ai.well})"
+            label += f" [{file_name}]"
+            self.acq_combo.addItem(label, ai.id)
+        
+        if self.acquisitions:
+            self._populate_channels(self.acquisitions[0].id)
+            # For initial file load, if no channels were pre-selected, select the first channel
+            if not self._selected_channels() and self.channel_list.count() > 0:
+                # Select first channel by default for initial display
+                item = self.channel_list.item(0)
+                item.setCheckState(Qt.Checked)
+    
+    def _check_channel_mismatches(self, channel_sets: List[set], paths: List[str]):
+        """Check if MCD files have different channels and warn the user."""
+        if len(paths) < 2:
+            return
+        
+        # Group channels by file (each file may have multiple acquisitions with same channels)
+        # We'll compare the union of all channels from each file
+        file_channel_sets = {}
+        for i, path in enumerate(paths):
+            if path not in file_channel_sets:
+                file_channel_sets[path] = set()
+            # Add all channels from this file's acquisitions
+            if i < len(channel_sets):
+                file_channel_sets[path].update(channel_sets[i])
+        
+        # Check if all file channel sets are identical
+        file_paths_list = list(file_channel_sets.keys())
+        if len(file_paths_list) < 2:
+            return
+        
+        first_file_set = file_channel_sets[file_paths_list[0]]
+        all_same = all(file_channel_sets[p] == first_file_set for p in file_paths_list[1:])
+        
+        if not all_same:
+            # Find differences
+            all_channels = set()
+            for ch_set in file_channel_sets.values():
+                all_channels.update(ch_set)
+            
+            missing_info = []
+            for path in file_paths_list:
+                file_channels = file_channel_sets[path]
+                missing = all_channels - file_channels
+                if missing:
+                    missing_info.append(f"  {os.path.basename(path)}: missing {', '.join(sorted(missing))}")
+            
+            if missing_info:
+                warning_msg = (
+                    "Warning: The selected MCD files have different channels.\n\n"
+                    "This may affect downstream analysis. Missing channels:\n" +
+                    "\n".join(missing_info) +
+                    "\n\nYou may need to apply batch effect correction later."
+                )
+                QtWidgets.QMessageBox.warning(self, "Channel Mismatch", warning_msg)
+    
+    def _close_all_loaders(self):
+        """Close all MCD loaders and clear state."""
+        # Close single loader if exists
         if self.loader:
             try:
                 self.loader.close()
             except Exception:
                 pass
             self.loader = None
+        
+        # Close all MCD loaders
+        for loader in self.mcd_loaders.values():
+            try:
+                loader.close()
+            except Exception:
+                pass
+        self.mcd_loaders.clear()
+        self.acq_to_file.clear()
+    
+    def _get_loader_for_acquisition(self, acq_id: str) -> Optional[Union[MCDLoader, OMETIFFLoader]]:
+        """Get the appropriate loader for a given acquisition ID."""
+        # If we have multiple MCD files, use the loader for the acquisition's source file
+        if acq_id in self.acq_to_file:
+            file_path = self.acq_to_file[acq_id]
+            return self.mcd_loaders.get(file_path)
+        
+        # Otherwise, use the single loader (for OME-TIFF or single MCD file)
+        return self.loader
+    
+    @property
+    def current_loader(self) -> Optional[Union[MCDLoader, OMETIFFLoader]]:
+        """Get the loader for the current acquisition."""
+        if self.current_acq_id:
+            return self._get_loader_for_acquisition(self.current_acq_id)
+        return self.loader
+
+    def _load_data(self, path: str):
+        """Load data from either a .mcd file or a directory of OME-TIFF files."""
+        # Close existing loaders
+        self._close_all_loaders()
         
         # Determine if path is a file or directory
         is_file = os.path.isfile(path)
@@ -639,7 +814,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Choose appropriate loader
         if is_file:
-            # Load .mcd file
+            # Load .mcd file - treat as single file for backward compatibility
             if not path.lower().endswith('.mcd'):
                 QtWidgets.QMessageBox.critical(self, "Invalid file", "Please select a .mcd file.")
                 return
@@ -678,7 +853,8 @@ class MainWindow(QtWidgets.QMainWindow):
             # Fallback to default title if something goes wrong
             self.setWindowTitle(f"IMC File Viewer ({loader_type})")
         
-        self.acquisitions = self.loader.list_acquisitions()
+        # Get acquisitions with source file info
+        self.acquisitions = self.loader.list_acquisitions(source_file=path if is_file else None)
         self.acq_combo.clear()
         for ai in self.acquisitions:
             label = ai.name + (f" ({ai.well})" if ai.well else "")
@@ -714,7 +890,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_acq_id = acq_id
         self.channel_list.clear()
         try:
-            chans = self.loader.get_channels(acq_id)
+            loader = self._get_loader_for_acquisition(acq_id)
+            if loader is None:
+                QtWidgets.QMessageBox.critical(self, "Loader error", f"No loader found for acquisition {acq_id}")
+                return
+            chans = loader.get_channels(acq_id)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Channels error", str(e))
             return
@@ -749,7 +929,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self._auto_load_image(selected_channels)
         
         # Update metadata display
-        ai = next(a for a in self.acquisitions if a.id == acq_id)
+        ai = self._get_acquisition_info(acq_id)
+        if ai is None:
+            QtWidgets.QMessageBox.warning(self, "Acquisition not found", f"Could not find acquisition {acq_id}")
+            return
         metadata_text = f"Acquisition: {ai.name}\n"
         if ai.well:
             metadata_text += f"{ai.well}\n"
@@ -928,9 +1111,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 seen.add(c)
         return uniq
 
+    def _get_acquisition_info(self, acq_id: str) -> Optional[AcquisitionInfo]:
+        """Get acquisition info for a given acquisition ID, handling multi-file cases.
+        
+        When multiple MCD files are loaded, acquisition IDs may not be unique across files.
+        This method uses acq_to_file mapping to ensure we get the correct acquisition from the correct file.
+        """
+        if acq_id in self.acq_to_file:
+            # Filter by both acq_id and source_file to ensure we get the right one
+            source_file = self.acq_to_file[acq_id]
+            acq_info = next((ai for ai in self.acquisitions if ai.id == acq_id and ai.source_file == source_file), None)
+        else:
+            # Single file or OME-TIFF: just match by acq_id
+            acq_info = next((ai for ai in self.acquisitions if ai.id == acq_id), None)
+        return acq_info
+    
     def _get_acquisition_subtitle(self, acq_id: str) -> str:
         """Get acquisition subtitle showing well/description instead of acquisition number."""
-        acq_info = next((ai for ai in self.acquisitions if ai.id == acq_id), None)
+        acq_info = self._get_acquisition_info(acq_id)
         if not acq_info:
             return "Unknown"
         
@@ -1466,7 +1664,7 @@ class MainWindow(QtWidgets.QMainWindow):
             cofactor_spin = QtWidgets.QDoubleSpinBox()
             cofactor_spin.setRange(0.1, 100.0)
             cofactor_spin.setDecimals(1)
-            cofactor_spin.setValue(5.0)
+            cofactor_spin.setValue(10.0)
             cofactor_spin.setSingleStep(0.5)
             control_panel.addWidget(cofactor_label)
             control_panel.addWidget(cofactor_spin)
@@ -1838,7 +2036,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if current_channel in self.channel_normalization:
             norm_cfg = self.channel_normalization[current_channel]
             if norm_cfg.get("method") == "arcsinh":
-                cofactor = norm_cfg.get("cofactor", 5.0)
+                cofactor = norm_cfg.get("cofactor", 10.0)
                 self.cofactor_spinbox.setValue(float(cofactor))
 
     def _save_channel_scaling(self):
@@ -1947,7 +2145,10 @@ class MainWindow(QtWidgets.QMainWindow):
         with self._cache_lock:
             img = self.image_cache.get(cache_key)
         if img is None:
-            img = self.loader.get_image(acq_id, channel)
+            loader = self._get_loader_for_acquisition(acq_id)
+            if loader is None:
+                raise ValueError(f"No loader found for acquisition {acq_id}")
+            img = loader.get_image(acq_id, channel)
             with self._cache_lock:
                 self.image_cache[cache_key] = img
         
@@ -1960,29 +2161,34 @@ class MainWindow(QtWidgets.QMainWindow):
         # Apply per-channel normalization (if configured)
         norm_cfg = self.channel_normalization.get(channel)
         if norm_cfg and norm_cfg.get("method") == "arcsinh":
-            cofactor = float(norm_cfg.get("cofactor", 5.0))
+            cofactor = float(norm_cfg.get("cofactor", 10.0))
             img = arcsinh_normalize(img, cofactor=cofactor)
         
         return img
 
     def _start_prefetch_all_channels(self, acq_id: str):
         """Prefetch all channels for the given acquisition in the background (non-blocking)."""
-        if self.loader is None or not acq_id:
+        if not acq_id:
             return
+        
+        loader = self._get_loader_for_acquisition(acq_id)
+        if loader is None:
+            return
+        
         # If a previous prefetch is running, let it finish; avoid stacking tasks
         if self._prefetch_future and not self._prefetch_future.done():
             return
 
         channels = []
         try:
-            channels = self.loader.get_channels(acq_id)
+            channels = loader.get_channels(acq_id)
         except Exception:
             return
 
         def _prefetch():
             try:
                 # Load the full stack once, then split into channels for faster access
-                stack = self.loader.get_all_channels(acq_id)
+                stack = loader.get_all_channels(acq_id)
                 # Store in cache
                 with self._cache_lock:
                     for i, ch in enumerate(channels):
@@ -2413,10 +2619,10 @@ class MainWindow(QtWidgets.QMainWindow):
         dlg.exec_()
 
     # ---------- Image Saving ----------
-    def get_save_filename(self):
-        """Generate a custom filename for saving images based on acquisition and channels."""
+    def _get_suggested_save_filename(self):
+        """Generate a suggested filename for saving images based on acquisition and channels."""
         if not self.current_acq_id or not hasattr(self, 'current_path') or not self.current_path:
-            return None
+            return "figure.png"
             
         try:
             # Get filename without extension (handle both files and directories)
@@ -2442,19 +2648,22 @@ class MainWindow(QtWidgets.QMainWindow):
             import re
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
             
-            # Open save dialog with suggested filename
-            from PyQt5.QtWidgets import QFileDialog
-            file_path, _ = QFileDialog.getSaveFileName(
-                self, 
-                "Save Image", 
-                filename, 
-                "PNG files (*.png);;JPEG files (*.jpg);;All files (*.*)"
-            )
-            
-            return file_path if file_path else None
+            return filename
             
         except (StopIteration, AttributeError):
-            return None
+            return "figure.png"
+    
+    def get_save_filename(self):
+        """Generate a custom filename for saving images based on acquisition and channels."""
+        # This method is kept for backward compatibility but now uses the new dialog
+        suggested_filename = self._get_suggested_save_filename()
+        if self.canvas and self.canvas.figure:
+            save_figure_with_options(
+                self.canvas.figure,
+                suggested_filename,
+                self
+            )
+        return None
 
     # ---------- Export ----------
     def _export_ome_tiff(self):
@@ -2533,10 +2742,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.current_acq_id:
             raise ValueError("No acquisition selected")
         
-        acq_info = next(ai for ai in self.acquisitions if ai.id == self.current_acq_id)
+        acq_info = self._get_acquisition_info(self.current_acq_id)
+        if acq_info is None:
+            raise ValueError(f"Acquisition {self.current_acq_id} not found")
         
         # Get all channels for this acquisition
-        all_channels = self.loader.get_channels(self.current_acq_id)
+        loader = self._get_loader_for_acquisition(self.current_acq_id)
+        if loader is None:
+            raise ValueError(f"No loader found for acquisition {self.current_acq_id}")
+        all_channels = loader.get_channels(self.current_acq_id)
         if not all_channels:
             raise ValueError("No channels found for this acquisition")
         
@@ -3197,7 +3411,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         # Get available channels
-        channels = self.loader.get_channels(self.current_acq_id)
+        loader = self._get_loader_for_acquisition(self.current_acq_id)
+        if loader is None:
+            QtWidgets.QMessageBox.critical(self, "Loader error", "No loader found for current acquisition.")
+            return
+        channels = loader.get_channels(self.current_acq_id)
         if not channels:
             QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
             return
@@ -3297,14 +3515,18 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         # Get available channels
-        channels = self.loader.get_channels(self.current_acq_id)
+        loader = self._get_loader_for_acquisition(self.current_acq_id)
+        if loader is None:
+            QtWidgets.QMessageBox.critical(self, "Loader error", "No loader found for current acquisition.")
+            return
+        channels = loader.get_channels(self.current_acq_id)
         if not channels:
             QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
             return
         
         try:
             # Load image stack
-            img_stack = self.loader.get_all_channels(self.current_acq_id)
+            img_stack = loader.get_all_channels(self.current_acq_id)
             
             # Get preprocessing config from segmentation dialog (optional for Ilastik)
             preprocessing_config = seg_dlg.get_preprocessing_config()
@@ -3498,8 +3720,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 membrane_weights = preprocessing_config.get('cyto_weights', {})
                 
                 # Load full image stack for watershed
-                img_stack = self.loader.get_all_channels(self.current_acq_id)
-                channel_names = self.loader.get_channels(self.current_acq_id)
+                loader = self._get_loader_for_acquisition(self.current_acq_id)
+                if loader is None:
+                    raise ValueError("No loader found for current acquisition")
+                img_stack = loader.get_all_channels(self.current_acq_id)
+                channel_names = loader.get_channels(self.current_acq_id)
                 
                 # Run watershed segmentation
                 masks = watershed_segmentation(
@@ -3746,28 +3971,31 @@ class MainWindow(QtWidgets.QMainWindow):
                     )
                     
                     # Store results using acquisition mapping to ensure correct order
-                    acquisition_mapping = batch_data['acquisition_mapping']
+                    acquisition_mapping = batch_data['acquisition_mapping']  # Contains indices
+                    acquisition_info_list = batch_data.get('acquisition_info_list', [])  # List of AcquisitionInfo objects
                     processed_acquisitions = set()
                     
                     for i, mask in enumerate(masks):
                         if i < len(acquisition_mapping):
-                            acq_id = acquisition_mapping[i]
+                            acq_idx = acquisition_mapping[i]  # Index in acquisition_info_list
                             
                             # Only process each acquisition once (use the first mask for each acquisition)
-                            if acq_id not in processed_acquisitions:
+                            if acq_idx not in processed_acquisitions and acq_idx < len(acquisition_info_list):
+                                acq_info = acquisition_info_list[acq_idx]
+                                acq_id = acq_info.id
+                                
                                 self.segmentation_masks[acq_id] = mask
                                 # Clear colors for this acquisition so they get regenerated
                                 if acq_id in self.segmentation_colors:
                                     del self.segmentation_colors[acq_id]
                                 successful_segmentations += 1
-                                processed_acquisitions.add(acq_id)
+                                processed_acquisitions.add(acq_idx)
                                 
-                                # Save masks if requested
+                                # Save masks if requested - use the AcquisitionInfo directly from the batch
                                 if save_masks:
-                                    self._save_segmentation_masks_for_acquisition(mask, acq_id, masks_directory)
+                                    self._save_segmentation_masks_for_acquisition_with_info(mask, acq_info, masks_directory)
                                 
                                 # Update progress after each acquisition
-                                acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
                                 progress_dlg.update_progress(
                                     successful_segmentations,
                                     f"Completed batch {batch_start//batch_size + 1}",
@@ -3823,7 +4051,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """Load and preprocess a batch of acquisitions efficiently."""
         batch_images = []
         batch_channels = []
-        acquisition_mapping = []  # Track which images belong to which acquisition
+        acquisition_mapping = []  # Track which images belong to which acquisition (by index in acquisition_info_list)
+        acquisition_info_list = []  # Store AcquisitionInfo objects for each successfully processed acquisition
         
         for acq in acquisitions:
             try:
@@ -3838,18 +4067,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 
                 # Prepare input images based on model type
                 if nuclear_img is not None:
+                    # Store the acquisition info for this processed acquisition (before adding images)
+                    acq_idx = len(acquisition_info_list)
+                    acquisition_info_list.append(acq)
+                    
                     if cyto_img is not None:
                         # Both nuclear and cytoplasm available
                         batch_images.extend([cyto_img, nuclear_img])
                         batch_channels.extend([0, 1])  # cyto, nuclear
-                        acquisition_mapping.extend([acq.id, acq.id])  # Both images belong to same acquisition
+                        acquisition_mapping.extend([acq_idx, acq_idx])  # Both images belong to same acquisition (by index in info list)
                     else:
                         # Only nuclear available
                         batch_images.extend([nuclear_img, nuclear_img])
                         batch_channels.extend([0, 0])  # nuclear, nuclear
-                        acquisition_mapping.extend([acq.id, acq.id])  # Both images belong to same acquisition
+                        acquisition_mapping.extend([acq_idx, acq_idx])  # Both images belong to same acquisition (by index in info list)
                 else:
                     print(f"Warning: No valid images for acquisition {acq.name}")
+                    # Don't add to acquisition_info_list since processing failed
                     continue
                 
                 # Restore original acquisition
@@ -3857,6 +4091,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 
             except Exception as e:
                 print(f"Error preprocessing acquisition {acq.name}: {e}")
+                # Don't add to acquisition_info_list since processing failed
                 continue
         
         if not batch_images:
@@ -3865,7 +4100,8 @@ class MainWindow(QtWidgets.QMainWindow):
         return {
             'images': batch_images,
             'channels': batch_channels,
-            'acquisition_mapping': acquisition_mapping,
+            'acquisition_mapping': acquisition_mapping,  # Contains indices into acquisition_info_list
+            'acquisition_info_list': acquisition_info_list,  # List of AcquisitionInfo objects in processing order
             'acquisition_count': len(acquisitions)
         }
     
@@ -3916,22 +4152,42 @@ class MainWindow(QtWidgets.QMainWindow):
             # Restore original acquisition
             self.current_acq_id = original_acq_id
     
-    def _save_segmentation_masks_for_acquisition(self, masks: np.ndarray, acq_id: str, masks_directory: str = None):
-        """Save segmentation masks for a specific acquisition."""
-        acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
-        filename = f"{acq_info.name}_segmentation_masks.tif"
+    def _save_segmentation_masks_for_acquisition_with_info(self, masks: np.ndarray, acq_info: AcquisitionInfo, masks_directory: str = None):
+        """Save segmentation masks for a specific acquisition using the provided AcquisitionInfo."""
+        # Include source file name in filename to ensure uniqueness across multiple MCD files
+        safe_name = self._sanitize_filename(acq_info.name)
+        if acq_info.source_file:
+            # Use source file basename (without extension) to make filename unique
+            source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
+            safe_source = self._sanitize_filename(source_basename)
+            filename = f"{safe_source}_{safe_name}_segmentation_masks.tif"
+        else:
+            filename = f"{safe_name}_segmentation_masks.tif"
         
         # Use provided directory or fallback to current file/folder directory
         if masks_directory and os.path.exists(masks_directory):
             filepath = os.path.join(masks_directory, filename)
         else:
-            filepath = os.path.join(os.path.dirname(self.current_path), filename)
+            # Use source file directory if available, otherwise fallback to current_path
+            if acq_info.source_file:
+                base_dir = os.path.dirname(acq_info.source_file)
+            else:
+                base_dir = os.path.dirname(self.current_path) if self.current_path else "."
+            filepath = os.path.join(base_dir, filename)
         
         try:
             tifffile.imwrite(filepath, masks.astype(np.uint16))
             print(f"Segmentation masks saved: {filepath}")
         except Exception as e:
             print(f"Error saving segmentation masks: {e}")
+    
+    def _save_segmentation_masks_for_acquisition(self, masks: np.ndarray, acq_id: str, masks_directory: str = None):
+        """Save segmentation masks for a specific acquisition."""
+        acq_info = self._get_acquisition_info(acq_id)
+        if acq_info is None:
+            print(f"Warning: Could not find acquisition {acq_id} for saving masks")
+            return
+        self._save_segmentation_masks_for_acquisition_with_info(masks, acq_info, masks_directory)
     
     def _save_segmentation_masks(self, masks_directory: str = None):
         """Save all segmentation masks to files."""
@@ -3956,13 +4212,27 @@ class MainWindow(QtWidgets.QMainWindow):
         saved_count = 0
         for acq_id, mask in self.segmentation_masks.items():
             try:
-                acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+                acq_info = self._get_acquisition_info(acq_id)
+                if acq_info is None:
+                    print(f"Warning: Could not find acquisition {acq_id} for saving masks")
+                    continue
+                
                 safe_name = self._sanitize_filename(acq_info.name)
-                if acq_info.well:
-                    safe_well = self._sanitize_filename(acq_info.well)
-                    filename = f"{safe_name}_{safe_well}_segmentation.tiff"
+                # Include source file name in filename to ensure uniqueness across multiple MCD files
+                if acq_info.source_file:
+                    source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
+                    safe_source = self._sanitize_filename(source_basename)
+                    if acq_info.well:
+                        safe_well = self._sanitize_filename(acq_info.well)
+                        filename = f"{safe_source}_{safe_name}_{safe_well}_segmentation.tiff"
+                    else:
+                        filename = f"{safe_source}_{safe_name}_segmentation.tiff"
                 else:
-                    filename = f"{safe_name}_segmentation.tiff"
+                    if acq_info.well:
+                        safe_well = self._sanitize_filename(acq_info.well)
+                        filename = f"{safe_name}_{safe_well}_segmentation.tiff"
+                    else:
+                        filename = f"{safe_name}_segmentation.tiff"
                 
                 output_path = os.path.join(output_dir, filename)
                 
@@ -4053,6 +4323,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if not preprocessing_config:
             raise ValueError("Preprocessing configuration is required for segmentation")
         
+        if not self.current_acq_id:
+            raise ValueError("No acquisition selected for segmentation")
+        
+        # Get the correct loader for the current acquisition
+        loader = self._get_loader_for_acquisition(self.current_acq_id)
+        if loader is None:
+            raise ValueError(f"No loader found for acquisition {self.current_acq_id}")
+        
         config = preprocessing_config
         
         # Get nuclear channels
@@ -4064,10 +4342,11 @@ class MainWindow(QtWidgets.QMainWindow):
         cyto_channels = config.get('cyto_channels', [])
         
         # Load and normalize nuclear channels
-        progress_dlg.update_progress(25, "Preprocessing images", "Loading nuclear channels...")
+        if progress_dlg:
+            progress_dlg.update_progress(25, "Preprocessing images", "Loading nuclear channels...")
         nuclear_imgs = []
         for channel in nuclear_channels:
-            img = self.loader.get_image(self.current_acq_id, channel)
+            img = loader.get_image(self.current_acq_id, channel)
             # Apply denoising based on source selection (always from raw loader image)
             if denoise_source == "viewer" and use_viewer_denoising:
                 try:
@@ -4091,10 +4370,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # Load and normalize cytoplasm channels
         cyto_img = None
         if cyto_channels:
-            progress_dlg.update_progress(35, "Preprocessing images", "Loading cytoplasm channels...")
+            if progress_dlg:
+                progress_dlg.update_progress(35, "Preprocessing images", "Loading cytoplasm channels...")
             cyto_imgs = []
             for channel in cyto_channels:
-                img = self.loader.get_image(self.current_acq_id, channel)
+                img = loader.get_image(self.current_acq_id, channel)
                 # Apply denoising based on source selection (always from raw loader image)
                 if denoise_source == "viewer" and use_viewer_denoising:
                     try:
@@ -4127,7 +4407,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Check cache first
         cache_key = f"{acq_id}_{channel}_{norm_method}"
         if norm_method == 'arcsinh':
-            cofactor = config.get('arcsinh_cofactor', 5.0)
+            cofactor = config.get('arcsinh_cofactor', 10.0)
             cache_key += f"_{cofactor}"
         elif norm_method == 'percentile_clip':
             p_low, p_high = config.get('percentile_params', (1.0, 99.0))
@@ -4135,7 +4415,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Apply normalization
         if norm_method == 'arcsinh':
-            cofactor = config.get('arcsinh_cofactor', 5.0)
+            cofactor = config.get('arcsinh_cofactor', 10.0)
             return arcsinh_normalize(img, cofactor)
         elif norm_method == 'percentile_clip':
             p_low, p_high = config.get('percentile_params', (1.0, 99.0))
@@ -4224,16 +4504,23 @@ class MainWindow(QtWidgets.QMainWindow):
             
             for i, acq_id in enumerate(selected_acquisitions):
                 try:
-                    current_acq_info = next(ai for ai in self.acquisitions if ai.id == acq_id)
+                    current_acq_info = self._get_acquisition_info(acq_id)
+                    if current_acq_info is None:
+                        print(f"[main] Acquisition {acq_id} not found, skipping")
+                        continue
                     mask = self.segmentation_masks[acq_id]
                     # Prepare preprocessing parameters
                     arcsinh_enabled = normalization_config is not None and normalization_config.get('method') == 'arcsinh'
-                    cofactor = normalization_config.get('cofactor', 5.0) if normalization_config else 5.0
+                    cofactor = normalization_config.get('cofactor', 10.0) if normalization_config else 10.0
                     
                     # Pre-load image data to avoid concurrent file access
                     print(f"[main] Pre-loading image data for acquisition {acq_id}")
                     progress_dlg.update_progress(i, f"Loading acquisition {i+1}/{len(selected_acquisitions)}", f"Loading {acq_id}")
-                    img_stack = self.loader.get_all_channels(acq_id)
+                    loader = self._get_loader_for_acquisition(acq_id)
+                    if loader is None:
+                        print(f"[main] No loader found for acquisition {acq_id}, skipping")
+                        continue
+                    img_stack = loader.get_all_channels(acq_id)
                     print(f"[main] Loaded image stack shape: {img_stack.shape}")
                     
                     # Convert AcquisitionInfo to dictionary for pickling
@@ -4243,6 +4530,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         'well': current_acq_info.well,
                         'id': current_acq_info.id
                     }
+                    
+                    # Get source file path
+                    source_file = current_acq_info.source_file if hasattr(current_acq_info, 'source_file') else None
                     
                     mp_args.append((
                         acq_id, 
@@ -4254,7 +4544,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         arcsinh_enabled, 
                         cofactor,
                         denoise_source,
-                        custom_denoise_settings
+                        custom_denoise_settings,
+                        source_file
                     ))
                 except StopIteration:
                     continue
@@ -4272,10 +4563,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 with mp.Pool(processes=max_workers) as pool:
                     # Submit all tasks
                     futures = []
-                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings) in mp_args:
+                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in mp_args:
                         future = pool.apply_async(
                             extract_features_for_acquisition,
-                            (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings)
+                            (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file)
                         )
                         futures.append((acq_id, future))
                     
@@ -4304,13 +4595,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 progress_dlg.update_progress(0, "Multiprocessing failed, using sequential processing", "Processing acquisitions one by one")
                 
                 # Fallback to sequential processing
-                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings) in enumerate(mp_args):
+                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in enumerate(mp_args):
                     if progress_dlg.is_cancelled():
                         break
                     
                     try:
                         result = extract_features_for_acquisition(
-                            acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings
+                            acq_id, mask, selected_features, acq_info_dict, acq_label, img_stack, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file
                         )
                         
                         if result is not None and not result.empty:
@@ -4543,9 +4834,9 @@ class MainWindow(QtWidgets.QMainWindow):
         return features
     
     def _load_segmentation_masks(self):
-        """Load previously saved segmentation masks from a directory."""
-        if not self.current_acq_id:
-            QtWidgets.QMessageBox.warning(self, "No acquisition selected", "Please select an acquisition first.")
+        """Load previously saved segmentation masks from a directory for all ROIs."""
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.warning(self, "No acquisitions", "No acquisitions available. Please load a file first.")
             return
         
         # Ask user to select directory containing masks
@@ -4559,71 +4850,124 @@ class MainWindow(QtWidgets.QMainWindow):
         if not masks_dir:
             return
         
-        # Look for mask files for the current acquisition
-        acq_info = next(ai for ai in self.acquisitions if ai.id == self.current_acq_id)
-        safe_name = self._sanitize_filename(acq_info.name)
+        # Load masks for all acquisitions
+        loaded_count = 0
+        failed_count = 0
+        missing_acqs = []  # List of tuples: (acquisition_name, source_file_name)
+        total_cells = 0
         
-        # Try different possible filenames
-        possible_filenames = []
-        if acq_info.well:
-            safe_well = self._sanitize_filename(acq_info.well)
-            possible_filenames.append(f"{safe_name}_{safe_well}_segmentation.tiff")
-            possible_filenames.append(f"{safe_name}_{safe_well}_segmentation_masks.tif")
-        possible_filenames.append(f"{safe_name}_segmentation.tiff")
-        possible_filenames.append(f"{safe_name}_segmentation_masks.tif")
-        
-        # Find the first existing mask file
-        mask_file = None
-        for filename in possible_filenames:
-            filepath = os.path.join(masks_dir, filename)
-            if os.path.exists(filepath):
-                mask_file = filepath
-                break
-        
-        if not mask_file:
-            QtWidgets.QMessageBox.warning(
-                self, 
-                "No mask file found", 
-                f"No segmentation mask file found for acquisition '{acq_info.name}' in the selected directory.\n\n"
-                f"Looking for files matching:\n" + "\n".join(f"• {f}" for f in possible_filenames)
-            )
-            return
-        
-        try:
-            # Load the mask file
-            if _HAVE_TIFFFILE:
-                mask = tifffile.imread(mask_file)
-            else:
-                # Fallback to PIL if tifffile not available
-                from PIL import Image
-                mask = np.array(Image.open(mask_file))
+        for acq_info in self.acquisitions:
+            # Only use new format with source file prefix
+            if not acq_info.source_file:
+                # Skip acquisitions without source_file (shouldn't happen in multi-file mode)
+                source_file_name = "Unknown"
+                missing_acqs.append((acq_info.name, source_file_name))
+                continue
             
-            # Store the loaded mask
-            self.segmentation_masks[self.current_acq_id] = mask
-            # Clear colors for this acquisition so they get regenerated
-            if self.current_acq_id in self.segmentation_colors:
-                del self.segmentation_colors[self.current_acq_id]
+            safe_name = self._sanitize_filename(acq_info.name)
+            source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
+            safe_source = self._sanitize_filename(source_basename)
+            
+            # Try different possible filenames with source file prefix
+            # Format: {source_file}_{name}_{well}_segmentation.tiff
+            possible_filenames = []
+            
+            if acq_info.well:
+                safe_well = self._sanitize_filename(acq_info.well)
+                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation.tiff")
+                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation.tif")
+                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation_masks.tiff")
+                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation_masks.tif")
+            
+            possible_filenames.append(f"{safe_source}_{safe_name}_segmentation.tiff")
+            possible_filenames.append(f"{safe_source}_{safe_name}_segmentation.tif")
+            possible_filenames.append(f"{safe_source}_{safe_name}_segmentation_masks.tiff")
+            possible_filenames.append(f"{safe_source}_{safe_name}_segmentation_masks.tif")
+            
+            # Find the first existing mask file
+            mask_file = None
+            for filename in possible_filenames:
+                filepath = os.path.join(masks_dir, filename)
+                if os.path.exists(filepath):
+                    mask_file = filepath
+                    break
+            
+            if not mask_file:
+                # Store both acquisition name and source file for better reporting
+                source_file_name = os.path.basename(acq_info.source_file)
+                missing_acqs.append((acq_info.name, source_file_name))
+                continue
+            
+            try:
+                # Load the mask file
+                if _HAVE_TIFFFILE:
+                    mask = tifffile.imread(mask_file)
+                else:
+                    # Fallback to PIL if tifffile not available
+                    from PIL import Image
+                    mask = np.array(Image.open(mask_file))
+                
+                # Store the loaded mask
+                self.segmentation_masks[acq_info.id] = mask
+                # Clear colors for this acquisition so they get regenerated
+                if acq_info.id in self.segmentation_colors:
+                    del self.segmentation_colors[acq_info.id]
+                
+                loaded_count += 1
+                cell_count = len(np.unique(mask)) - 1  # Subtract 1 for background
+                total_cells += cell_count
+                
+            except Exception as e:
+                failed_count += 1
+                print(f"Error loading mask for {acq_info.name}: {e}")
+                continue
+        
+        # Enable overlay if any masks were loaded
+        if loaded_count > 0:
             self.segmentation_overlay = True
             self.segmentation_overlay_chk.setChecked(True)
-            
             # Update display
             self._view_selected()
-            
-            # Show success message
-            cell_count = len(np.unique(mask)) - 1  # Subtract 1 for background
-            QtWidgets.QMessageBox.information(
-                self, 
-                "Masks loaded successfully", 
-                f"Loaded segmentation masks from:\n{mask_file}\n\n"
-                f"Found {cell_count} cells. Overlay is now enabled."
-            )
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self, 
-                "Error loading masks", 
-                f"Failed to load segmentation masks:\n{str(e)}"
-            )
+        
+        # Show summary message
+        message_parts = []
+        if loaded_count > 0:
+            message_parts.append(f"Successfully loaded {loaded_count} mask file(s).")
+            message_parts.append(f"Total cells found: {total_cells}")
+            message_parts.append(f"Overlay is now enabled.")
+        else:
+            message_parts.append("No mask files were loaded.")
+        
+        if missing_acqs:
+            message_parts.append(f"\nNo mask files found for {len(missing_acqs)} acquisition(s).")
+            if len(missing_acqs) <= 10:
+                message_parts.append("Missing acquisitions:")
+                for acq_info in missing_acqs:
+                    if isinstance(acq_info, tuple):
+                        acq_name, source_file = acq_info
+                        message_parts.append(f"  • {acq_name} [{source_file}]")
+                    else:
+                        # Backward compatibility for old format
+                        message_parts.append(f"  • {acq_info}")
+            else:
+                message_parts.append(f"Missing acquisitions (first 10):")
+                for acq_info in missing_acqs[:10]:
+                    if isinstance(acq_info, tuple):
+                        acq_name, source_file = acq_info
+                        message_parts.append(f"  • {acq_name} [{source_file}]")
+                    else:
+                        # Backward compatibility for old format
+                        message_parts.append(f"  • {acq_info}")
+                message_parts.append(f"  ... and {len(missing_acqs) - 10} more")
+        
+        if failed_count > 0:
+            message_parts.append(f"\nFailed to load {failed_count} mask file(s) due to errors.")
+        
+        QtWidgets.QMessageBox.information(
+            self, 
+            "Mask Loading Complete", 
+            "\n".join(message_parts)
+        )
 
     def closeEvent(self, event):
         """Clean up when closing the application."""

@@ -130,7 +130,7 @@ class ExportDialog(QtWidgets.QDialog):
         arcsinh_layout.addWidget(QtWidgets.QLabel("Cofactor:"))
         self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
         self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
-        self.arcsinh_cofactor_spin.setValue(5.0)
+        self.arcsinh_cofactor_spin.setValue(10.0)
         self.arcsinh_cofactor_spin.setDecimals(1)
         arcsinh_layout.addWidget(self.arcsinh_cofactor_spin)
         arcsinh_layout.addStretch()

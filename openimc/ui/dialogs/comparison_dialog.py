@@ -244,7 +244,7 @@ class DynamicComparisonDialog(QtWidgets.QDialog):
         self.arcsinh_cofactor.setRange(0.01, 1000.0)
         self.arcsinh_cofactor.setDecimals(2)
         self.arcsinh_cofactor.setSingleStep(0.25)
-        self.arcsinh_cofactor.setValue(5.0)
+        self.arcsinh_cofactor.setValue(10.0)
         self.arcsinh_cofactor.valueChanged.connect(self._on_arcsinh_cofactor_changed)
         norm_layout.addWidget(self.arcsinh_cofactor)
         norm_layout.addStretch()

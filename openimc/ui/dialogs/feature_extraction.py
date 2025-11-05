@@ -113,7 +113,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
         self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
         self.arcsinh_cofactor_spin.setDecimals(1)
-        self.arcsinh_cofactor_spin.setValue(5.0)
+        self.arcsinh_cofactor_spin.setValue(10.0)
         self.arcsinh_cofactor_spin.setSingleStep(0.1)
         cofactor_layout.addWidget(self.arcsinh_cofactor_spin)
         cofactor_layout.addStretch()
@@ -341,7 +341,15 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.acq_list.clear()
         for acq in self.acquisitions:
             if acq.id in self.segmentation_masks:
-                item = QtWidgets.QListWidgetItem(f"{acq.name} (Well: {acq.well})" if acq.well else acq.name)
+                # Show source file name if available
+                import os
+                file_name = os.path.basename(acq.source_file) if hasattr(acq, 'source_file') and acq.source_file else None
+                label = f"{acq.name}"
+                if acq.well:
+                    label += f" (Well: {acq.well})"
+                if file_name:
+                    label += f" [{file_name}]"
+                item = QtWidgets.QListWidgetItem(label)
                 item.setData(Qt.UserRole, acq.id)
                 self.acq_list.addItem(item)
     

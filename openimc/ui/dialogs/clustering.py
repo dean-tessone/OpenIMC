@@ -12,6 +12,7 @@ from skimage.measure import regionprops
 import json
 import math
 from openimc.utils.logger import get_logger
+from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 
 # Optional seaborn for enhanced clustering visualization
 try:
@@ -35,6 +36,13 @@ try:
 except ImportError:
     _HAVE_UMAP = False
 
+# Optional HDBSCAN for density-based clustering
+try:
+    import hdbscan
+    _HAVE_HDBSCAN = True
+except ImportError:
+    _HAVE_HDBSCAN = False
+
 
 # --------------------------
 # Cell Clustering Dialog
@@ -57,6 +65,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.normalization_config = normalization_config
         self.cluster_labels = None
         self.clustered_data = None
+        self.clustered_data_unscaled = None  # Store original unscaled data for heatmap display
         self.umap_embedding = None
         self.cluster_annotation_map = {}
         self.cluster_backend_names = {}  # Store normalized names for CSV export
@@ -88,10 +97,20 @@ class CellClusteringDialog(QtWidgets.QDialog):
         clustering_types = ["Hierarchical"]
         if _HAVE_LEIDEN:
             clustering_types.append("Leiden")
+        if _HAVE_HDBSCAN:
+            clustering_types.append("HDBSCAN")
         self.clustering_type.addItems(clustering_types)
         self.clustering_type.setCurrentText("Hierarchical")
         self.clustering_type.currentTextChanged.connect(self._on_clustering_type_changed)
         options_layout.addWidget(self.clustering_type)
+        
+        # Feature scaling method (for clustering)
+        options_layout.addWidget(QtWidgets.QLabel("Feature Scaling:"))
+        self.clustering_scaling_combo = QtWidgets.QComboBox()
+        self.clustering_scaling_combo.addItems(["Z-score", "MAD (Median Absolute Deviation)"])
+        self.clustering_scaling_combo.setCurrentText("Z-score")
+        self.clustering_scaling_combo.setToolTip("Scaling method applied to features before clustering")
+        options_layout.addWidget(self.clustering_scaling_combo)
         
         # Number of clusters (only for hierarchical)
         self.n_clusters_label = QtWidgets.QLabel("Number of clusters:")
@@ -142,11 +161,56 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.leiden_options_group.setVisible(False)
         options_layout.addWidget(self.leiden_options_group)
 
+        # HDBSCAN clustering options (initially hidden)
+        self.hdbscan_options_group = QtWidgets.QGroupBox("HDBSCAN Clustering Options")
+        hdbscan_options_layout = QtWidgets.QHBoxLayout(self.hdbscan_options_group)
+        
+        # Min cluster size
+        self.min_cluster_size_label = QtWidgets.QLabel("Min cluster size:")
+        self.min_cluster_size_spinbox = QtWidgets.QSpinBox()
+        self.min_cluster_size_spinbox.setRange(2, 1000)
+        self.min_cluster_size_spinbox.setValue(10)
+        self.min_cluster_size_spinbox.setToolTip("Minimum size of clusters; smaller clusters will be discarded as noise")
+        hdbscan_options_layout.addWidget(self.min_cluster_size_label)
+        hdbscan_options_layout.addWidget(self.min_cluster_size_spinbox)
+        
+        # Min samples
+        self.min_samples_label = QtWidgets.QLabel("Min samples:")
+        self.min_samples_spinbox = QtWidgets.QSpinBox()
+        self.min_samples_spinbox.setRange(1, 100)
+        self.min_samples_spinbox.setValue(5)
+        self.min_samples_spinbox.setToolTip("Number of samples in a neighborhood for a point to be considered a core point")
+        hdbscan_options_layout.addWidget(self.min_samples_label)
+        hdbscan_options_layout.addWidget(self.min_samples_spinbox)
+        
+        # Cluster selection method (EOM vs Leaf)
+        self.cluster_selection_label = QtWidgets.QLabel("Cluster selection method:")
+        self.cluster_selection_combo = QtWidgets.QComboBox()
+        self.cluster_selection_combo.addItems(["eom", "leaf"])
+        self.cluster_selection_combo.setCurrentText("eom")
+        self.cluster_selection_combo.setToolTip("eom: Excess of Mass (default, more conservative)\nleaf: Leaf (more aggressive, creates smaller clusters)")
+        hdbscan_options_layout.addWidget(self.cluster_selection_label)
+        hdbscan_options_layout.addWidget(self.cluster_selection_combo)
+        
+        # Metric selection (only euclidean and manhattan for HDBSCAN)
+        self.metric_label = QtWidgets.QLabel("Distance metric:")
+        self.metric_combo = QtWidgets.QComboBox()
+        self.metric_combo.addItems(["euclidean", "manhattan"])
+        self.metric_combo.setCurrentText("euclidean")
+        self.metric_combo.setToolTip("Distance metric to use for clustering")
+        hdbscan_options_layout.addWidget(self.metric_label)
+        hdbscan_options_layout.addWidget(self.metric_combo)
+        
+        hdbscan_options_layout.addStretch()
+        
+        self.hdbscan_options_group.setVisible(False)
+        options_layout.addWidget(self.hdbscan_options_group)
+
         # Dendrogram mode (only for hierarchical methods)
         self.dendro_label = QtWidgets.QLabel("Dendrogram:")
         self.dendro_mode = QtWidgets.QComboBox()
         self.dendro_mode.addItems(["Rows only", "Rows and columns"]) 
-        self.dendro_mode.setCurrentText("Rows only")
+        self.dendro_mode.setCurrentText("Rows and columns")  # Default to both dendrograms
         options_layout.addWidget(self.dendro_label)
         options_layout.addWidget(self.dendro_mode)
         
@@ -199,6 +263,15 @@ class CellClusteringDialog(QtWidgets.QDialog):
             'acquisition_name', 'well', 'acquisition_id'
         ]
         available_group_cols = [c for c in candidate_cols if c in self.feature_dataframe.columns]
+        # Add source_file_acquisition_id if both source_file and acquisition_id exist
+        if 'source_file' in self.feature_dataframe.columns and 'acquisition_id' in self.feature_dataframe.columns:
+            # Create merged column if it doesn't exist
+            if 'source_file_acquisition_id' not in self.feature_dataframe.columns:
+                self.feature_dataframe['source_file_acquisition_id'] = (
+                    self.feature_dataframe['source_file'].astype(str) + '_' + 
+                    self.feature_dataframe['acquisition_id'].astype(str)
+                )
+            available_group_cols.insert(0, 'source_file_acquisition_id')
         if not available_group_cols:
             available_group_cols = ['acquisition_name'] if 'acquisition_name' in self.feature_dataframe.columns else []
         for col in available_group_cols:
@@ -239,6 +312,15 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.heatmap_filter_btn.setToolTip("Filter which clusters/phenotypes appear in the heatmap")
         self.heatmap_filter_btn.clicked.connect(self._open_heatmap_filter_dialog)
         viz_layout.addWidget(self.heatmap_filter_btn)
+
+        # Heatmap scaling selector
+        self.heatmap_scaling_label = QtWidgets.QLabel("Heatmap scaling:")
+        viz_layout.addWidget(self.heatmap_scaling_label)
+        self.heatmap_scaling_combo = QtWidgets.QComboBox()
+        self.heatmap_scaling_combo.addItems(["Z-score", "MAD (Median Absolute Deviation)", "None (no scaling)"])
+        self.heatmap_scaling_combo.setCurrentText("Z-score")  # Default to Z-score
+        self.heatmap_scaling_combo.currentTextChanged.connect(self._on_heatmap_scaling_changed)
+        viz_layout.addWidget(self.heatmap_scaling_combo)
 
         # Top N markers selector (for differential expression only)
         self.top_n_label = QtWidgets.QLabel("Top N:")
@@ -301,9 +383,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         clustering_type = self.clustering_type.currentText()
         is_leiden = clustering_type == "Leiden"
         is_hierarchical = clustering_type == "Hierarchical"
+        is_hdbscan = clustering_type == "HDBSCAN"
         
         # Show/hide Leiden options group
         self.leiden_options_group.setVisible(is_leiden)
+        
+        # Show/hide HDBSCAN options group
+        self.hdbscan_options_group.setVisible(is_hdbscan)
         
         # Show/hide hierarchical method selection
         self.hierarchical_label.setVisible(is_hierarchical)
@@ -352,6 +438,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Determine the actual clustering method
             if clustering_type == "Leiden":
                 cluster_method = "leiden"
+            elif clustering_type == "HDBSCAN":
+                cluster_method = "hdbscan"
             else:  # Hierarchical
                 cluster_method = self.hierarchical_method.currentText()
             
@@ -364,7 +452,21 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 return
             selected_columns = selector.get_selected_columns()
 
-            data = self._prepare_clustering_data(agg_method, include_morpho, selected_columns)
+            # Get scaling method
+            scaling_text = self.clustering_scaling_combo.currentText()
+            scaling_map = {
+                "Z-score": "zscore",
+                "MAD (Median Absolute Deviation)": "mad"
+            }
+            scaling_method = scaling_map.get(scaling_text, "zscore")
+            
+            result = self._prepare_clustering_data(agg_method, include_morpho, selected_columns, scaling_method)
+            
+            if result is None:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for clustering.")
+                return
+            
+            data, data_unscaled = result
             
             if data is None or data.empty:
                 QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for clustering.")
@@ -376,6 +478,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             # Perform clustering
             self.clustered_data, self.cluster_labels = self._perform_clustering(data, n_clusters, cluster_method)
+            
+            # Store unscaled data with same structure as clustered_data
+            if self.clustered_data is not None:
+                # Align unscaled data with clustered_data indices and add cluster column
+                self.clustered_data_unscaled = data_unscaled.loc[self.clustered_data.index].copy()
+                if 'cluster' in self.clustered_data.columns:
+                    self.clustered_data_unscaled['cluster'] = self.clustered_data['cluster'].values
+                # Copy any other non-feature columns from clustered_data
+                for col in self.clustered_data.columns:
+                    if col not in self.clustered_data_unscaled.columns and col != 'cluster':
+                        if col in ['acquisition_id', 'manual_phenotype']:
+                            self.clustered_data_unscaled[col] = self.clustered_data[col].values
             
             # Automatically add cluster column to main feature dataframe
             if self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
@@ -392,12 +506,22 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Log clustering operation
             logger = get_logger()
             n_clusters_found = len(np.unique(self.cluster_labels)) if self.cluster_labels is not None else n_clusters
+            
+            # Get scaling method for logging
+            scaling_text = self.clustering_scaling_combo.currentText()
+            scaling_map = {
+                "Z-score": "zscore",
+                "MAD (Median Absolute Deviation)": "mad"
+            }
+            scaling_method = scaling_map.get(scaling_text, "zscore")
+            
             params = {
                 "method": cluster_method,
                 "n_clusters": n_clusters,
                 "n_clusters_found": int(n_clusters_found),
                 "aggregation_method": agg_method,
                 "include_morphological": include_morpho,
+                "scaling_method": scaling_method,
                 "distance_metric": "euclidean",
                 "n_cells": int(len(self.clustered_data)) if self.clustered_data is not None else 0
             }
@@ -408,6 +532,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 else:
                     params["optimization_method"] = "modularity"
                 params["seed"] = 42
+            elif cluster_method == "hdbscan":
+                params["min_cluster_size"] = self.min_cluster_size_spinbox.value()
+                params["min_samples"] = self.min_samples_spinbox.value()
+                params["cluster_selection_method"] = self.cluster_selection_combo.currentText()
+                params["metric"] = self.metric_combo.currentText()
+                params["distance_metric"] = self.metric_combo.currentText()
             else:
                 params["linkage_method"] = cluster_method
             
@@ -465,8 +595,15 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Note: centroid_x and centroid_y are excluded from clustering as they are spatial coordinates
         return sorted(set(marker_cols + morpho_cols))
 
-    def _prepare_clustering_data(self, agg_method, include_morpho, selected_columns):
-        """Prepare data for clustering."""
+    def _prepare_clustering_data(self, agg_method, include_morpho, selected_columns, scaling_method="zscore"):
+        """Prepare data for clustering.
+        
+        Args:
+            agg_method: Aggregation method (not used currently)
+            include_morpho: Whether to include morphological features (not used currently)
+            selected_columns: List of column names to use for clustering
+            scaling_method: Scaling method - 'zscore' or 'mad'
+        """
         feature_cols = list(selected_columns or [])
         
         if not feature_cols:
@@ -482,39 +619,108 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Handle missing/infinite values safely
         data = data.replace([np.inf, -np.inf], np.nan).fillna(data.median(numeric_only=True))
         
-        # Normalize data (z-score) and drop any residual non-finite rows/cols
-        # Handle columns with zero variance (all values are the same)
-        data_means = data.mean()
-        data_stds = data.std(ddof=0)
-
-        # For columns with zero variance, set them to 0 (centered but not scaled)
-        zero_var_cols = data_stds == 0
-        if zero_var_cols.any():
-            # Set zero variance columns to 0 (centered)
-            data.loc[:, zero_var_cols] = 0
-            # Only normalize non-zero variance columns
-            non_zero_var_cols = ~zero_var_cols
-            if non_zero_var_cols.any():
-                # Ensure dtype compatibility by converting to float64 for calculation, then back to original dtype
-                normalized_data = (data.loc[:, non_zero_var_cols] - data_means[non_zero_var_cols]) / data_stds[non_zero_var_cols]
-                data.loc[:, non_zero_var_cols] = normalized_data.astype(data.dtypes[non_zero_var_cols])
-        else:
-            # Normalize all columns normally
-            normalized_data = (data - data_means) / data_stds
-            data = normalized_data.astype(data.dtypes)
+        # Store unscaled data for heatmap display (before scaling)
+        data_unscaled = data.copy()
         
+        # Apply selected scaling method (Z-score or MAD)
+        data = self._apply_scaling(data, scaling_method)
+        
+        # Drop any residual non-finite rows/cols
         data = data.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how='any').dropna(axis=1, how='any')
         
         # Guard: require at least 2 rows and 2 columns to compute distances
         if data.shape[0] < 2 or data.shape[1] < 2:
             return None
         
-        return data
+        # Store unscaled data, aligning indices and columns with scaled data after dropna
+        # Only keep rows and columns that remain after dropna
+        data_unscaled = data_unscaled.loc[data.index, data.columns]
+        
+        return data, data_unscaled
+    
+    def _apply_scaling(self, data, scaling_method):
+        """Apply scaling to data for UMAP.
+        
+        Args:
+            data: pandas DataFrame to scale
+            scaling_method: str, one of 'none', 'zscore', 'mad'
+        
+        Returns:
+            Scaled pandas DataFrame
+        """
+        if scaling_method == 'none':
+            return data.copy()
+        
+        data_scaled = data.copy()
+        
+        if scaling_method == 'zscore':
+            # Z-score normalization: (x - mean) / std
+            data_means = data_scaled.mean()
+            data_stds = data_scaled.std(ddof=0)
+            
+            # Handle columns with zero variance or NaN std/mean
+            zero_var_cols = (data_stds == 0) | data_stds.isna() | data_means.isna()
+            if zero_var_cols.any():
+                # Set zero variance/NaN columns to 0 (centered but not scaled)
+                data_scaled.loc[:, zero_var_cols] = 0
+                non_zero_var_cols = ~zero_var_cols
+                if non_zero_var_cols.any():
+                    normalized_data = (data_scaled.loc[:, non_zero_var_cols] - data_means[non_zero_var_cols]) / data_stds[non_zero_var_cols]
+                    data_scaled.loc[:, non_zero_var_cols] = normalized_data
+            else:
+                # Normalize all columns
+                data_scaled = (data_scaled - data_means) / data_stds
+        
+        elif scaling_method == 'mad':
+            # MAD (Median Absolute Deviation) scaling: (x - median) / MAD
+            # MAD = median(|x - median(x)|)
+            data_medians = data_scaled.median()
+            
+            # Calculate MAD for each column
+            mad_values = {}
+            for col in data_scaled.columns:
+                col_data = data_scaled[col].values
+                median_val = data_medians[col]
+                # Handle NaN median
+                if pd.isna(median_val):
+                    mad_values[col] = 0.0
+                else:
+                    mad = np.median(np.abs(col_data - median_val))
+                    # Handle NaN MAD
+                    if pd.isna(mad):
+                        mad_values[col] = 0.0
+                    else:
+                        mad_values[col] = mad
+            
+            # Convert to Series for vectorized operations
+            mad_series = pd.Series(mad_values)
+            
+            # Handle columns with zero MAD or NaN (all values are the same or invalid)
+            zero_mad_cols = (mad_series == 0) | mad_series.isna() | data_medians.isna()
+            if zero_mad_cols.any():
+                # Set zero MAD/NaN columns to 0 (centered but not scaled)
+                data_scaled.loc[:, zero_mad_cols] = 0
+                non_zero_mad_cols = ~zero_mad_cols
+                if non_zero_mad_cols.any():
+                    # Scale non-zero MAD columns
+                    for col in data_scaled.columns[non_zero_mad_cols]:
+                        data_scaled[col] = (data_scaled[col] - data_medians[col]) / mad_series[col]
+            else:
+                # Scale all columns
+                for col in data_scaled.columns:
+                    data_scaled[col] = (data_scaled[col] - data_medians[col]) / mad_series[col]
+        
+        # Handle any infinities that might have been introduced
+        data_scaled = data_scaled.replace([np.inf, -np.inf], np.nan)
+        
+        return data_scaled
     
     def _perform_clustering(self, data, n_clusters, method):
         """Perform clustering using specified method."""
         if method == "leiden":
             return self._perform_leiden_clustering(data)
+        elif method == "hdbscan":
+            return self._perform_hdbscan_clustering(data)
         else:
             return self._perform_hierarchical_clustering(data, n_clusters, method)
     
@@ -601,6 +807,42 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         return clustered_data, cluster_labels
     
+    def _perform_hdbscan_clustering(self, data):
+        """Perform HDBSCAN clustering."""
+        if not _HAVE_HDBSCAN:
+            raise ImportError("hdbscan is required for HDBSCAN clustering")
+        
+        # Get parameters from UI
+        min_cluster_size = self.min_cluster_size_spinbox.value()
+        min_samples = self.min_samples_spinbox.value()
+        cluster_selection_method = self.cluster_selection_combo.currentText()
+        metric = self.metric_combo.currentText()
+        
+        # Create HDBSCAN clusterer
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            cluster_selection_method=cluster_selection_method,
+            metric=metric,
+            core_dist_n_jobs=1  # Use single thread for stability
+        )
+        
+        # Fit and get cluster labels
+        cluster_labels = clusterer.fit_predict(data.values)
+        
+        # HDBSCAN uses -1 for noise points, convert to 0-based then 1-based
+        # First convert -1 to 0, then add 1 to all labels
+        cluster_labels = cluster_labels + 1  # -1 becomes 0, others become 1-based
+        
+        # Sort data by cluster
+        data_with_clusters = data.copy()
+        data_with_clusters['cluster'] = cluster_labels
+        
+        # Sort by cluster (noise points will be at the beginning with cluster 0)
+        clustered_data = data_with_clusters.sort_values('cluster')
+        
+        return clustered_data, cluster_labels
+    
     def _create_heatmap(self):
         """Create the heatmap visualization."""
         self.figure.clear()
@@ -614,9 +856,25 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.canvas.draw()
             return
         
+        # Get selected scaling method
+        scaling_text = "Z-score"  # Default
+        if hasattr(self, 'heatmap_scaling_combo'):
+            scaling_text = self.heatmap_scaling_combo.currentText()
+        
+        # Map UI text to method string
+        scaling_map = {
+            "Z-score": "zscore",
+            "MAD (Median Absolute Deviation)": "mad",
+            "None (no scaling)": "none"
+        }
+        scaling_method = scaling_map.get(scaling_text, "zscore")
+        
+        # Use unscaled data if available, otherwise use clustered_data
+        base_data = self.clustered_data_unscaled if self.clustered_data_unscaled is not None else self.clustered_data
+        
         # Determine source and prepare data ordering and optional grouping
         source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
-        data_to_plot = self.clustered_data.copy()
+        data_to_plot = base_data.copy()
         group_col = 'cluster'
         legend_labels = None
         if source == 'Manual Gates' and 'manual_phenotype' in data_to_plot.columns:
@@ -637,7 +895,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Clusters source: optionally filter by selected clusters (by display name or id)
             if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
                 wanted_ids = set()
-                for cid in sorted(self.clustered_data['cluster'].unique()):
+                for cid in sorted(base_data['cluster'].unique()):
                     name = self._get_cluster_display_name(cid)
                     if name in self.heatmap_filter_selection or str(cid) in self.heatmap_filter_selection:
                         wanted_ids.add(cid)
@@ -645,69 +903,184 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     data_to_plot = data_to_plot[data_to_plot['cluster'].isin(sorted(wanted_ids))]
             data_to_plot = data_to_plot.sort_values('cluster')
 
-        # Use seaborn if available, otherwise fall back to matplotlib
-        if _HAVE_SEABORN:
-            # The seaborn path internally computes source/filtering similarly
-            self._create_seaborn_heatmap()
-            return
-        
-        # Create single heatmap plot - no subplots needed
-        ax_heatmap = self.figure.add_subplot(111)
-
-        # Prepare data for heatmap (exclude grouping columns)
+        # Prepare feature columns before scaling
         feature_cols = self._select_feature_columns(data_to_plot)
-        heatmap_data = data_to_plot[feature_cols].values
-
-        # No dendrograms - just show the heatmap data as-is
-
-        # Create heatmap with user-selected colormap
-        colormap_name = self._get_colormap_name()
-        im = ax_heatmap.imshow(heatmap_data.T, aspect='auto', cmap=colormap_name, interpolation='nearest')
-
-        # Set labels only; tick order should follow row order in clustered_data
-        ax_heatmap.set_xlabel('Cells')
-        ax_heatmap.set_ylabel('Features')
-        ax_heatmap.set_yticks(np.arange(len(feature_cols)))
-        ax_heatmap.set_yticklabels(feature_cols, fontsize=6, rotation=0)
         
-        # Remove x-axis tick labels (cluster identity shown via color bar instead)
-        ax_heatmap.set_xticks([])
+        # Apply selected scaling to feature data
+        feature_data = data_to_plot[feature_cols].copy()
+        feature_data_scaled = self._apply_scaling(feature_data, scaling_method)
+        feature_data_scaled = feature_data_scaled.fillna(0)  # Handle any NaN from scaling
         
+        # Create data_to_plot with scaled features
+        data_to_plot_scaled = data_to_plot.copy()
+        for col in feature_cols:
+            if col in feature_data_scaled.columns:
+                data_to_plot_scaled[col] = feature_data_scaled[col].values
+
+        # Use Scanpy-style heatmap (replaces seaborn)
+        self._create_scanpy_style_heatmap(data_to_plot, data_to_plot_scaled, feature_cols, 
+                                          group_col, source, scaling_method)
+        return
+    
+    def _create_scanpy_style_heatmap(self, data_to_plot, data_to_plot_scaled, feature_cols, 
+                                     group_col, source, scaling_method):
+        """Create a Scanpy-style heatmap with improved layout and spacing."""
+        self.figure.clear()
         
-        # Add group color bars along x-axis
+        # Prepare heatmap data
+        heatmap_data = data_to_plot_scaled[feature_cols].values
+        
+        # Determine if dendrograms should be applied (but don't show them)
+        clustering_type = self.clustering_type.currentText() if hasattr(self, 'clustering_type') else 'Hierarchical'
+        is_leiden = clustering_type == "Leiden"
+        is_hdbscan = clustering_type == "HDBSCAN"
+        
+        # Apply clustering for reordering but don't show dendrograms
+        if is_leiden or is_hdbscan:
+            row_cluster = False
+            col_cluster = False
+            linkage_method = None
+        else:
+            row_cluster = True
+            dendro_mode = self.dendro_mode.currentText() if hasattr(self, 'dendro_mode') else "Rows and columns"
+            col_cluster = (dendro_mode == "Rows and columns")
+            linkage_method = self.hierarchical_method.currentText() if hasattr(self, 'hierarchical_method') else "ward"
+        
+        # Apply hierarchical clustering if needed (for reordering only)
+        from scipy.cluster.hierarchy import linkage, leaves_list
+        
+        row_indices = np.arange(len(feature_cols))
+        col_indices = np.arange(heatmap_data.shape[0])
+        
+        if row_cluster:
+            # Cluster features (rows)
+            row_linkage = linkage(heatmap_data.T, method=linkage_method, metric='euclidean')
+            row_indices = leaves_list(row_linkage)
+        
+        if col_cluster:
+            # Cluster cells (columns)
+            col_linkage = linkage(heatmap_data, method=linkage_method, metric='euclidean')
+            col_indices = leaves_list(col_linkage)
+        
+        # Reorder data based on clustering
+        heatmap_data_reordered = heatmap_data[np.ix_(col_indices, row_indices)]
+        feature_cols_reordered = [feature_cols[i] for i in row_indices]
+        
+        # Reorder annotation bar to match column clustering
+        group_values = data_to_plot[group_col].values
+        group_values_reordered = group_values[col_indices]
+        
+        # Create group color mapping
         unique_groups = sorted(data_to_plot[group_col].unique())
-        cluster_colors = plt.cm.Set3(np.linspace(0, 1, len(unique_groups)))
-        cluster_color_map = {gid: cluster_colors[i] for i, gid in enumerate(unique_groups)}
+        # Use a more vibrant color palette similar to Scanpy
+        cluster_colors_raw = plt.cm.Set3(np.linspace(0, 1, len(unique_groups)))
+        # Convert to RGB (remove alpha channel and ensure proper format)
+        cluster_color_map = {}
+        for i, gid in enumerate(unique_groups):
+            color = cluster_colors_raw[i]
+            # Convert to RGB tuple (remove alpha if present)
+            if len(color) == 4:
+                rgb = tuple(color[:3])
+            elif len(color) == 3:
+                rgb = tuple(color)
+            else:
+                rgb = (color[0], color[1], color[2])
+            cluster_color_map[gid] = rgb
         
-        # Create color bar for each cell
-        cell_colors = [cluster_color_map[val] for val in data_to_plot[group_col]]
+        # Create reordered cell colors for annotation bar (match column clustering)
+        # Convert to proper RGB array for imshow
+        cell_colors_rgb = [cluster_color_map[val] for val in group_values_reordered]
         
-        # Add color bar below the heatmap
-        for i, color in enumerate(cell_colors):
-            ax_heatmap.axvline(x=i, ymin=-0.05, ymax=0, color=color, linewidth=1, solid_capstyle='butt')
+        # Create layout - colorbar at top, annotation bar below, heatmap in middle, legend on right
+        gs = self.figure.add_gridspec(
+            nrows=3, ncols=2, 
+            height_ratios=[0.02, 0.06, 0.92],  # Colorbar, annotation bar, heatmap
+            width_ratios=[0.88, 0.12],  # Heatmap area, legend
+            hspace=0.03, wspace=0.02,  # Space between elements
+            left=0.15, right=0.98, top=0.88, bottom=0.12  # More top margin for colorbar label and ticks
+        )
         
-        # Adjust y-axis to make room for color bar
-        ax_heatmap.set_ylim(-0.5, len(feature_cols) - 0.5)
+        # Annotation bar below colorbar
+        ax_annotation = self.figure.add_subplot(gs[1, 0])
+        # Create a simple colored bar - convert to proper RGB array
+        annotation_array = np.array(cell_colors_rgb).reshape(1, -1, 3)
+        ax_annotation.imshow(annotation_array, aspect='auto', interpolation='nearest', extent=[0, len(cell_colors_rgb), 0, 1])
+        ax_annotation.set_xlim(0, len(cell_colors_rgb))
+        ax_annotation.set_xticks([])
+        ax_annotation.set_yticks([])
+        ax_annotation.spines['top'].set_visible(False)
+        ax_annotation.spines['right'].set_visible(False)
+        ax_annotation.spines['bottom'].set_visible(False)
+        ax_annotation.spines['left'].set_visible(False)
         
-        # Colorbar
-        cbar = self.figure.colorbar(im, ax=ax_heatmap, shrink=0.8)
-        cbar.set_label('Normalized Feature Value')
+        # Main heatmap
+        ax_heatmap = self.figure.add_subplot(gs[2, 0])
         
-        # Row dendrogram (top-left)
-        # No row dendrogram - just the heatmap
+        # Get colormap
+        colormap_name = self._get_colormap_name()
         
+        # Create heatmap with reordered data
+        im = ax_heatmap.imshow(
+            heatmap_data_reordered.T, 
+            aspect='auto', 
+            cmap=colormap_name, 
+            interpolation='nearest',
+            vmin=np.percentile(heatmap_data_reordered, 2),
+            vmax=np.percentile(heatmap_data_reordered, 98)
+        )
         
-        # (Feature list removed; top-right is optionally used for column dendrogram)
-
-        # Add legend for groups/clusters
+        # Colorbar at top (horizontal)
+        ax_cbar = self.figure.add_subplot(gs[0, 0])
+        cbar = self.figure.colorbar(im, cax=ax_cbar, orientation='horizontal')
+        # Move ticks and label to top of colorbar
+        cbar.ax.xaxis.set_ticks_position('top')
+        cbar.ax.xaxis.set_label_position('top')
+        cbar.ax.tick_params(labelsize=8, top=True, labeltop=True, bottom=False, labelbottom=False)
+        cbar.set_label('Normalized Feature Value', fontsize=8, labelpad=10)
+        
+        # Set feature labels on y-axis with proper spacing
+        n_features = len(feature_cols_reordered)
+        ax_heatmap.set_yticks(np.arange(n_features))
+        ax_heatmap.set_yticklabels(feature_cols_reordered, fontsize=8, rotation=0)
+        ax_heatmap.set_ylabel('Features', fontsize=10, fontweight='bold')
+        
+        # Ensure all labels are visible
+        ax_heatmap.tick_params(axis='y', which='major', labelsize=8, pad=2)
+        for label in ax_heatmap.get_yticklabels():
+            label.set_visible(True)
+        
+        # Remove x-axis labels (cells)
+        ax_heatmap.set_xticks([])
+        ax_heatmap.set_xlabel('Cells', fontsize=10, fontweight='bold')
+        
+        # Set proper limits
+        ax_heatmap.set_xlim(-0.5, heatmap_data_reordered.shape[0] - 0.5)
+        ax_heatmap.set_ylim(-0.5, n_features - 0.5)
+        
+        # Remove spines for cleaner look
+        ax_heatmap.spines['top'].set_visible(False)
+        ax_heatmap.spines['right'].set_visible(False)
+        ax_heatmap.spines['bottom'].set_visible(False)
+        ax_heatmap.spines['left'].set_visible(False)
+        
+        # Legend on the right
+        ax_legend = self.figure.add_subplot(gs[2, 1])
+        ax_legend.axis('off')  # Hide axes for legend area
+        
+        # Add legend for groups/clusters - vertical layout
+        # Use the same color mapping as annotation bar (sorted for consistency)
         legend_elements = []
         if source == 'Manual Gates':
-            for key, color in cluster_color_map.items():
-                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key)))
+            for key in sorted(cluster_color_map.keys()):
+                color = cluster_color_map[key]
+                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key), edgecolor='black', linewidth=0.5))
         else:
-            for key, color in cluster_color_map.items():
-                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key)))
-        self.figure.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
+            for key in sorted(cluster_color_map.keys()):
+                color = cluster_color_map[key]
+                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key), edgecolor='black', linewidth=0.5))
+        # Place legend vertically to the right of colorbar
+        ax_legend.legend(handles=legend_elements, loc='center left', frameon=True, fontsize=8, 
+                         title='Clusters' if source == 'Clusters' else 'Groups', title_fontsize=9)
         
         self.canvas.draw()
     
@@ -718,9 +1091,25 @@ class CellClusteringDialog(QtWidgets.QDialog):
             if self.clustered_data is None:
                 self._create_matplotlib_heatmap()
                 return
+            # Get selected scaling method
+            scaling_text = "Z-score"  # Default
+            if hasattr(self, 'heatmap_scaling_combo'):
+                scaling_text = self.heatmap_scaling_combo.currentText()
+            
+            # Map UI text to method string
+            scaling_map = {
+                "Z-score": "zscore",
+                "MAD (Median Absolute Deviation)": "mad",
+                "None (no scaling)": "none"
+            }
+            scaling_method = scaling_map.get(scaling_text, "zscore")
+            
+            # Use unscaled data if available, otherwise use clustered_data
+            base_data = self.clustered_data_unscaled if self.clustered_data_unscaled is not None else self.clustered_data
+            
             # Prepare data considering source/filter
             source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
-            data_to_plot = self.clustered_data.copy()
+            data_to_plot = base_data.copy()
             group_col = 'cluster'
             if source == 'Manual Gates' and 'manual_phenotype' in data_to_plot.columns:
                 groups = self._get_manual_groups_series()
@@ -733,7 +1122,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             else:
                 if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
                     wanted_ids = set()
-                    for cid in sorted(self.clustered_data['cluster'].unique()):
+                    for cid in sorted(base_data['cluster'].unique()):
                         name = self._get_cluster_display_name(cid)
                         if name in self.heatmap_filter_selection or str(cid) in self.heatmap_filter_selection:
                             wanted_ids.add(cid)
@@ -742,7 +1131,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 data_to_plot = data_to_plot.sort_values('cluster')
 
             feature_cols = self._select_feature_columns(data_to_plot)
-            heatmap_data = data_to_plot[feature_cols]
+            
+            # Apply selected scaling to feature data
+            feature_data = data_to_plot[feature_cols].copy()
+            feature_data_scaled = self._apply_scaling(feature_data, scaling_method)
+            feature_data_scaled = feature_data_scaled.fillna(0)  # Handle any NaN from scaling
+            
+            heatmap_data = feature_data_scaled
             
             # Store original feature order for y-tick labels
             original_feature_order = list(feature_cols)
@@ -758,9 +1153,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Determine clustering settings based on method
             clustering_type = self.clustering_type.currentText()
             is_leiden = clustering_type == "Leiden"
+            is_hdbscan = clustering_type == "HDBSCAN"
             
-            if is_leiden:
-                # For Leiden clustering, disable dendrograms
+            if is_leiden or is_hdbscan:
+                # For Leiden and HDBSCAN clustering, disable dendrograms
                 row_cluster = False
                 col_cluster = False
                 linkage_method = None
@@ -805,8 +1201,16 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 # When row clustering is disabled, use original feature order
                 feature_names = original_feature_order
             
+            # Ensure all feature labels are displayed - disable automatic tick limiting
             g.ax_heatmap.set_yticks(range(len(feature_names)))
-            g.ax_heatmap.set_yticklabels(feature_names, fontsize=6)
+            g.ax_heatmap.set_yticklabels(feature_names, fontsize=6, minor=False)
+            # Prevent matplotlib from automatically hiding overlapping labels
+            g.ax_heatmap.tick_params(axis='y', which='major', labelsize=6)
+            # Ensure y-axis limits show all features
+            g.ax_heatmap.set_ylim(-0.5, len(feature_names) - 0.5)
+            # Force all labels to be visible
+            for label in g.ax_heatmap.get_yticklabels():
+                label.set_visible(True)
             
             # Remove column tick labels (cells)
             g.ax_heatmap.set_xticks([])
@@ -843,18 +1247,67 @@ class CellClusteringDialog(QtWidgets.QDialog):
             ax.set_title("Heatmap")
             self.canvas.draw()
             return
+        
+        # Get selected scaling method
+        scaling_text = "Z-score"  # Default
+        if hasattr(self, 'heatmap_scaling_combo'):
+            scaling_text = self.heatmap_scaling_combo.currentText()
+        
+        # Map UI text to method string
+        scaling_map = {
+            "Z-score": "zscore",
+            "MAD (Median Absolute Deviation)": "mad",
+            "None (no scaling)": "none"
+        }
+        scaling_method = scaling_map.get(scaling_text, "zscore")
+        
+        # Use unscaled data if available, otherwise use clustered_data
+        base_data = self.clustered_data_unscaled if self.clustered_data_unscaled is not None else self.clustered_data
+        
+        # Determine source and prepare data ordering and optional grouping
+        source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
+        data_to_plot = base_data.copy()
+        group_col = 'cluster'
+        if source == 'Manual Gates' and 'manual_phenotype' in data_to_plot.columns:
+            groups = self._get_manual_groups_series()
+            if groups is not None:
+                data_to_plot = data_to_plot.copy()
+                data_to_plot['__group__'] = groups.values
+                group_col = '__group__'
+                # Apply filter by names if set
+                if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
+                    data_to_plot = self._apply_heatmap_filter(data_to_plot, group_col)
+                # Sort by group label
+                data_to_plot = data_to_plot.sort_values(group_col)
+            else:
+                group_col = 'cluster'
+        else:
+            # Clusters source: optionally filter by selected clusters (by display name or id)
+            if hasattr(self, 'heatmap_filter_selection') and self.heatmap_filter_selection:
+                wanted_ids = set()
+                for cid in sorted(base_data['cluster'].unique()):
+                    name = self._get_cluster_display_name(cid)
+                    if name in self.heatmap_filter_selection or str(cid) in self.heatmap_filter_selection:
+                        wanted_ids.add(cid)
+                if wanted_ids:
+                    data_to_plot = data_to_plot[data_to_plot['cluster'].isin(sorted(wanted_ids))]
+            data_to_plot = data_to_plot.sort_values('cluster')
+
         # Create subplots - simplified layout without cluster size bar
         gs = self.figure.add_gridspec(1, 1, hspace=0.1, wspace=0.1)
         
         # Main heatmap - use full figure area
         ax_heatmap = self.figure.add_subplot(gs[0])
         
-        # Use tight layout to maximize plot area
-        self.figure.tight_layout(pad=1.0)
+        # Prepare feature columns before scaling
+        feature_cols = self._select_feature_columns(data_to_plot)
         
-        # Prepare data for heatmap (exclude cluster column)
-        feature_cols = self._select_feature_columns(self.clustered_data)
-        heatmap_data = self.clustered_data[feature_cols].values
+        # Apply selected scaling to feature data
+        feature_data = data_to_plot[feature_cols].copy()
+        feature_data_scaled = self._apply_scaling(feature_data, scaling_method)
+        feature_data_scaled = feature_data_scaled.fillna(0)  # Handle any NaN from scaling
+        
+        heatmap_data = feature_data_scaled.values
 
         # No dendrograms - just show the heatmap data as-is
         
@@ -865,19 +1318,26 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Set labels and ticks
         ax_heatmap.set_xlabel('Cells')
         ax_heatmap.set_ylabel('Features')
+        # Ensure all feature labels are displayed - disable automatic tick limiting
         ax_heatmap.set_yticks(np.arange(len(feature_cols)))
         ax_heatmap.set_yticklabels(feature_cols, fontsize=6, rotation=0)
+        # Prevent matplotlib from automatically hiding overlapping labels
+        ax_heatmap.tick_params(axis='y', which='major', labelsize=6)
+        # Force all labels to be visible
+        for label in ax_heatmap.get_yticklabels():
+            label.set_visible(True)
         
         # Remove x-axis tick labels (cluster identity shown via color bar instead)
         ax_heatmap.set_xticks([])
         
         
-        # Add cluster color bars along x-axis
-        cluster_colors = plt.cm.Set3(np.linspace(0, 1, len(self.clustered_data['cluster'].unique())))
-        cluster_color_map = {cluster_id: cluster_colors[i] for i, cluster_id in enumerate(sorted(self.clustered_data['cluster'].unique()))}
+        # Add group color bars along x-axis
+        unique_groups = sorted(data_to_plot[group_col].unique())
+        cluster_colors = plt.cm.Set3(np.linspace(0, 1, len(unique_groups)))
+        cluster_color_map = {gid: cluster_colors[i] for i, gid in enumerate(unique_groups)}
         
         # Create color bar for each cell
-        cell_colors = [cluster_color_map[cluster_id] for cluster_id in self.clustered_data['cluster']]
+        cell_colors = [cluster_color_map[val] for val in data_to_plot[group_col]]
         
         # Add color bar below the heatmap
         for i, color in enumerate(cell_colors):
@@ -895,7 +1355,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # Cluster size bar removed - using color bars for cluster identity instead
 
-        # Add legend for groups/clusters
+        # Add legend for groups/clusters - horizontal at the top
         legend_elements = []
         if source == 'Manual Gates':
             for key, color in cluster_color_map.items():
@@ -903,7 +1363,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
         else:
             for key, color in cluster_color_map.items():
                 legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key)))
-        self.figure.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
+        # Place legend horizontally at the top of the figure
+        self.figure.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 1.02),
+                          ncol=min(len(legend_elements), 10), frameon=True, fontsize=8)
+        
+        # Adjust layout to account for legend at top - add extra top padding
+        self.figure.tight_layout(pad=1.0, rect=[0, 0, 1, 0.95])
         
         self.canvas.draw()
     
@@ -916,7 +1381,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             else:
                 label = self._get_cluster_display_name(key)
             legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=label))
-        g.fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
+        # Place legend horizontally at the top of the figure
+        g.fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 1.02), 
+                     ncol=min(len(legend_elements), 10), frameon=True, fontsize=8)
     
     def _run_umap(self):
         """Run UMAP dimensionality reduction analysis."""
@@ -957,23 +1424,54 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.figure.clear()
             self.canvas.draw()
             
+            # Allow user to choose scaling method
+            scaling_options = ["None (no scaling)", "Z-score", "MAD (Median Absolute Deviation)"]
+            scaling_method, ok = QtWidgets.QInputDialog.getItem(
+                self,
+                "UMAP Feature Scaling",
+                "Select scaling method for features:",
+                scaling_options,
+                current=2,  # Default to MAD (best for UMAP)
+                editable=False
+            )
+            if not ok:
+                return
+            
+            # Map selection to method string
+            scaling_map = {
+                "None (no scaling)": "none",
+                "Z-score": "zscore",
+                "MAD (Median Absolute Deviation)": "mad"
+            }
+            selected_scaling = scaling_map[scaling_method]
+            
+            # Apply scaling
+            data_scaled = self._apply_scaling(data, selected_scaling)
+            
+            # Handle any NaN values that might have been introduced
+            data_scaled = data_scaled.fillna(0)
+            
+            if data_scaled.empty or data_scaled.shape[0] < 2:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for UMAP analysis after scaling.")
+                return
+            
             # Allow user to choose n_neighbors
             default_n = 15
-            max_n = max(2, min(default_n, data.shape[0] - 1))
+            max_n = max(2, min(default_n, data_scaled.shape[0] - 1))
             # Simple input dialog for n_neighbors with bounds
             n_neighbors, ok = QtWidgets.QInputDialog.getInt(
                 self,
                 "UMAP n_neighbors",
-                f"Set n_neighbors (2–{max(2, data.shape[0]-1)}):",
+                f"Set n_neighbors (2–{max(2, data_scaled.shape[0]-1)}):",
                 value=max_n,
                 min=2,
-                max=max(2, data.shape[0]-1)
+                max=max(2, data_scaled.shape[0]-1)
             )
             if not ok:
                 return
             # Perform UMAP
             reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=int(n_neighbors), min_dist=0.1)
-            self.umap_embedding = reducer.fit_transform(data.values)
+            self.umap_embedding = reducer.fit_transform(data_scaled.values)
             # Persist for coloring
             self.umap_index = data.index.to_list()
             self.umap_selected_columns = list(selected_columns)
@@ -1056,6 +1554,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.heatmap_source_label.setVisible(is_heatmap)
         if hasattr(self, 'heatmap_filter_btn'):
             self.heatmap_filter_btn.setVisible(is_heatmap)
+        if hasattr(self, 'heatmap_scaling_combo'):
+            self.heatmap_scaling_combo.setVisible(is_heatmap)
+        if hasattr(self, 'heatmap_scaling_label'):
+            self.heatmap_scaling_label.setVisible(is_heatmap)
     
     def _on_colormap_changed(self, _text: str):
         """Handle colormap selection change."""
@@ -1097,6 +1599,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
 
     def _on_heatmap_source_changed(self, _text: str):
         """Refresh heatmap when the source (Clusters vs Manual Gates) changes."""
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        if view == 'Heatmap':
+            self._show_heatmap()
+    
+    def _on_heatmap_scaling_changed(self, _text: str):
+        """Refresh heatmap when the scaling method changes."""
         view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
         if view == 'Heatmap':
             self._show_heatmap()
@@ -1207,6 +1715,27 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 labels.append(self._get_cluster_display_name(cluster_id))
             # Place legend inside axes to avoid clipping
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8)
+        elif color_by == 'Source File' and 'source_file' in self.feature_dataframe.columns:
+            # Color by source file to visualize batch effects
+            if hasattr(self, 'umap_index') and self.umap_index is not None:
+                source_file_series = self.feature_dataframe.loc[self.umap_index, 'source_file']
+                source_files = source_file_series.values
+            else:
+                source_files = self.feature_dataframe['source_file'].values
+            unique_files = sorted([f for f in np.unique(source_files) if pd.notna(f)])
+            colors = plt.cm.tab20(np.linspace(0, 1, len(unique_files)))
+            file_color_map = {file_name: colors[i] for i, file_name in enumerate(unique_files)}
+            handles = []
+            labels = []
+            for file_name in unique_files:
+                mask = source_files == file_name
+                sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
+                                c=[file_color_map[file_name]],
+                                alpha=0.8, s=18, edgecolors='none')
+                handles.append(sc)
+                labels.append(str(file_name))
+            # Place legend inside axes to avoid clipping
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Source File')
         elif hasattr(self, 'umap_raw_data') and color_by in getattr(self, 'umap_selected_columns', []):
             # Continuous coloring by selected feature (aligned to UMAP order)
             vals = self.umap_raw_data[color_by].values
@@ -1233,6 +1762,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.color_by_combo.blockSignals(True)
         self.color_by_combo.clear()
         self.color_by_combo.addItem('Cluster')
+        # Add source_file if available
+        if 'source_file' in self.feature_dataframe.columns:
+            if self.color_by_combo.findText('Source File') < 0:
+                self.color_by_combo.addItem('Source File')
         for col in getattr(self, 'umap_selected_columns', []) or []:
             self.color_by_combo.addItem(col)
         # Add phenotype if available
@@ -1258,7 +1791,22 @@ class CellClusteringDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Clustering", "Please run clustering first to view stacked bars.")
             return
         group_col = self.group_by_combo.currentText() if hasattr(self, 'group_by_combo') and self.group_by_combo.count() > 0 else None
-        if not group_col or group_col not in self.feature_dataframe.columns:
+        if not group_col:
+            QtWidgets.QMessageBox.warning(self, "No Grouping", "No valid grouping column is available.")
+            return
+        
+        # Handle acquisition_id: merge with source_file to create unique identifier
+        if group_col == 'acquisition_id' and 'source_file' in self.feature_dataframe.columns:
+            # Create merged column if it doesn't exist
+            merged_col = 'source_file_acquisition_id'
+            if merged_col not in self.feature_dataframe.columns:
+                self.feature_dataframe[merged_col] = (
+                    self.feature_dataframe['source_file'].astype(str) + '_' + 
+                    self.feature_dataframe['acquisition_id'].astype(str)
+                )
+            group_col = merged_col
+        
+        if group_col not in self.feature_dataframe.columns:
             QtWidgets.QMessageBox.warning(self, "No Grouping", "No valid grouping column is available.")
             return
 
@@ -1701,17 +2249,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             default = 'stacked_bars.png'
         elif view == 'Differential Expression':
             default = 'differential_expression_heatmap.png'
-        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Plot", default,
-            "PNG Files (*.png)"
-        )
-        if not file_path:
-            return
-        try:
-            self.figure.savefig(file_path, dpi=300, bbox_inches='tight')
-            QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to: {file_path}")
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Save Error", f"Error saving plot: {str(e)}")
+        
+        if save_figure_with_options(self.figure, default, self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def _save_clustering_output(self):
         """Save clustering output as CSV with all features and labels."""

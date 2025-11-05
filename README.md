@@ -162,6 +162,8 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 
 ## Quick Start
 
+### GUI Mode
+
 ```bash
 # Start the application
 python main.py
@@ -169,6 +171,74 @@ python main.py
 # Basic workflow:
 # 1. Open .mcd file → 2. Select acquisition → 3. Run segmentation
 # 4. Extract features → 5. Perform clustering → 6. Annotate phenotypes
+```
+
+### CLI Mode (Batch Processing)
+
+OpenIMC also provides a command-line interface for HPC/batch processing without the GUI:
+
+```bash
+# Install the package to make 'openimc' command available
+pip install -e .
+
+# Or run directly as a module
+python -m openimc <command> [options]
+```
+
+#### Available Commands
+
+**1. Preprocess images** - Apply denoising and arcsinh scaling, export to OME-TIFF:
+```bash
+openimc preprocess input.mcd output/ --arcsinh --arcsinh-cofactor 10.0
+```
+
+**2. Segment cells** - Run Cellpose or watershed segmentation:
+```bash
+# Cellpose (cytoplasm channels optional for cyto3 model, will fallback to nuclear if not provided)
+openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI --model cyto3 --gpu-id 0
+
+# Cellpose with cytoplasm channels
+openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI --cytoplasm-channels CK8_CK18 --model cyto3 --gpu-id 0
+
+# Watershed (requires both nuclear and cytoplasm channels)
+openimc segment input.mcd output/ --method watershed --nuclear-channels DNA1 --cytoplasm-channels CK8_CK18
+```
+
+**3. Extract features** - Extract morphological and intensity features:
+```bash
+# Mask can be a directory (for multiple acquisitions) or single file
+openimc extract-features input.mcd features.csv --mask output/masks/ --morphological --intensity
+```
+
+**4. Cluster cells** - Perform clustering analysis:
+```bash
+# Leiden clustering (uses resolution parameter, not n-clusters)
+openimc cluster features.csv clustered_features.csv --method leiden --resolution 1.0
+
+# Hierarchical clustering (uses n-clusters)
+openimc cluster features.csv clustered_features.csv --method hierarchical --n-clusters 10
+
+# HDBSCAN clustering (automatically determines number of clusters)
+openimc cluster features.csv clustered_features.csv --method hdbscan --min-cluster-size 10
+```
+
+**5. Spatial analysis** - Build spatial graphs and detect communities:
+```bash
+openimc spatial features.csv edges.csv --radius 50 --k-neighbors 10 --detect-communities
+```
+
+**6. Generate figures** - Create visualization plots:
+```bash
+# Cluster figures
+openimc cluster-figures clustered_features.csv output/figures/ --dpi 300 --font-size 12
+
+# Spatial figures
+openimc spatial-figures features.csv output/figures/ --edges edges.csv --dpi 300
+```
+
+For detailed help on any command:
+```bash
+openimc <command> --help
 ```
 
 ## Troubleshooting

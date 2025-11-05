@@ -38,6 +38,7 @@ import matplotlib.pyplot as plt
 import random
 from collections import defaultdict
 from openimc.utils.logger import get_logger
+from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 try:
     from scipy import sparse as sp
     _HAVE_SPARSE = True
@@ -2164,10 +2165,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             tree = cKDTree(coords_um)
             
             # For each cell, find nearest neighbor of each cluster type
-            for i, cell_row in roi_df.iterrows():
+            # Use enumerate to get positional index since coords_um is zero-indexed
+            for pos_idx, (df_idx, cell_row) in enumerate(roi_df.iterrows()):
                 cell_id = int(cell_row['cell_id'])
                 cell_cluster = cell_row[cluster_col]
-                cell_coord = coords_um[i]
+                cell_coord = coords_um[pos_idx]
                 
                 # Find nearest neighbor for each cluster type
                 for target_cluster in unique_clusters:
@@ -2518,16 +2520,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Data", "No neighborhood data to save.")
             return
         
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Neighborhood Plot", "neighborhood_composition.png",
-            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
-        )
-        if filename:
-            try:
-                self.neighborhood_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+        if save_figure_with_options(self.neighborhood_canvas.figure, "neighborhood_composition.png", self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def _save_enrichment_plot(self):
         """Save the enrichment plot."""
@@ -2535,16 +2529,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Data", "No enrichment data to save.")
             return
         
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Enrichment Plot", "pairwise_enrichment.png",
-            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
-        )
-        if filename:
-            try:
-                self.enrichment_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+        if save_figure_with_options(self.enrichment_canvas.figure, "pairwise_enrichment.png", self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def _save_distance_plot(self):
         """Save the distance distribution plot."""
@@ -2552,16 +2538,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Data", "No distance data to save.")
             return
         
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Distance Plot", "distance_distributions.png",
-            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
-        )
-        if filename:
-            try:
-                self.distance_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+        if save_figure_with_options(self.distance_canvas.figure, "distance_distributions.png", self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def _save_ripley_plot(self):
         """Save the Ripley K/L plot."""
@@ -2569,16 +2547,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Data", "No Ripley data to save.")
             return
         
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Ripley Plot", "ripley_functions.png",
-            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
-        )
-        if filename:
-            try:
-                self.ripley_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+        if save_figure_with_options(self.ripley_canvas.figure, "ripley_functions.png", self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def _save_spatial_viz_plot(self):
         """Save the spatial visualization plot."""
@@ -2586,16 +2556,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Data", "No spatial visualization to save.")
             return
         
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Spatial Visualization", "spatial_visualization.png",
-            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
-        )
-        if filename:
-            try:
-                self.spatial_viz_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+        if save_figure_with_options(self.spatial_viz_canvas.figure, "spatial_visualization.png", self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def _save_community_plot(self):
         """Save the spatial community plot."""
@@ -2603,16 +2565,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "No Data", "No community analysis to save.")
             return
         
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save Community Plot", "spatial_communities.png",
-            "PNG files (*.png);;PDF files (*.pdf);;SVG files (*.svg);;All files (*.*)"
-        )
-        if filename:
-            try:
-                self.community_canvas.figure.savefig(filename, dpi=300, bbox_inches='tight')
-                QtWidgets.QMessageBox.information(self, "Success", f"Plot saved to {filename}")
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Save Error", f"Failed to save plot: {str(e)}")
+        if save_figure_with_options(self.community_canvas.figure, "spatial_communities.png", self):
+            QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
 
     def closeEvent(self, event):
         """Handle dialog closing to clean up resources."""

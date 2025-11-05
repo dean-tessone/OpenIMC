@@ -22,7 +22,7 @@ def robust_percentile_scale(arr: np.ndarray, low: float = 1.0, high: float = 99.
     return a
 
 
-def arcsinh_normalize(arr: np.ndarray, cofactor: float = 5.0) -> np.ndarray:
+def arcsinh_normalize(arr: np.ndarray, cofactor: float = 10.0) -> np.ndarray:
     a = arr.astype(np.float32, copy=False)
     return np.arcsinh(a / cofactor)
 

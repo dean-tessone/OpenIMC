@@ -212,10 +212,16 @@ class OMETIFFLoader:
         if not self._acq_map:
             raise RuntimeError("No valid OME-TIFF files found in this directory.")
 
-    def list_acquisitions(self) -> List[AcquisitionInfo]:
-        """List all acquisitions (files) in the folder."""
+    def list_acquisitions(self, source_file: Optional[str] = None) -> List[AcquisitionInfo]:
+        """List all acquisitions (files) in the folder.
+        
+        Args:
+            source_file: Optional path to the source directory (for OME-TIFF, each file is tracked separately)
+        """
         infos: List[AcquisitionInfo] = []
         for acq_id in self._acq_map:
+            # For OME-TIFF, each acquisition is a separate file, so use the file path from _acq_map
+            file_path = self._acq_map.get(acq_id, source_file)
             infos.append(
                 AcquisitionInfo(
                     id=acq_id,
@@ -226,6 +232,7 @@ class OMETIFFLoader:
                     channel_metals=self._acq_channel_metals.get(acq_id, []),
                     channel_labels=self._acq_channel_labels.get(acq_id, []),
                     metadata=self._acq_metadata.get(acq_id, {}),
+                    source_file=file_path,
                 )
             )
         return infos
