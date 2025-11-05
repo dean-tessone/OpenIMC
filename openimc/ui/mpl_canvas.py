@@ -13,7 +13,7 @@ class MplCanvas(FigureCanvas):
         super().__init__(self.fig)
         self.ax = self.fig.add_subplot(111)
 
-    def show_image(self, img: np.ndarray, title: str = "", grayscale: bool = False, show_colorbar: bool = True, raw_img: np.ndarray = None, custom_min: float = None, custom_max: float = None):
+    def show_image(self, img: np.ndarray, title: str = "", grayscale: bool = False, show_colorbar: bool = True, raw_img: np.ndarray = None, custom_min: float = None, custom_max: float = None, scale_bar_length_um: float = None, pixel_size_um: float = None):
         self.fig.clear()
         self.ax = self.fig.add_subplot(111)
 
@@ -53,9 +53,13 @@ class MplCanvas(FigureCanvas):
             cbar.set_ticks([vmin, vmax])
             cbar.set_ticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
 
+        # Draw scale bar if requested
+        if scale_bar_length_um is not None and pixel_size_um is not None and pixel_size_um > 0:
+            self._draw_scale_bar(img.shape, scale_bar_length_um, pixel_size_um)
+
         self.draw()
 
-    def show_grid(self, images: List[np.ndarray], titles: List[str], grayscale: bool = False, raw_images: List[np.ndarray] = None, custom_min: float = None, custom_max: float = None, channel_names: List[str] = None, channel_scaling: dict = None, custom_scaling_enabled: bool = False):
+    def show_grid(self, images: List[np.ndarray], titles: List[str], grayscale: bool = False, raw_images: List[np.ndarray] = None, custom_min: float = None, custom_max: float = None, channel_names: List[str] = None, channel_scaling: dict = None, custom_scaling_enabled: bool = False, scale_bar_length_um: float = None, pixel_size_um: float = None):
         n_images = len(images)
         if n_images == 0:
             return
@@ -115,6 +119,10 @@ class MplCanvas(FigureCanvas):
                 cbar = self.fig.colorbar(im, ax=ax, shrink=0.8, aspect=20)
                 cbar.set_ticks([vmin, vmax])
                 cbar.set_ticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
+            
+            # Draw scale bar on each image if requested
+            if scale_bar_length_um is not None and pixel_size_um is not None and pixel_size_um > 0:
+                self._draw_scale_bar_on_axes(img.shape, scale_bar_length_um, pixel_size_um, ax)
 
         # Set up synchronized zooming for grid view
         self._setup_synchronized_zoom()
@@ -188,5 +196,73 @@ class MplCanvas(FigureCanvas):
         for ax in self.grid_axes:
             ax._synchronized_zoom_x_callback = ax.callbacks.connect('xlim_changed', on_zoom)
             ax._synchronized_zoom_y_callback = ax.callbacks.connect('ylim_changed', on_zoom)
+    
+    def _draw_scale_bar(self, img_shape: tuple, scale_bar_length_um: float, pixel_size_um: float):
+        """Draw a scale bar on the main axes (for single image view)."""
+        self._draw_scale_bar_on_axes(img_shape, scale_bar_length_um, pixel_size_um, self.ax)
+    
+    def _draw_scale_bar_on_axes(self, img_shape: tuple, scale_bar_length_um: float, pixel_size_um: float, ax):
+        """
+        Draw a scale bar in the bottom right corner of the image.
+        
+        Args:
+            img_shape: Tuple of (height, width) or (height, width, channels)
+            scale_bar_length_um: Desired length of scale bar in micrometers
+            pixel_size_um: Size of each pixel in micrometers
+            ax: Matplotlib axes to draw on
+        """
+        # Get image dimensions (height, width)
+        height, width = img_shape[0], img_shape[1]
+        
+        # Calculate scale bar length in pixels
+        scale_bar_length_pixels = scale_bar_length_um / pixel_size_um
+        
+        # Ensure scale bar doesn't exceed image width
+        if scale_bar_length_pixels > width * 0.3:  # Limit to 30% of image width
+            scale_bar_length_pixels = width * 0.3
+            scale_bar_length_um = scale_bar_length_pixels * pixel_size_um
+        
+        # Position in bottom right corner with some margin
+        # Note: With imshow, y=0 is at the top (origin='upper' by default)
+        margin_x = width * 0.02  # 2% margin from right edge
+        margin_y = height * 0.02  # 2% margin from bottom edge
+        
+        # Scale bar position (bottom right)
+        # x coordinates: 0 to width (left to right)
+        # y coordinates: 0 to height (top to bottom, since origin='upper')
+        x_start = width - margin_x - scale_bar_length_pixels
+        x_end = width - margin_x
+        y_pos = height - margin_y  # Near bottom (y increases downward)
+        
+        # Draw scale bar (white rectangle with black border for visibility)
+        # First draw black border (slightly larger)
+        border_width = max(2, height * 0.005)  # Minimum 2 pixels, or 0.5% of image height
+        ax.plot([x_start - border_width/2, x_end + border_width/2], 
+                [y_pos - border_width/2, y_pos - border_width/2], 
+                'k-', linewidth=border_width * 2, solid_capstyle='butt', zorder=10)
+        ax.plot([x_start - border_width/2, x_end + border_width/2], 
+                [y_pos + border_width/2, y_pos + border_width/2], 
+                'k-', linewidth=border_width * 2, solid_capstyle='butt', zorder=10)
+        
+        # Draw white scale bar
+        bar_height = max(3, height * 0.008)  # Minimum 3 pixels, or 0.8% of image height
+        ax.plot([x_start, x_end], [y_pos, y_pos], 
+                'w-', linewidth=bar_height, solid_capstyle='butt', zorder=11)
+        
+        # Add label text
+        # Format the label nicely
+        if scale_bar_length_um >= 1000:
+            label = f"{scale_bar_length_um/1000:.1f} mm"
+        elif scale_bar_length_um >= 1:
+            label = f"{scale_bar_length_um:.0f} μm"
+        else:
+            label = f"{scale_bar_length_um:.2f} μm"
+        
+        # Position text directly on top of the scale bar (smaller y value = higher up)
+        text_y = y_pos - bar_height * 0.5
+        ax.text((x_start + x_end) / 2, text_y, label, 
+                ha='center', va='bottom', color='white', fontsize=10,
+                weight='bold', zorder=12,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7, edgecolor='none'))
 
 

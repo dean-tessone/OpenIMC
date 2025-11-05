@@ -204,6 +204,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
         self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
         
+        # Scale bar controls
+        self.scale_bar_chk = QtWidgets.QCheckBox("Show scale bar")
+        self.scale_bar_chk.toggled.connect(self._on_scale_bar_toggled)
+        scale_bar_layout = QtWidgets.QHBoxLayout()
+        scale_bar_layout.addWidget(QtWidgets.QLabel("Length (μm):"))
+        self.scale_bar_length_spin = QtWidgets.QDoubleSpinBox()
+        self.scale_bar_length_spin.setRange(0.1, 10000.0)
+        self.scale_bar_length_spin.setDecimals(1)
+        self.scale_bar_length_spin.setValue(10.0)
+        self.scale_bar_length_spin.setSingleStep(10.0)
+        self.scale_bar_length_spin.valueChanged.connect(self._on_scale_bar_changed)
+        scale_bar_layout.addWidget(self.scale_bar_length_spin)
+        scale_bar_layout.addStretch()
+        self.scale_bar_widget = QtWidgets.QWidget()
+        self.scale_bar_widget.setLayout(scale_bar_layout)
+        self.scale_bar_widget.setVisible(False)  # Hidden until scale bar is enabled
+        
         # Show all channels button (only visible in grid view)
         self.show_all_channels_btn = QtWidgets.QPushButton("Show all channels")
         self.show_all_channels_btn.clicked.connect(self._show_all_channels)
@@ -520,6 +537,8 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.grid_view_chk)
         v.addWidget(self.show_all_channels_btn)
         v.addWidget(self.segmentation_overlay_chk)
+        v.addWidget(self.scale_bar_chk)
+        v.addWidget(self.scale_bar_widget)
         v.addWidget(self.denoise_enable_chk)
         v.addWidget(self.denoise_frame)
         v.addWidget(self.custom_scaling_chk)
@@ -2288,9 +2307,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 titles = [f"{ch}\n{acq_subtitle}" for ch in chans]
                 if self.segmentation_overlay:
                     titles = [f"{ch}\n{acq_subtitle} (segmented)" for ch in chans]
+                
+                # Get scale bar parameters if enabled
+                scale_bar_length_um = None
+                pixel_size_um = None
+                if self.scale_bar_chk.isChecked():
+                    scale_bar_length_um = self.scale_bar_length_spin.value()
+                    pixel_size_um = self._get_pixel_size_um(self.current_acq_id)
+                
                 self.canvas.show_grid(images, titles, grayscale=grayscale, raw_images=images, 
                                     channel_names=chans, channel_scaling=self.channel_scaling, 
-                                    custom_scaling_enabled=self.custom_scaling_chk.isChecked())
+                                    custom_scaling_enabled=self.custom_scaling_chk.isChecked(),
+                                    scale_bar_length_um=scale_bar_length_um, pixel_size_um=pixel_size_um)
             
             # Restore zoom limits if we preserved them
             if self.preserve_zoom:
@@ -2389,9 +2417,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 titles = [f"{ch}\n{acq_subtitle}" for ch in selected_channels]
                 if self.segmentation_overlay:
                     titles = [f"{ch}\n{acq_subtitle} (segmented)" for ch in selected_channels]
+                
+                # Get scale bar parameters if enabled
+                scale_bar_length_um = None
+                pixel_size_um = None
+                if self.scale_bar_chk.isChecked():
+                    scale_bar_length_um = self.scale_bar_length_spin.value()
+                    pixel_size_um = self._get_pixel_size_um(self.current_acq_id)
+                
                 self.canvas.show_grid(images, titles, grayscale=grayscale, raw_images=images, 
                                     channel_names=selected_channels, channel_scaling=self.channel_scaling, 
-                                    custom_scaling_enabled=self.custom_scaling_chk.isChecked())
+                                    custom_scaling_enabled=self.custom_scaling_chk.isChecked(),
+                                    scale_bar_length_um=scale_bar_length_um, pixel_size_um=pixel_size_um)
         except Exception as e:
             print(f"Auto-load error: {e}")
 
@@ -2562,6 +2599,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 cbar.set_ticklabels([f'{vmin:.1f}', f'{vmax:.1f}'])
                 ax.set_title(title)
                 ax.axis("off")
+            
+            # Draw scale bar if enabled (for grayscale view)
+            if self.scale_bar_chk.isChecked():
+                pixel_size_um = self._get_pixel_size_um(self.current_acq_id)
+                if pixel_size_um > 0:
+                    scale_bar_length_um = self.scale_bar_length_spin.value()
+                    self.canvas._draw_scale_bar_on_axes(gray_base.shape, scale_bar_length_um, pixel_size_um, ax)
         else:
             # RGB composite with slimmer individual channel colorbars
             # Create a grid with a much shorter bottom row
@@ -2575,6 +2619,15 @@ class MainWindow(QtWidgets.QMainWindow):
             im = ax_main.imshow(rgb_img, interpolation="nearest")
             ax_main.set_title(title)
             ax_main.axis("off")
+            
+            # Draw scale bar if enabled (for RGB view)
+            if self.scale_bar_chk.isChecked():
+                pixel_size_um = self._get_pixel_size_um(self.current_acq_id)
+                if pixel_size_um > 0:
+                    scale_bar_length_um = self.scale_bar_length_spin.value()
+                    # Get image shape from the RGB stack
+                    img_shape = stack.shape[:2]  # (height, width)
+                    self.canvas._draw_scale_bar_on_axes(img_shape, scale_bar_length_um, pixel_size_um, ax_main)
             
             # Individual channel colorbars (bottom row)
             for i, (channel_name, color_name) in enumerate(zip(rgb_titles, ['Red', 'Green', 'Blue'])):
@@ -4447,6 +4500,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.segmentation_overlay_chk.setText(f"Show segmentation overlay ({cell_count} cells)")
             else:
                 self.segmentation_overlay_chk.setText("Show segmentation overlay")
+    
+    def _on_scale_bar_toggled(self, checked):
+        """Handle scale bar checkbox toggle."""
+        self.scale_bar_widget.setVisible(checked)
+        self._view_selected()
+    
+    def _on_scale_bar_changed(self):
+        """Handle scale bar length change."""
+        self._view_selected()
     
     def _extract_features(self):
         """Open feature extraction dialog and perform feature extraction."""
