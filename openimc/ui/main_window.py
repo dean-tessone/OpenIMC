@@ -104,6 +104,7 @@ from openimc.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerD
 from openimc.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
 from openimc.ui.dialogs.comparison_dialog import DynamicComparisonDialog
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
+from openimc.ui.dialogs.qc_analysis_dialog import QCAnalysisDialog
 from openimc.utils.logger import get_logger
 
 
@@ -138,6 +139,248 @@ try:
 except Exception:
     _HAVE_SCIKIT_IMAGE = False
     _HAVE_ROLLING_BALL = False
+
+# --------------------------
+# Module-level worker function for multiprocessing
+# --------------------------
+def _load_and_preprocess_acquisition_worker(task_data):
+    """
+    Worker function to load and preprocess a single acquisition for segmentation.
+    This function is isolated at module level to be picklable for multiprocessing.
+    """
+    (acq_id, acq_name, file_path, loader_type, preprocessing_config, 
+     denoise_source, custom_denoise_settings, source_file) = task_data
+    
+    try:
+        # Import inside function to ensure isolation
+        import numpy as np
+        from openimc.data.mcd_loader import MCDLoader
+        from openimc.data.ometiff_loader import OMETIFFLoader
+        from openimc.ui.utils import combine_channels, arcsinh_normalize, percentile_clip_normalize
+        
+        # Recreate loader (can't pickle loader objects)
+        loader = None
+        if loader_type == "mcd":
+            loader = MCDLoader()
+            loader.open(file_path)
+        elif loader_type == "ometiff":
+            loader = OMETIFFLoader()
+            loader.open(file_path)
+        
+        if not loader:
+            return None
+        
+        config = preprocessing_config
+        
+        # Get nuclear channels
+        nuclear_channels = config.get('nuclear_channels', [])
+        if not nuclear_channels:
+            loader.close()
+            return None
+        
+        # Get cytoplasm channels
+        cyto_channels = config.get('cyto_channels', [])
+        
+        # Helper function to apply normalization
+        def apply_normalization(img, config, channel):
+            norm_method = config.get('normalization_method', 'None')
+            if norm_method == 'None':
+                return img
+            elif norm_method == 'arcsinh':
+                cofactor = config.get('arcsinh_cofactor', 10.0)
+                return arcsinh_normalize(img, cofactor)
+            elif norm_method == 'percentile_clip':
+                p_low, p_high = config.get('percentile_params', (1.0, 99.0))
+                return percentile_clip_normalize(img, p_low, p_high)
+            return img
+        
+        # Helper function to apply custom denoising
+        def apply_custom_denoise(img, channel, custom_denoise_settings):
+            # Check if scikit-image is available
+            try:
+                from skimage import morphology
+                from skimage.filters import median, gaussian
+                from skimage.morphology import disk, footprint_rectangle
+                from skimage.restoration import denoise_nl_means, estimate_sigma
+                try:
+                    from skimage.restoration import rolling_ball as _sk_rolling_ball_worker
+                    _HAVE_ROLLING_BALL_WORKER = True
+                except Exception:
+                    _HAVE_ROLLING_BALL_WORKER = False
+                import scipy.ndimage as ndi_worker
+                _HAVE_SCIKIT_IMAGE_WORKER = True
+            except Exception:
+                _HAVE_SCIKIT_IMAGE_WORKER = False
+                _HAVE_ROLLING_BALL_WORKER = False
+            
+            if not _HAVE_SCIKIT_IMAGE_WORKER:
+                return img
+            cfg = custom_denoise_settings.get(channel) if custom_denoise_settings else None
+            if not cfg:
+                return img
+            
+            out = img.astype(np.float32, copy=False)
+            
+            # Hot pixel removal
+            hot = cfg.get("hot")
+            if hot:
+                method = hot.get("method")
+                if method == "median3":
+                    try:
+                        out = median(out, footprint=footprint_rectangle(3, 3).astype(bool))
+                    except Exception:
+                        out = ndi_worker.median_filter(out, size=3)
+                elif method == "n_sd_local_median":
+                    n_sd = float(hot.get("n_sd", 5.0))
+                    try:
+                        local_median = median(out, footprint=footprint_rectangle(3, 3).astype(bool))
+                    except Exception:
+                        local_median = ndi_worker.median_filter(out, size=3)
+                    diff = out - local_median
+                    local_var = ndi_worker.uniform_filter(diff * diff, size=3)
+                    local_std = np.sqrt(np.maximum(local_var, 1e-8))
+                    mask_hot = diff > (n_sd * local_std)
+                    out = np.where(mask_hot, local_median, out)
+            
+            # Speckle smoothing
+            speckle = cfg.get("speckle")
+            if speckle:
+                method = speckle.get("method")
+                if method == "gaussian":
+                    sigma = float(speckle.get("sigma", 0.8))
+                    out = gaussian(out, sigma=sigma, preserve_range=True)
+                elif method == "nl_means":
+                    mn, mx = float(np.min(out)), float(np.max(out))
+                    scale = mx - mn
+                    scaled = (out - mn) / scale if scale > 0 else out
+                    sigma_est = np.mean(estimate_sigma(scaled, channel_axis=None))
+                    out = denoise_nl_means(
+                        scaled,
+                        h=1.15 * sigma_est,
+                        fast_mode=True,
+                        patch_size=5,
+                        patch_distance=6,
+                        channel_axis=None,
+                    )
+                    out = out * scale + mn
+            
+            # Background subtraction
+            bg = cfg.get("background")
+            if bg:
+                method = bg.get("method")
+                radius = int(bg.get("radius", 15))
+                if method == "white_tophat":
+                    se = disk(radius)
+                    try:
+                        out = morphology.white_tophat(out, selem=se)
+                    except TypeError:
+                        out = morphology.white_tophat(out, footprint=se)
+                elif method == "black_tophat":
+                    se = disk(radius)
+                    try:
+                        out = morphology.black_tophat(out, selem=se)
+                    except TypeError:
+                        out = morphology.black_tophat(out, footprint=se)
+                elif method == "rolling_ball":
+                    if _HAVE_ROLLING_BALL_WORKER:
+                        background = _sk_rolling_ball_worker(out, radius=radius)
+                        out = out - background
+                        out = np.clip(out, 0, None)
+                    else:
+                        se = disk(radius)
+                        try:
+                            opened = morphology.opening(out, selem=se)
+                        except TypeError:
+                            opened = morphology.opening(out, footprint=se)
+                        out = out - opened
+                        out = np.clip(out, 0, None)
+            
+            # Rescale to preserve original max intensity
+            try:
+                orig_max = float(np.max(img))
+                new_max = float(np.max(out))
+                if new_max > 0 and orig_max > 0:
+                    out = out * (orig_max / new_max)
+            except Exception:
+                pass
+            
+            # Clip to dtype range if integer
+            if np.issubdtype(img.dtype, np.integer):
+                info = np.iinfo(img.dtype)
+                out = np.clip(out, info.min, info.max)
+            else:
+                out = np.clip(out, 0, None)
+            return out.astype(img.dtype, copy=False)
+        
+        # Load and normalize nuclear channels
+        nuclear_imgs = []
+        for channel in nuclear_channels:
+            img = loader.get_image(acq_id, channel)
+            if img is None:
+                continue
+            
+            # Apply denoising
+            if denoise_source == "custom" and custom_denoise_settings:
+                try:
+                    img = apply_custom_denoise(img, channel, custom_denoise_settings)
+                except Exception:
+                    pass
+            
+            # Apply normalization
+            img = apply_normalization(img, config, channel)
+            nuclear_imgs.append(img)
+        
+        if not nuclear_imgs:
+            loader.close()
+            return None
+        
+        # Combine nuclear channels
+        nuclear_combo_method = config.get('nuclear_combo_method', 'single')
+        nuclear_weights = config.get('nuclear_weights')
+        nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights)
+        
+        # Load and normalize cytoplasm channels
+        cyto_img = None
+        if cyto_channels:
+            cyto_imgs = []
+            for channel in cyto_channels:
+                img = loader.get_image(acq_id, channel)
+                if img is None:
+                    continue
+                
+                # Apply denoising
+                if denoise_source == "custom" and custom_denoise_settings:
+                    try:
+                        img = apply_custom_denoise(img, channel, custom_denoise_settings)
+                    except Exception:
+                        pass
+                
+                # Apply normalization
+                img = apply_normalization(img, config, channel)
+                cyto_imgs.append(img)
+            
+            if cyto_imgs:
+                # Combine cytoplasm channels
+                cyto_combo_method = config.get('cyto_combo_method', 'single')
+                cyto_weights = config.get('cyto_weights')
+                cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights)
+        
+        # Close loader
+        loader.close()
+        
+        # Return result with acquisition info
+        return {
+            'acq_id': acq_id,
+            'acq_name': acq_name,
+            'nuclear_img': nuclear_img,
+            'cyto_img': cyto_img,
+            'source_file': source_file
+        }
+        
+    except Exception as e:
+        print(f"Error processing acquisition {acq_name} ({acq_id}): {e}")
+        return None
+
 
 # --------------------------
 # Main Window
@@ -609,6 +852,8 @@ class MainWindow(QtWidgets.QMainWindow):
         act_clustering.triggered.connect(self._open_clustering_dialog)
         act_spatial = analysis_menu.addAction("Spatial Analysis…")
         act_spatial.triggered.connect(self._open_spatial_dialog)
+        act_qc = analysis_menu.addAction("QC Analysis…")
+        act_qc.triggered.connect(self._open_qc_dialog)
 
         # Signals
         self.open_btn.clicked.connect(self._open_dialog)
@@ -4110,7 +4355,153 @@ class MainWindow(QtWidgets.QMainWindow):
     
     
     def _load_batch_acquisitions(self, acquisitions, preprocessing_config: dict, progress_dlg, denoise_source: str = "none", custom_denoise_settings: dict = None) -> dict:
-        """Load and preprocess a batch of acquisitions efficiently."""
+        """Load and preprocess a batch of acquisitions efficiently using multiprocessing."""
+        batch_images = []
+        batch_channels = []
+        acquisition_mapping = []  # Track which images belong to which acquisition (by index in acquisition_info_list)
+        acquisition_info_list = []  # Store AcquisitionInfo objects for each successfully processed acquisition
+        
+        # Prepare arguments for multiprocessing
+        mp_args = []
+        acq_to_index_map = {}  # Map acquisition ID to index in original acquisitions list
+        
+        for idx, acq in enumerate(acquisitions):
+            acq_to_index_map[acq.id] = idx
+            
+            # Get source file path and determine loader type
+            source_file = acq.source_file if hasattr(acq, 'source_file') else None
+            
+            # Determine file path and loader type
+            if acq.id in self.acq_to_file:
+                file_path = self.acq_to_file[acq.id]
+                loader_type = "mcd"
+            elif self.current_path:
+                if os.path.isdir(self.current_path):
+                    file_path = self.current_path
+                    loader_type = "ometiff"
+                else:
+                    file_path = self.current_path
+                    loader_type = "mcd"
+            else:
+                if source_file:
+                    file_path = source_file
+                    loader_type = "mcd" if source_file.endswith('.mcd') else "ometiff"
+                else:
+                    print(f"Warning: Cannot determine file path for acquisition {acq.name}, skipping")
+                    continue
+            
+            # Normalize denoise_source: convert "Use viewer settings" to "viewer" or "none"
+            if denoise_source == "Use viewer settings":
+                # For multiprocessing, viewer denoising is not supported (requires viewer state)
+                # Use custom denoising if available, otherwise none
+                if custom_denoise_settings:
+                    denoise_source_worker = "custom"
+                else:
+                    denoise_source_worker = "none"
+            elif denoise_source == "viewer":
+                # Viewer denoising not supported in multiprocessing
+                if custom_denoise_settings:
+                    denoise_source_worker = "custom"
+                else:
+                    denoise_source_worker = "none"
+            else:
+                denoise_source_worker = denoise_source
+            
+            mp_args.append((
+                acq.id,
+                acq.name,
+                file_path,
+                loader_type,
+                preprocessing_config,
+                denoise_source_worker,
+                custom_denoise_settings,
+                source_file
+            ))
+        
+        if not mp_args:
+            return None
+        
+        # Use multiprocessing for parallel loading and preprocessing
+        max_workers = min(mp.cpu_count(), len(mp_args))
+        
+        batch_images = []
+        batch_channels = []
+        acquisition_mapping = []
+        acquisition_info_list = []
+        acq_id_to_acq_info = {acq.id: acq for acq in acquisitions}
+        
+        try:
+            with mp.Pool(processes=max_workers) as pool:
+                # Submit all tasks - each worker loads and preprocesses one acquisition
+                futures = []
+                for task_data in mp_args:
+                    future = pool.apply_async(_load_and_preprocess_acquisition_worker, (task_data,))
+                    futures.append(future)
+                
+                # Collect results as they complete
+                for future in futures:
+                    if progress_dlg and progress_dlg.is_cancelled():
+                        break
+                    
+                    try:
+                        result = future.get(timeout=600)  # 10 minute timeout per acquisition
+                        if result is None:
+                            continue
+                        
+                        acq_id = result['acq_id']
+                        acq_name = result['acq_name']
+                        nuclear_img = result['nuclear_img']
+                        cyto_img = result['cyto_img']
+                        
+                        # Get acquisition info
+                        if acq_id not in acq_id_to_acq_info:
+                            print(f"Warning: Acquisition info not found for {acq_id}")
+                            continue
+                        
+                        acq = acq_id_to_acq_info[acq_id]
+                        
+                        # Prepare input images based on model type
+                        if nuclear_img is not None:
+                            # Store the acquisition info for this processed acquisition
+                            acq_idx = len(acquisition_info_list)
+                            acquisition_info_list.append(acq)
+                            
+                            if cyto_img is not None:
+                                # Both nuclear and cytoplasm available
+                                batch_images.extend([cyto_img, nuclear_img])
+                                batch_channels.extend([0, 1])  # cyto, nuclear
+                                acquisition_mapping.extend([acq_idx, acq_idx])  # Both images belong to same acquisition
+                            else:
+                                # Only nuclear available
+                                batch_images.extend([nuclear_img, nuclear_img])
+                                batch_channels.extend([0, 0])  # nuclear, nuclear
+                                acquisition_mapping.extend([acq_idx, acq_idx])  # Both images belong to same acquisition
+                        else:
+                            print(f"Warning: No valid images for acquisition {acq_name}")
+                    except Exception as e:
+                        print(f"Error processing acquisition in multiprocessing: {e}")
+                        continue
+        
+        except Exception as e:
+            print(f"Error in multiprocessing batch loading: {e}")
+            # Fall back to sequential processing
+            return self._load_batch_acquisitions_sequential(
+                acquisitions, preprocessing_config, progress_dlg, denoise_source, custom_denoise_settings
+            )
+        
+        if not batch_images:
+            return None
+        
+        return {
+            'images': batch_images,
+            'channels': batch_channels,
+            'acquisition_mapping': acquisition_mapping,  # Contains indices into acquisition_info_list
+            'acquisition_info_list': acquisition_info_list,  # List of AcquisitionInfo objects in processing order
+            'acquisition_count': len(acquisitions)
+        }
+    
+    def _load_batch_acquisitions_sequential(self, acquisitions, preprocessing_config: dict, progress_dlg, denoise_source: str = "none", custom_denoise_settings: dict = None) -> dict:
+        """Load and preprocess a batch of acquisitions sequentially (fallback method)."""
         batch_images = []
         batch_channels = []
         acquisition_mapping = []  # Track which images belong to which acquisition (by index in acquisition_info_list)
@@ -5090,6 +5481,18 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         dlg = SpatialAnalysisDialog(self.feature_dataframe, self)
+        dlg.exec_()
+    
+    def _open_qc_dialog(self):
+        """Open the QC analysis dialog."""
+        if self.loader is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Data Loaded",
+                "Please load data first before running QC analysis."
+            )
+            return
+        dlg = QCAnalysisDialog(self)
         dlg.exec_()
 
 

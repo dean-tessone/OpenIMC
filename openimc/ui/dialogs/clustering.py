@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 from scipy.spatial.distance import pdist
+from scipy.stats import mannwhitneyu
 from skimage.measure import regionprops
 import json
 import math
@@ -72,6 +73,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
         self.llm_phenotype_cache = {}  # Cache for LLM phenotype suggestions
         self.seed = 42  # Default seed for reproducibility
+        self.statistical_results = {}  # Store statistical test results for export: {marker: [(cluster1, cluster2, p_val, adj_p_val)]}
         
         self._create_ui()
         self._setup_plot()
@@ -251,7 +253,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         viz_layout = QtWidgets.QHBoxLayout()
         viz_layout.addWidget(QtWidgets.QLabel("View:"))
         self.view_combo = QtWidgets.QComboBox()
-        self.view_combo.addItems(["Heatmap", "UMAP", "Stacked Bars", "Differential Expression"])
+        self.view_combo.addItems(["Heatmap", "UMAP", "Stacked Bars", "Differential Expression", "Boxplot/Violin Plot"])
         self.view_combo.currentTextChanged.connect(self._on_view_changed)
         viz_layout.addWidget(self.view_combo)
 
@@ -340,6 +342,53 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.top_n_spinbox.setValue(5)
         self.top_n_spinbox.valueChanged.connect(self._on_top_n_changed)
         viz_layout.addWidget(self.top_n_spinbox)
+
+        # Marker selection for boxplot/violin plot
+        self.marker_select_label = QtWidgets.QLabel("Markers:")
+        viz_layout.addWidget(self.marker_select_label)
+        self.marker_select_btn = QtWidgets.QPushButton("Select Markers...")
+        self.marker_select_btn.setToolTip("Select markers to visualize")
+        self.marker_select_btn.clicked.connect(self._open_marker_selection_dialog)
+        viz_layout.addWidget(self.marker_select_btn)
+        self.selected_markers = []  # Store selected markers
+
+        # Plot type selector (for boxplot/violin plot only)
+        self.plot_type_label = QtWidgets.QLabel("Plot type:")
+        viz_layout.addWidget(self.plot_type_label)
+        self.plot_type_combo = QtWidgets.QComboBox()
+        self.plot_type_combo.addItems(["Violin Plot", "Boxplot"])
+        self.plot_type_combo.setCurrentText("Violin Plot")
+        self.plot_type_combo.currentTextChanged.connect(self._on_plot_type_changed)
+        viz_layout.addWidget(self.plot_type_combo)
+
+        # Statistical testing checkbox (for boxplot/violin plot only)
+        self.stats_test_checkbox = QtWidgets.QCheckBox("Show statistical tests")
+        self.stats_test_checkbox.setToolTip("Perform statistical tests with BH correction")
+        self.stats_test_checkbox.setChecked(False)
+        self.stats_test_checkbox.stateChanged.connect(self._on_stats_test_changed)
+        viz_layout.addWidget(self.stats_test_checkbox)
+
+        # Statistical test mode selector
+        self.stats_mode_label = QtWidgets.QLabel("Test mode:")
+        viz_layout.addWidget(self.stats_mode_label)
+        self.stats_mode_combo = QtWidgets.QComboBox()
+        self.stats_mode_combo.addItems(["Pairwise (all pairs)", "One vs Others"])
+        self.stats_mode_combo.currentTextChanged.connect(self._on_stats_mode_changed)
+        viz_layout.addWidget(self.stats_mode_combo)
+
+        # Cluster selector for one-vs-others mode
+        self.stats_cluster_label = QtWidgets.QLabel("Reference cluster:")
+        viz_layout.addWidget(self.stats_cluster_label)
+        self.stats_cluster_combo = QtWidgets.QComboBox()
+        self.stats_cluster_combo.currentTextChanged.connect(self._on_stats_cluster_changed)
+        viz_layout.addWidget(self.stats_cluster_combo)
+
+        # Export statistical results button
+        self.stats_export_btn = QtWidgets.QPushButton("Export Stats")
+        self.stats_export_btn.setToolTip("Export statistical test results (raw and adjusted p-values)")
+        self.stats_export_btn.clicked.connect(self._export_statistical_results)
+        self.stats_export_btn.setEnabled(False)
+        viz_layout.addWidget(self.stats_export_btn)
 
         viz_layout.addStretch()
 
@@ -585,6 +634,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.annotate_btn.setEnabled(True)
             self.save_plot_btn.setEnabled(True)
             self.save_output_btn.setEnabled(True)
+            
+            # Update statistical cluster combo if it exists
+            if hasattr(self, 'stats_cluster_combo'):
+                self._update_stats_cluster_combo()
             # If UMAP was previously run, keep that available
             # Otherwise, selecting UMAP will prompt to run
 
@@ -1510,6 +1563,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.save_plot_btn.setEnabled(True)
             self.save_output_btn.setEnabled(True)
             
+            # Update statistical cluster combo if it exists
+            if hasattr(self, 'stats_cluster_combo'):
+                self._update_stats_cluster_combo()
+            
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "UMAP Error", f"Error during UMAP analysis: {str(e)}")
     
@@ -1538,6 +1595,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self._show_stacked_bars()
         elif view == 'Differential Expression':
             self._show_differential_expression()
+        elif view == 'Boxplot/Violin Plot':
+            self._show_boxplot_violin()
         
         # Force canvas refresh after view change
         self.canvas.draw()
@@ -1567,6 +1626,28 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if hasattr(self, 'top_n_label'):
             self.top_n_label.setVisible(view == 'Differential Expression')
         self.top_n_spinbox.setVisible(view == 'Differential Expression')
+        # Marker selection and plot type visible only for Boxplot/Violin Plot
+        is_boxplot_violin = view == 'Boxplot/Violin Plot'
+        if hasattr(self, 'marker_select_label'):
+            self.marker_select_label.setVisible(is_boxplot_violin)
+        if hasattr(self, 'marker_select_btn'):
+            self.marker_select_btn.setVisible(is_boxplot_violin)
+        if hasattr(self, 'plot_type_label'):
+            self.plot_type_label.setVisible(is_boxplot_violin)
+        if hasattr(self, 'plot_type_combo'):
+            self.plot_type_combo.setVisible(is_boxplot_violin)
+        if hasattr(self, 'stats_test_checkbox'):
+            self.stats_test_checkbox.setVisible(is_boxplot_violin)
+        if hasattr(self, 'stats_mode_label'):
+            self.stats_mode_label.setVisible(is_boxplot_violin)
+        if hasattr(self, 'stats_mode_combo'):
+            self.stats_mode_combo.setVisible(is_boxplot_violin)
+        if hasattr(self, 'stats_cluster_label'):
+            self.stats_cluster_label.setVisible(is_boxplot_violin)
+        if hasattr(self, 'stats_cluster_combo'):
+            self.stats_cluster_combo.setVisible(is_boxplot_violin)
+        if hasattr(self, 'stats_export_btn'):
+            self.stats_export_btn.setVisible(is_boxplot_violin)
         # Heatmap-only controls
         is_heatmap = view == 'Heatmap'
         if hasattr(self, 'heatmap_source_combo'):
@@ -1990,6 +2071,760 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error creating differential expression heatmap: {str(e)}")
+
+    def _open_marker_selection_dialog(self):
+        """Open a dialog to select markers for boxplot/violin plot visualization."""
+        if self.clustered_data is None:
+            QtWidgets.QMessageBox.warning(self, "No Clustering", "Please run clustering first to select markers.")
+            return
+        
+        # Get available marker columns
+        marker_cols = self._select_feature_columns(self.clustered_data)
+        
+        if not marker_cols:
+            QtWidgets.QMessageBox.warning(self, "No Markers", "No markers available for visualization.")
+            return
+        
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Select Markers")
+        dlg.setMinimumSize(400, 500)
+        
+        layout = QtWidgets.QVBoxLayout(dlg)
+        
+        # Instructions
+        instructions = QtWidgets.QLabel("Select markers to visualize (multiple selection allowed):")
+        layout.addWidget(instructions)
+        
+        # List widget with multi-selection
+        list_widget = QtWidgets.QListWidget()
+        list_widget.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        
+        # Add markers to list
+        for marker in sorted(marker_cols):
+            item = QtWidgets.QListWidgetItem(marker)
+            # Pre-select if already in selected_markers
+            if marker in self.selected_markers:
+                item.setSelected(True)
+            list_widget.addItem(item)
+        
+        layout.addWidget(list_widget)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        select_all_btn = QtWidgets.QPushButton("Select All")
+        clear_all_btn = QtWidgets.QPushButton("Clear All")
+        ok_btn = QtWidgets.QPushButton("OK")
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        
+        def select_all():
+            for i in range(list_widget.count()):
+                list_widget.item(i).setSelected(True)
+        
+        def clear_all():
+            for i in range(list_widget.count()):
+                list_widget.item(i).setSelected(False)
+        
+        select_all_btn.clicked.connect(select_all)
+        clear_all_btn.clicked.connect(clear_all)
+        ok_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+        
+        button_layout.addWidget(select_all_btn)
+        button_layout.addWidget(clear_all_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(ok_btn)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Get selected markers
+            selected_items = list_widget.selectedItems()
+            self.selected_markers = [item.text() for item in selected_items]
+            
+            # Refresh the plot if we're in boxplot/violin view
+            if self.view_combo.currentText() == 'Boxplot/Violin Plot':
+                self._show_boxplot_violin()
+
+    def _on_plot_type_changed(self, _text: str):
+        """Handle plot type change (boxplot vs violin plot)."""
+        # Refresh the plot if we're in boxplot/violin view and have markers selected
+        if self.view_combo.currentText() == 'Boxplot/Violin Plot':
+            self._show_boxplot_violin()
+
+    def _on_stats_test_changed(self, _state: int):
+        """Handle statistical testing checkbox change."""
+        # Update cluster combo visibility and enable export button
+        if hasattr(self, 'stats_cluster_combo') and hasattr(self, 'stats_cluster_label'):
+            is_enabled = self.stats_test_checkbox.isChecked()
+            self.stats_cluster_combo.setEnabled(is_enabled)
+            self.stats_cluster_label.setEnabled(is_enabled)
+            if is_enabled:
+                self._update_stats_cluster_combo()
+        if hasattr(self, 'stats_export_btn'):
+            self.stats_export_btn.setEnabled(self.stats_test_checkbox.isChecked() and 
+                                           len(self.statistical_results) > 0)
+        # Refresh the plot if we're in boxplot/violin view
+        if self.view_combo.currentText() == 'Boxplot/Violin Plot':
+            self._show_boxplot_violin()
+
+    def _on_stats_mode_changed(self, _text: str):
+        """Handle statistical test mode change."""
+        # Update cluster combo visibility based on mode
+        if hasattr(self, 'stats_mode_combo') and hasattr(self, 'stats_cluster_combo'):
+            is_one_vs_others = self.stats_mode_combo.currentText() == "One vs Others"
+            self.stats_cluster_combo.setVisible(is_one_vs_others)
+            if hasattr(self, 'stats_cluster_label'):
+                self.stats_cluster_label.setVisible(is_one_vs_others)
+            if is_one_vs_others:
+                self._update_stats_cluster_combo()
+        # Refresh the plot if we're in boxplot/violin view
+        if self.view_combo.currentText() == 'Boxplot/Violin Plot':
+            self._show_boxplot_violin()
+
+    def _on_stats_cluster_changed(self, _text: str):
+        """Handle reference cluster selection change for one-vs-others mode."""
+        # Refresh the plot if we're in boxplot/violin view
+        if self.view_combo.currentText() == 'Boxplot/Violin Plot':
+            self._show_boxplot_violin()
+
+    def _update_stats_cluster_combo(self):
+        """Update the cluster combo box with available clusters."""
+        if not hasattr(self, 'stats_cluster_combo'):
+            return
+        if self.clustered_data is None or 'cluster' not in self.clustered_data.columns:
+            return
+        
+        self.stats_cluster_combo.clear()
+        unique_cluster_ids = sorted(self.clustered_data['cluster'].unique())
+        for cluster_id in unique_cluster_ids:
+            cluster_name = self._get_cluster_display_name(cluster_id)
+            self.stats_cluster_combo.addItem(cluster_name, cluster_id)
+
+    def _bh_correction(self, p_values):
+        """Apply Benjamini-Hochberg correction for multiple testing.
+        
+        Args:
+            p_values: List or array of p-values
+            
+        Returns:
+            List of adjusted p-values
+        """
+        p_values = np.array(p_values)
+        n = len(p_values)
+        if n == 0:
+            return []
+        
+        # Sort p-values with their original indices
+        sorted_indices = np.argsort(p_values)
+        sorted_p = p_values[sorted_indices]
+        
+        # Apply BH correction
+        adjusted_p = np.zeros(n)
+        for i in range(n-1, -1, -1):
+            if i == n-1:
+                adjusted_p[i] = min(sorted_p[i], 1.0)
+            else:
+                adjusted_p[i] = min(min(adjusted_p[i+1], sorted_p[i] * n / (i+1)), 1.0)
+        
+        # Restore original order
+        result = np.zeros(n)
+        result[sorted_indices] = adjusted_p
+        return result.tolist()
+
+    def _perform_pairwise_tests(self, data_dict, cluster_ids, mode='pairwise', reference_cluster=None):
+        """Perform pairwise Mann-Whitney U tests.
+        
+        Args:
+            data_dict: Dictionary mapping cluster_id to array of values
+            cluster_ids: List of cluster IDs to test
+            mode: 'pairwise' for all pairs, 'one_vs_others' for one vs all others
+            reference_cluster: Cluster to compare against others (for one_vs_others mode)
+            
+        Returns:
+            List of tuples: (cluster1, cluster2, p_value, adjusted_p_value)
+        """
+        results = []
+        p_values = []
+        pairs = []
+        
+        if mode == 'one_vs_others' and reference_cluster is not None:
+            # One cluster vs all others
+            if reference_cluster not in cluster_ids:
+                return results
+            
+            data1 = data_dict[reference_cluster]
+            if len(data1) < 2:
+                return results
+            
+            for cluster2 in cluster_ids:
+                if cluster2 == reference_cluster:
+                    continue
+                data2 = data_dict[cluster2]
+                
+                # Skip if insufficient data
+                if len(data2) < 2:
+                    continue
+                
+                try:
+                    # Mann-Whitney U test (two-sided)
+                    statistic, p_value = mannwhitneyu(data1, data2, alternative='two-sided')
+                    p_values.append(p_value)
+                    pairs.append((reference_cluster, cluster2))
+                except Exception:
+                    # If test fails, skip this pair
+                    continue
+        else:
+            # All pairwise comparisons
+            for i, cluster1 in enumerate(cluster_ids):
+                for cluster2 in cluster_ids[i+1:]:
+                    data1 = data_dict[cluster1]
+                    data2 = data_dict[cluster2]
+                    
+                    # Skip if insufficient data
+                    if len(data1) < 2 or len(data2) < 2:
+                        continue
+                    
+                    try:
+                        # Mann-Whitney U test (two-sided)
+                        statistic, p_value = mannwhitneyu(data1, data2, alternative='two-sided')
+                        p_values.append(p_value)
+                        pairs.append((cluster1, cluster2))
+                    except Exception:
+                        # If test fails, skip this pair
+                        continue
+        
+        # Apply BH correction
+        if p_values:
+            adjusted_p_values = self._bh_correction(p_values)
+            
+            # Build results list
+            for (cluster1, cluster2), p_val, adj_p_val in zip(pairs, p_values, adjusted_p_values):
+                results.append((cluster1, cluster2, p_val, adj_p_val))
+        
+        return results
+
+    def _get_significance_stars(self, p_value):
+        """Convert p-value to significance stars.
+        
+        Args:
+            p_value: Adjusted p-value
+            
+        Returns:
+            String with asterisks representing significance level
+        """
+        if p_value < 0.001:
+            return '***'
+        elif p_value < 0.01:
+            return '**'
+        elif p_value < 0.05:
+            return '*'
+        else:
+            return 'ns'
+
+    def _draw_significance_bar(self, ax, x1, x2, y, text, line_height=0.02, text_offset=0.03):
+        """Draw a significance bar between two positions.
+        
+        Args:
+            ax: Matplotlib axis
+            x1, x2: X positions of the two groups
+            y: Y position for the bar
+            text: Text to display (e.g., '***')
+            line_height: Height of the bar line
+            text_offset: Offset for text above the bar (in data coordinates)
+        """
+        # Get y-axis range for proper scaling
+        y_min, y_max = ax.get_ylim()
+        y_range = y_max - y_min
+        
+        # Draw horizontal line
+        ax.plot([x1, x2], [y, y], 'k', linewidth=1)
+        # Draw vertical lines at ends
+        ax.plot([x1, x1], [y - line_height * y_range / 2, y], 'k', linewidth=1)
+        ax.plot([x2, x2], [y - line_height * y_range / 2, y], 'k', linewidth=1)
+        # Add text with proper spacing
+        ax.text((x1 + x2) / 2, y + text_offset * y_range, text, ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+    def _show_boxplot_violin(self):
+        """Show boxplot or violin plot of marker expressions by cluster."""
+        if self.clustered_data is None or 'cluster' not in self.clustered_data.columns:
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, "Please run clustering first to view boxplot/violin plots", 
+                    ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            self.canvas.draw()
+            return
+        
+        if not self.selected_markers:
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, "Please select markers to visualize\n(Click 'Select Markers...' button)", 
+                    ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            self.canvas.draw()
+            return
+        
+        try:
+            # Filter markers to only those available in the data
+            available_markers = [m for m in self.selected_markers if m in self.clustered_data.columns]
+            
+            if not available_markers:
+                self.figure.clear()
+                ax = self.figure.add_subplot(111)
+                ax.text(0.5, 0.5, "Selected markers not found in data", 
+                        ha='center', va='center', transform=ax.transAxes, fontsize=14)
+                self.canvas.draw()
+                return
+            
+            self.figure.clear()
+            
+            # Prepare data for plotting
+            plot_data = []
+            for marker in available_markers:
+                for cluster_id in sorted(self.clustered_data['cluster'].unique()):
+                    cluster_data = self.clustered_data[
+                        self.clustered_data['cluster'] == cluster_id
+                    ][marker].dropna()
+                    
+                    for value in cluster_data:
+                        plot_data.append({
+                            'Marker': marker,
+                            'Cluster': self._get_cluster_display_name(cluster_id),
+                            'Value': value
+                        })
+            
+            if not plot_data:
+                self.figure.clear()
+                ax = self.figure.add_subplot(111)
+                ax.text(0.5, 0.5, "No data available for selected markers", 
+                        ha='center', va='center', transform=ax.transAxes, fontsize=14)
+                self.canvas.draw()
+                return
+            
+            df_plot = pd.DataFrame(plot_data)
+            
+            # Get cluster colors using Set3 colormap (same as UMAP)
+            unique_cluster_ids = sorted(self.clustered_data['cluster'].unique())
+            unique_cluster_names = [self._get_cluster_display_name(cid) for cid in unique_cluster_ids]
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_cluster_ids)))
+            cluster_color_map = {cid: colors[i] for i, cid in enumerate(unique_cluster_ids)}
+            cluster_name_color_map = {name: colors[i] for i, name in enumerate(unique_cluster_names)}
+            
+            # Check if statistical testing is enabled
+            perform_stats = self.stats_test_checkbox.isChecked() if hasattr(self, 'stats_test_checkbox') else False
+            
+            # Get statistical test mode and reference cluster
+            test_mode = 'pairwise'
+            reference_cluster = None
+            if perform_stats and hasattr(self, 'stats_mode_combo'):
+                mode_text = self.stats_mode_combo.currentText()
+                if mode_text == "One vs Others":
+                    test_mode = 'one_vs_others'
+                    if hasattr(self, 'stats_cluster_combo') and self.stats_cluster_combo.count() > 0:
+                        # Get the cluster name from combo and find corresponding cluster ID
+                        ref_cluster_name = self.stats_cluster_combo.currentText()
+                        for cid in unique_cluster_ids:
+                            if self._get_cluster_display_name(cid) == ref_cluster_name:
+                                reference_cluster = ref_cluster_name  # Use cluster name for consistency
+                                break
+            
+            # Clear previous results
+            self.statistical_results = {}
+            
+            # Determine plot type
+            plot_type = self.plot_type_combo.currentText()
+            use_violin = plot_type == 'Violin Plot'
+            
+            # Use seaborn if available, otherwise matplotlib
+            if _HAVE_SEABORN and len(available_markers) > 1:
+                # Faceted plot for multiple markers
+                n_markers = len(available_markers)
+                n_cols = min(2, n_markers)
+                n_rows = (n_markers + n_cols - 1) // n_cols
+                
+                # Create faceted plot with shared x-axis but not shared y-axis
+                self.figure.clear()
+                axes = []
+                first_ax_per_col = {}  # Store first axis for each column
+                for idx, marker in enumerate(available_markers):
+                    row = idx // n_cols
+                    col = idx % n_cols
+                    pos = row * n_cols + col + 1
+                    
+                    # Create subplot with appropriate sharing
+                    if row == 0:
+                        # First row - no sharing needed
+                        ax = self.figure.add_subplot(n_rows, n_cols, pos)
+                        first_ax_per_col[col] = ax
+                    else:
+                        # Share x-axis with first subplot in same column
+                        share_ax = first_ax_per_col[col]
+                        ax = self.figure.add_subplot(n_rows, n_cols, pos, sharex=share_ax)
+                    
+                    axes.append(ax)
+                    marker_data = df_plot[df_plot['Marker'] == marker]
+                    
+                    # Create color palette ordered by cluster names in the plot
+                    cluster_order = sorted(marker_data['Cluster'].unique())
+                    palette = [cluster_name_color_map.get(cluster, 'gray') for cluster in cluster_order]
+                    
+                    if use_violin:
+                        sns.violinplot(data=marker_data, x='Cluster', y='Value', ax=ax, hue='Cluster', palette=palette, order=cluster_order, legend=False)
+                    else:
+                        sns.boxplot(data=marker_data, x='Cluster', y='Value', ax=ax, hue='Cluster', palette=palette, order=cluster_order, legend=False)
+                    
+                    # Add statistical tests if enabled
+                    if perform_stats:
+                        # Prepare data for statistical testing
+                        cluster_data_dict = {}
+                        for cluster_name in cluster_order:
+                            # Find corresponding cluster ID
+                            cluster_id = None
+                            for cid in unique_cluster_ids:
+                                if self._get_cluster_display_name(cid) == cluster_name:
+                                    cluster_id = cid
+                                    break
+                            if cluster_id is not None:
+                                cluster_data_dict[cluster_name] = marker_data[marker_data['Cluster'] == cluster_name]['Value'].values
+                        
+                        # Perform statistical tests
+                        test_results = self._perform_pairwise_tests(cluster_data_dict, cluster_order, 
+                                                                     mode=test_mode, reference_cluster=reference_cluster)
+                        
+                        # Store results for export
+                        self.statistical_results[marker] = test_results
+                        
+                        # Draw significance bars
+                        if test_results:
+                            # Get y-axis limits
+                            y_min, y_max = ax.get_ylim()
+                            y_range = y_max - y_min
+                            bar_y_start = y_max + 0.05 * y_range
+                            bar_spacing = 0.05 * y_range
+                            
+                            # Group bars by y position to avoid overlap
+                            bar_groups = {}
+                            for cluster1, cluster2, p_val, adj_p_val in test_results:
+                                if adj_p_val < 0.05:  # Only show significant results
+                                    x1 = cluster_order.index(cluster1)
+                                    x2 = cluster_order.index(cluster2)
+                                    stars = self._get_significance_stars(adj_p_val)
+                                    
+                                    # Find a suitable y position
+                                    y_pos = bar_y_start
+                                    key = (x1, x2)
+                                    if key in bar_groups:
+                                        y_pos = bar_groups[key] + bar_spacing
+                                    else:
+                                        # Check for overlap with existing bars
+                                        for existing_key, existing_y in bar_groups.items():
+                                            ex1, ex2 = existing_key
+                                            # Check if bars overlap
+                                            if not (x2 < ex1 or x1 > ex2):
+                                                y_pos = max(y_pos, existing_y + bar_spacing)
+                                    
+                                    bar_groups[key] = y_pos
+                                    # Seaborn uses 0-based positions for categorical data
+                                    self._draw_significance_bar(ax, x1, x2, y_pos, stars)
+                            
+                            # Adjust y-axis limits to accommodate significance bars
+                            if bar_groups:
+                                max_bar_y = max(bar_groups.values()) if bar_groups else bar_y_start
+                                ax.set_ylim(y_min, max_bar_y + 0.1 * y_range)
+                        
+                        # Add significance legend (only on first subplot and if stats are enabled)
+                        if idx == 0 and perform_stats:
+                            legend_text = "Significance (BH adjusted):\n* p<0.05, ** p<0.01, *** p<0.001"
+                            ax.text(0.02, 0.98, legend_text, transform=ax.transAxes, 
+                                   fontsize=7, verticalalignment='top', horizontalalignment='left',
+                                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+                    
+                    ax.set_title(marker, fontsize=10)
+                    if row == n_rows - 1:  # Only show xlabel on bottom row
+                        ax.set_xlabel('Cluster', fontsize=9)
+                    else:
+                        ax.set_xlabel('')
+                        # Hide x-axis tick labels for non-bottom rows (sharex handles this, but ensure it)
+                        plt.setp(ax.get_xticklabels(), visible=False)
+                    ax.set_ylabel('Expression Value', fontsize=9)
+                    if row == n_rows - 1:  # Only rotate x-axis labels on bottom row
+                        ax.tick_params(axis='x', rotation=45, labelsize=8)
+                    else:
+                        ax.tick_params(axis='x', labelsize=8)
+                    ax.tick_params(axis='y', labelsize=8)
+                
+                self.figure.tight_layout()
+                
+            elif _HAVE_SEABORN and len(available_markers) == 1:
+                # Single marker with seaborn
+                marker = available_markers[0]
+                marker_data = df_plot[df_plot['Marker'] == marker]
+                
+                ax = self.figure.add_subplot(111)
+                
+                # Create color palette ordered by cluster names in the plot
+                cluster_order = sorted(marker_data['Cluster'].unique())
+                palette = [cluster_name_color_map.get(cluster, 'gray') for cluster in cluster_order]
+                
+                if use_violin:
+                    sns.violinplot(data=marker_data, x='Cluster', y='Value', ax=ax, palette=palette, order=cluster_order)
+                else:
+                    sns.boxplot(data=marker_data, x='Cluster', y='Value', ax=ax, palette=palette, order=cluster_order)
+                
+                # Add statistical tests if enabled
+                if perform_stats:
+                    # Prepare data for statistical testing
+                    cluster_data_dict = {}
+                    for cluster_name in cluster_order:
+                        # Find corresponding cluster ID
+                        cluster_id = None
+                        for cid in unique_cluster_ids:
+                            if self._get_cluster_display_name(cid) == cluster_name:
+                                cluster_id = cid
+                                break
+                        if cluster_id is not None:
+                            cluster_data_dict[cluster_name] = marker_data[marker_data['Cluster'] == cluster_name]['Value'].values
+                    
+                    # Perform statistical tests
+                    test_results = self._perform_pairwise_tests(cluster_data_dict, cluster_order,
+                                                                 mode=test_mode, reference_cluster=reference_cluster)
+                    
+                    # Store results for export
+                    self.statistical_results[marker] = test_results
+                    
+                    # Draw significance bars
+                    if test_results:
+                        # Get y-axis limits
+                        y_min, y_max = ax.get_ylim()
+                        y_range = y_max - y_min
+                        bar_y_start = y_max + 0.05 * y_range
+                        bar_spacing = 0.05 * y_range
+                        
+                        # Group bars by y position to avoid overlap
+                        bar_groups = {}
+                        for cluster1, cluster2, p_val, adj_p_val in test_results:
+                            if adj_p_val < 0.05:  # Only show significant results
+                                x1 = cluster_order.index(cluster1)
+                                x2 = cluster_order.index(cluster2)
+                                stars = self._get_significance_stars(adj_p_val)
+                                
+                                # Find a suitable y position
+                                y_pos = bar_y_start
+                                key = (x1, x2)
+                                if key in bar_groups:
+                                    y_pos = bar_groups[key] + bar_spacing
+                                else:
+                                    # Check for overlap with existing bars
+                                    for existing_key, existing_y in bar_groups.items():
+                                        ex1, ex2 = existing_key
+                                        # Check if bars overlap
+                                        if not (x2 < ex1 or x1 > ex2):
+                                            y_pos = max(y_pos, existing_y + bar_spacing)
+                                
+                                    bar_groups[key] = y_pos
+                                    # Matplotlib boxplot uses the positions we set (0-based)
+                                    self._draw_significance_bar(ax, x1, x2, y_pos, stars)
+                        
+                        # Adjust y-axis limits to accommodate significance bars
+                        if bar_groups:
+                            max_bar_y = max(bar_groups.values()) if bar_groups else bar_y_start
+                            ax.set_ylim(y_min, max_bar_y + 0.1 * y_range)
+                    
+                    # Add significance legend (if stats are enabled)
+                    if perform_stats:
+                        legend_text = "Significance (BH adjusted):\n* p<0.05, ** p<0.01, *** p<0.001"
+                        ax.text(0.02, 0.98, legend_text, transform=ax.transAxes, 
+                               fontsize=7, verticalalignment='top', horizontalalignment='left',
+                               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+                
+                ax.set_title(marker, fontsize=12)
+                ax.set_xlabel('Cluster', fontsize=10)
+                ax.set_ylabel('Expression Value', fontsize=10)
+                ax.tick_params(axis='x', rotation=45, labelsize=9)
+                self.figure.tight_layout()
+                
+            else:
+                # Fallback to matplotlib if seaborn not available
+                n_markers = len(available_markers)
+                n_cols = min(2, n_markers)
+                n_rows = (n_markers + n_cols - 1) // n_cols
+                
+                for idx, marker in enumerate(available_markers):
+                    ax = self.figure.add_subplot(n_rows, n_cols, idx + 1)
+                    marker_data = df_plot[df_plot['Marker'] == marker]
+                    
+                    # Group data by cluster
+                    cluster_values = {}
+                    cluster_order = sorted(marker_data['Cluster'].unique())
+                    for cluster in cluster_order:
+                        cluster_values[cluster] = marker_data[
+                            marker_data['Cluster'] == cluster
+                        ]['Value'].values
+                    
+                    # Get colors for clusters
+                    cluster_colors = [cluster_name_color_map.get(cluster, 'gray') for cluster in cluster_order]
+                    
+                    # Create boxplot or violin-like plot
+                    if use_violin:
+                        # Simple violin plot approximation with KDE
+                        positions = range(len(cluster_values))
+                        cluster_names = list(cluster_values.keys())
+                        
+                        for i, (cluster, values) in enumerate(cluster_values.items()):
+                            if len(values) > 0:
+                                # Use kde for violin shape approximation
+                                from scipy.stats import gaussian_kde
+                                try:
+                                    kde = gaussian_kde(values)
+                                    y_range = np.linspace(values.min(), values.max(), 100)
+                                    density = kde(y_range)
+                                    # Normalize density for width
+                                    density = density / density.max() * 0.3
+                                    ax.fill_betweenx(y_range, i - density, i + density, 
+                                                     alpha=0.6, color=cluster_colors[i])
+                                except:
+                                    # Fallback to histogram if kde fails
+                                    parts = ax.violinplot([values], positions=[i], widths=0.6, showmeans=True)
+                                    for pc in parts['bodies']:
+                                        pc.set_facecolor(cluster_colors[i])
+                    else:
+                        # Boxplot
+                        positions = range(len(cluster_values))
+                        cluster_names = list(cluster_values.keys())
+                        bp = ax.boxplot(list(cluster_values.values()), positions=positions, widths=0.6)
+                        # Color the boxplot elements
+                        for i, patch in enumerate(bp['boxes']):
+                            patch.set_facecolor(cluster_colors[i])
+                            patch.set_alpha(0.7)
+                        for median in bp['medians']:
+                            median.set_color('black')
+                        for whisker in bp['whiskers']:
+                            whisker.set_color('black')
+                        for cap in bp['caps']:
+                            cap.set_color('black')
+                    
+                    # Add statistical tests if enabled
+                    if perform_stats:
+                        # Perform statistical tests
+                        test_results = self._perform_pairwise_tests(cluster_values, cluster_order,
+                                                                     mode=test_mode, reference_cluster=reference_cluster)
+                        
+                        # Store results for export
+                        self.statistical_results[marker] = test_results
+                        
+                        # Draw significance bars
+                        if test_results:
+                            # Get y-axis limits
+                            y_min, y_max = ax.get_ylim()
+                            y_range = y_max - y_min
+                            bar_y_start = y_max + 0.05 * y_range
+                            bar_spacing = 0.05 * y_range
+                            
+                            # Group bars by y position to avoid overlap
+                            bar_groups = {}
+                            for cluster1, cluster2, p_val, adj_p_val in test_results:
+                                if adj_p_val < 0.05:  # Only show significant results
+                                    x1 = cluster_order.index(cluster1)
+                                    x2 = cluster_order.index(cluster2)
+                                    stars = self._get_significance_stars(adj_p_val)
+                                    
+                                    # Find a suitable y position
+                                    y_pos = bar_y_start
+                                    key = (x1, x2)
+                                    if key in bar_groups:
+                                        y_pos = bar_groups[key] + bar_spacing
+                                    else:
+                                        # Check for overlap with existing bars
+                                        for existing_key, existing_y in bar_groups.items():
+                                            ex1, ex2 = existing_key
+                                            # Check if bars overlap
+                                            if not (x2 < ex1 or x1 > ex2):
+                                                y_pos = max(y_pos, existing_y + bar_spacing)
+                                    
+                                    bar_groups[key] = y_pos
+                                    # Seaborn uses 0-based positions for categorical data
+                                    self._draw_significance_bar(ax, x1, x2, y_pos, stars)
+                            
+                            # Adjust y-axis limits to accommodate significance bars
+                            if bar_groups:
+                                max_bar_y = max(bar_groups.values()) if bar_groups else bar_y_start
+                                ax.set_ylim(y_min, max_bar_y + 0.1 * y_range)
+                        
+                        # Add significance legend (only on first subplot and if stats are enabled)
+                        if idx == 0 and perform_stats:
+                            legend_text = "Significance (BH adjusted):\n* p<0.05, ** p<0.01, *** p<0.001"
+                            ax.text(0.02, 0.98, legend_text, transform=ax.transAxes, 
+                                   fontsize=7, verticalalignment='top', horizontalalignment='left',
+                                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+                    
+                    ax.set_xticks(range(len(cluster_values)))
+                    ax.set_xticklabels(cluster_names, rotation=45, ha='right')
+                    ax.set_title(marker, fontsize=10)
+                    ax.set_xlabel('Cluster', fontsize=9)
+                    ax.set_ylabel('Expression Value', fontsize=9)
+                
+                self.figure.tight_layout()
+            
+            self.canvas.draw()
+            
+            # Enable export button if statistical results are available
+            if hasattr(self, 'stats_export_btn'):
+                self.stats_export_btn.setEnabled(perform_stats and len(self.statistical_results) > 0)
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Error creating boxplot/violin plot: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _export_statistical_results(self):
+        """Export statistical test results to CSV file."""
+        if not self.statistical_results:
+            QtWidgets.QMessageBox.warning(self, "No Results", "No statistical test results available to export.")
+            return
+        
+        # Get default filename
+        default = "statistical_test_results.csv"
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export Statistical Test Results", default,
+            "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+        
+        try:
+            # Prepare data for export
+            export_data = []
+            for marker, results in self.statistical_results.items():
+                for cluster1, cluster2, p_value, adj_p_value in results:
+                    export_data.append({
+                        'Marker': marker,
+                        'Cluster_1': cluster1,
+                        'Cluster_2': cluster2,
+                        'P_value': p_value,
+                        'Adjusted_P_value_BH': adj_p_value,
+                        'Significant': 'Yes' if adj_p_value < 0.05 else 'No',
+                        'Significance_level': self._get_significance_stars(adj_p_value)
+                    })
+            
+            if not export_data:
+                QtWidgets.QMessageBox.warning(self, "No Results", "No statistical test results to export.")
+                return
+            
+            # Create DataFrame and save
+            df_export = pd.DataFrame(export_data)
+            df_export.to_csv(file_path, index=False)
+            
+            # Show success message
+            n_tests = len(export_data)
+            n_significant = sum(1 for r in export_data if r['Significant'] == 'Yes')
+            summary = f"Exported {n_tests} statistical test results"
+            if n_significant > 0:
+                summary += f"\n{n_significant} significant comparisons (adjusted p < 0.05)"
+            
+            QtWidgets.QMessageBox.information(self, "Export Success", 
+                                            f"Statistical test results saved to:\n{file_path}\n\n{summary}")
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Export Error", f"Error exporting statistical results: {str(e)}")
 
     def _open_gating_dialog(self):
         """Open gating rules editor and apply on save."""
