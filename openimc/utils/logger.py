@@ -256,6 +256,30 @@ class MethodsLogger:
             source_file=kwargs.get("source_file")
         )
     
+    def log_spillover_matrix(self, parameters: Dict[str, Any],
+                            donor_mapping: Dict[str, Any],
+                            **kwargs):
+        """
+        Log a spillover matrix generation operation.
+        
+        Args:
+            parameters: Computation parameters (cap, aggregate, p_low, p_high, channel_field)
+            donor_mapping: Dictionary mapping acquisitions to donor channels
+            **kwargs: Additional fields (acquisitions, output_path, notes, etc.)
+        """
+        params = parameters.copy()
+        params["donor_mapping"] = donor_mapping
+        
+        self._write_entry(
+            entry_type="spillover_matrix",
+            operation="generate_spillover_matrix",
+            parameters=params,
+            acquisitions=kwargs.get("acquisitions", []),
+            output_path=kwargs.get("output_path"),
+            notes=kwargs.get("notes"),
+            source_file=kwargs.get("source_file")
+        )
+    
     def get_log_file_path(self) -> str:
         """Get the path to the log file."""
         return self.log_file

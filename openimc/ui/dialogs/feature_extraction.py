@@ -35,7 +35,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.segmentation_masks = segmentation_masks
         self.setWindowTitle("Feature Extraction")
         self.setModal(True)
-        self.resize(700, 450)
+        self.resize(700, 500)
         
         self._create_ui()
         self._populate_acquisitions()
@@ -48,17 +48,37 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         # Initialize spillover correction
         self._spillover_matrix = None
         self._spillover_method = None
+        
+        # Initialize channel exclusion list
+        self._populate_channel_exclusion_list()
     
     def _create_ui(self):
         """Create the user interface."""
-        layout = QtWidgets.QVBoxLayout(self)
+        # Main layout
+        main_layout = QtWidgets.QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(8)
+        
+        # Create scroll area
+        scroll_area = QtWidgets.QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QtWidgets.QFrame.NoFrame)
+        
+        # Create scrollable content widget
+        scroll_content = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(scroll_content)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(8)
         
         # Top row: Acquisition selection and Output settings side by side
         top_row = QtWidgets.QHBoxLayout()
+        top_row.setSpacing(8)
         
         # Acquisition selection (left side)
         acq_group = QtWidgets.QGroupBox("Select Acquisitions")
         acq_layout = QtWidgets.QVBoxLayout(acq_group)
+        acq_layout.setContentsMargins(8, 8, 8, 8)
+        acq_layout.setSpacing(4)
         
         self.all_with_masks_chk = QtWidgets.QCheckBox("All acquisitions with segmentation masks")
         self.all_with_masks_chk.setChecked(True)
@@ -68,7 +88,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.acq_list = QtWidgets.QListWidget()
         self.acq_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
         self.acq_list.setEnabled(False)
-        self.acq_list.setMaximumHeight(120)  # Limit height
+        self.acq_list.setMaximumHeight(80)  # Reduced height
         acq_layout.addWidget(self.acq_list)
         
         top_row.addWidget(acq_group, 1)
@@ -76,8 +96,11 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         # Output settings (right side)
         output_group = QtWidgets.QGroupBox("Output Settings")
         output_layout = QtWidgets.QVBoxLayout(output_group)
+        output_layout.setContentsMargins(8, 8, 8, 8)
+        output_layout.setSpacing(4)
         
         dir_layout = QtWidgets.QHBoxLayout()
+        dir_layout.setSpacing(4)
         self.output_dir_edit = QtWidgets.QLineEdit()
         self.output_dir_edit.setPlaceholderText("Select output directory...")
         self.output_dir_edit.setReadOnly(True)
@@ -90,6 +113,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         output_layout.addLayout(dir_layout)
         
         filename_layout = QtWidgets.QHBoxLayout()
+        filename_layout.setSpacing(4)
         filename_layout.addWidget(QtWidgets.QLabel("Filename:"))
         self.filename_edit = QtWidgets.QLineEdit("cell_features.csv")
         filename_layout.addWidget(self.filename_edit)
@@ -100,13 +124,16 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         
         # Middle section: Preprocessing options (separate boxes)
         preprocess_layout = QtWidgets.QHBoxLayout()
-        preprocess_layout.setSpacing(10)
+        preprocess_layout.setSpacing(6)
         
         # Denoising (left box - happens first)
         denoise_group = QtWidgets.QGroupBox("1. Denoising")
         denoise_layout = QtWidgets.QVBoxLayout(denoise_group)
+        denoise_layout.setContentsMargins(8, 8, 8, 8)
+        denoise_layout.setSpacing(4)
         
         denoise_source_layout = QtWidgets.QHBoxLayout()
+        denoise_source_layout.setSpacing(4)
         denoise_source_layout.addWidget(QtWidgets.QLabel("Source:"))
         self.denoise_source_combo = QtWidgets.QComboBox()
         self.denoise_source_combo.addItems(["None", "Viewer", "Custom"])  # Remove ambiguous 'Segmentation' source
@@ -120,6 +147,8 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         # Spillover correction (middle box)
         spillover_group = QtWidgets.QGroupBox("2. Spillover Correction")
         spillover_layout = QtWidgets.QVBoxLayout(spillover_group)
+        spillover_layout.setContentsMargins(8, 8, 8, 8)
+        spillover_layout.setSpacing(4)
         
         self.spillover_chk = QtWidgets.QCheckBox("Enable spillover correction")
         self.spillover_chk.setChecked(False)
@@ -128,6 +157,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         spillover_layout.addWidget(self.spillover_chk)
         
         spillover_file_layout = QtWidgets.QHBoxLayout()
+        spillover_file_layout.setSpacing(4)
         spillover_file_layout.addWidget(QtWidgets.QLabel("Matrix:"))
         self.spillover_file_edit = QtWidgets.QLineEdit()
         self.spillover_file_edit.setPlaceholderText("Select spillover matrix CSV...")
@@ -145,6 +175,8 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         # Normalization (right box - arcsinh applied after feature extraction)
         norm_group = QtWidgets.QGroupBox("3. Arcsinh Scaling")
         norm_layout = QtWidgets.QVBoxLayout(norm_group)
+        norm_layout.setContentsMargins(8, 8, 8, 8)
+        norm_layout.setSpacing(4)
         
         self.normalize_chk = QtWidgets.QCheckBox("Enable arcsinh normalization")
         self.normalize_chk.setChecked(False)
@@ -152,6 +184,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         norm_layout.addWidget(self.normalize_chk)
         
         cofactor_layout = QtWidgets.QHBoxLayout()
+        cofactor_layout.setSpacing(4)
         cofactor_layout.addWidget(QtWidgets.QLabel("Cofactor:"))
         self.arcsinh_cofactor_spin = QtWidgets.QDoubleSpinBox()
         self.arcsinh_cofactor_spin.setRange(0.1, 100.0)
@@ -167,7 +200,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
             "Applied after feature extraction\n"
             "and spillover correction"
         )
-        arcsinh_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        arcsinh_note.setStyleSheet("QLabel { color: #666; font-size: 8pt; font-style: italic; }")
         arcsinh_note.setWordWrap(True)
         norm_layout.addWidget(arcsinh_note)
         
@@ -180,6 +213,8 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.custom_denoise_frame.setFrameStyle(QtWidgets.QFrame.Box)
         self.custom_denoise_frame.setVisible(False)
         custom_denoise_layout = QtWidgets.QVBoxLayout(self.custom_denoise_frame)
+        custom_denoise_layout.setContentsMargins(8, 8, 8, 8)
+        custom_denoise_layout.setSpacing(4)
         
         # Channel selection
         denoise_channel_row = QtWidgets.QHBoxLayout()
@@ -275,13 +310,18 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         # Feature selection with tabs
         feature_group = QtWidgets.QGroupBox("Select Features to Extract")
         feature_layout = QtWidgets.QVBoxLayout(feature_group)
+        feature_layout.setContentsMargins(8, 8, 8, 8)
+        feature_layout.setSpacing(4)
         
         # Create tab widget for features
         self.feature_tabs = QtWidgets.QTabWidget()
+        self.feature_tabs.setMaximumHeight(140)  # Limit height of feature tabs
         
         # Morphology features tab
         morph_tab = QtWidgets.QWidget()
         morph_layout = QtWidgets.QVBoxLayout(morph_tab)
+        morph_layout.setContentsMargins(4, 4, 4, 4)
+        morph_layout.setSpacing(2)
         
         self.morph_features = {
             'area_um2': QtWidgets.QCheckBox("Area (μm²)"),
@@ -303,8 +343,11 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         
         # Create two columns for morphology features
         morph_cols = QtWidgets.QHBoxLayout()
+        morph_cols.setSpacing(8)
         morph_left = QtWidgets.QVBoxLayout()
+        morph_left.setSpacing(2)
         morph_right = QtWidgets.QVBoxLayout()
+        morph_right.setSpacing(2)
         
         morph_keys = list(self.morph_features.keys())
         mid_point = len(morph_keys) // 2
@@ -325,6 +368,8 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         # Intensity features tab
         intensity_tab = QtWidgets.QWidget()
         intensity_layout = QtWidgets.QVBoxLayout(intensity_tab)
+        intensity_layout.setContentsMargins(4, 4, 4, 4)
+        intensity_layout.setSpacing(2)
         
         self.intensity_features = {
             'mean': QtWidgets.QCheckBox("Mean intensity"),
@@ -339,8 +384,11 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         
         # Create two columns for intensity features
         intensity_cols = QtWidgets.QHBoxLayout()
+        intensity_cols.setSpacing(8)
         intensity_left = QtWidgets.QVBoxLayout()
+        intensity_left.setSpacing(2)
         intensity_right = QtWidgets.QVBoxLayout()
+        intensity_right.setSpacing(2)
         
         intensity_keys = list(self.intensity_features.keys())
         mid_point = len(intensity_keys) // 2
@@ -361,8 +409,45 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         feature_layout.addWidget(self.feature_tabs)
         layout.addWidget(feature_group)
         
-        # Buttons
+        # Channel exclusion section
+        channel_exclusion_group = QtWidgets.QGroupBox("Channel Exclusion")
+        channel_exclusion_layout = QtWidgets.QVBoxLayout(channel_exclusion_group)
+        channel_exclusion_layout.setContentsMargins(8, 8, 8, 8)
+        channel_exclusion_layout.setSpacing(4)
+        
+        info_label = QtWidgets.QLabel(
+            "Channels with low variance across ROIs are suggested for exclusion.\n"
+            "You can manually select additional channels to exclude from feature extraction."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("QLabel { color: #666; font-size: 8pt; }")
+        channel_exclusion_layout.addWidget(info_label)
+        
+        # List widget for channel selection
+        self.channel_exclusion_list = QtWidgets.QListWidget()
+        self.channel_exclusion_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        self.channel_exclusion_list.setMaximumHeight(100)  # Reduced height
+        channel_exclusion_layout.addWidget(self.channel_exclusion_list)
+        
+        # Button to calculate variance and suggest channels
+        self.calculate_variance_btn = QtWidgets.QPushButton("Calculate Variance & Suggest Channels")
+        self.calculate_variance_btn.clicked.connect(self._calculate_variance_and_suggest)
+        channel_exclusion_layout.addWidget(self.calculate_variance_btn)
+        
+        layout.addWidget(channel_exclusion_group)
+        
+        # Store excluded channels
+        self.excluded_channels = set()
+        
+        # Set scroll content widget
+        scroll_area.setWidget(scroll_content)
+        
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll_area)
+        
+        # Buttons (outside scroll area)
         button_layout = QtWidgets.QHBoxLayout()
+        button_layout.setSpacing(8)
         self.extract_btn = QtWidgets.QPushButton("Extract Features")
         self.extract_btn.clicked.connect(self.accept)
         self.cancel_btn = QtWidgets.QPushButton("Cancel")
@@ -370,7 +455,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         
         button_layout.addWidget(self.extract_btn)
         button_layout.addWidget(self.cancel_btn)
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
     
     def _populate_acquisitions(self):
         """Populate the acquisition list with acquisitions that have masks."""
@@ -682,3 +767,181 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
                 'method': self._spillover_method or 'pgd'
             }
         return None
+    
+    def _populate_channel_exclusion_list(self):
+        """Populate the channel exclusion list with available channels."""
+        # Get channels from the first acquisition that has masks
+        channels = []
+        for acq in self.acquisitions:
+            if acq.id in self.segmentation_masks:
+                # Get channels from parent (MainWindow)
+                parent = self.parent()
+                if hasattr(parent, 'loader') and hasattr(parent, 'current_acq_id'):
+                    # Temporarily set current acquisition to get channels
+                    original_acq_id = parent.current_acq_id
+                    parent.current_acq_id = acq.id
+                    try:
+                        channels = parent.loader.get_channels(acq.id)
+                        break
+                    finally:
+                        parent.current_acq_id = original_acq_id
+        
+        self.channel_exclusion_list.clear()
+        for ch in channels:
+            item = QtWidgets.QListWidgetItem(ch)
+            item.setData(Qt.UserRole, ch)
+            self.channel_exclusion_list.addItem(item)
+    
+    def _calculate_variance_and_suggest(self):
+        """Calculate variance across ROIs for each channel and suggest low-variance channels."""
+        # Get the first acquisition that has masks
+        first_acq = None
+        first_acq_id = None
+        for acq in self.acquisitions:
+            if acq.id in self.segmentation_masks:
+                first_acq = acq
+                first_acq_id = acq.id
+                break
+        
+        if not first_acq or not first_acq_id:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Acquisition",
+                "No acquisition with segmentation mask found for variance calculation."
+            )
+            return
+        
+        # Get parent window to access loader
+        parent = self.parent()
+        if not hasattr(parent, 'loader'):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Loader",
+                "Cannot access data loader for variance calculation."
+            )
+            return
+        
+        try:
+            # Temporarily set current acquisition
+            original_acq_id = parent.current_acq_id
+            parent.current_acq_id = first_acq_id
+            
+            # Get channels and image data
+            channels = parent.loader.get_channels(first_acq_id)
+            mask = self.segmentation_masks[first_acq_id]
+            
+            # Get image stack (use first acquisition for variance calculation)
+            img_stack = parent.loader.get_all_channels(first_acq_id)
+            
+            # Restore original acquisition
+            parent.current_acq_id = original_acq_id
+            
+            # Calculate variance across ROIs for each channel
+            import numpy as np
+            from skimage.measure import regionprops_table
+            
+            # Ensure mask is int labels
+            label_image = mask.astype(np.int32, copy=False)
+            unique_labels = np.unique(label_image[label_image > 0])
+            
+            if len(unique_labels) == 0:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "No ROIs",
+                    "No ROIs found in segmentation mask for variance calculation."
+                )
+                return
+            
+            # Calculate mean intensity per ROI per channel
+            channel_variances = {}
+            
+            for idx, ch_name in enumerate(channels):
+                ch_img = img_stack[..., idx]
+                
+                # Get mean intensity per ROI
+                roi_means = []
+                for lbl in unique_labels:
+                    mask_lbl = (label_image == lbl)
+                    pix = ch_img[mask_lbl]
+                    if pix.size > 0:
+                        roi_means.append(float(np.mean(pix)))
+                
+                if len(roi_means) > 1:
+                    # Calculate coefficient of variation (CV = std/mean) as a measure of variance
+                    roi_means_arr = np.array(roi_means)
+                    mean_val = np.mean(roi_means_arr)
+                    std_val = np.std(roi_means_arr)
+                    cv = std_val / (mean_val + 1e-8)  # Coefficient of variation
+                    channel_variances[ch_name] = {
+                        'cv': cv,
+                        'std': std_val,
+                        'mean': mean_val
+                    }
+                else:
+                    # If only one ROI, set variance to 0
+                    channel_variances[ch_name] = {
+                        'cv': 0.0,
+                        'std': 0.0,
+                        'mean': float(roi_means[0]) if roi_means else 0.0
+                    }
+            
+            # Sort channels by CV (coefficient of variation)
+            sorted_channels = sorted(channel_variances.items(), key=lambda x: x[1]['cv'])
+            
+            # Suggest bottom 20% of channels (lowest variance) for exclusion
+            num_to_suggest = max(1, int(len(sorted_channels) * 0.2))
+            suggested_channels = {ch for ch, _ in sorted_channels[:num_to_suggest]}
+            
+            # Update the list widget with variance information and suggestions
+            self.channel_exclusion_list.clear()
+            self.excluded_channels.clear()
+            
+            for ch_name, var_info in sorted_channels:
+                cv = var_info['cv']
+                item_text = f"{ch_name} (CV: {cv:.4f})"
+                if ch_name in suggested_channels:
+                    item_text += " [Suggested]"
+                
+                item = QtWidgets.QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, ch_name)
+                
+                # Pre-select suggested channels
+                if ch_name in suggested_channels:
+                    item.setSelected(True)
+                    self.excluded_channels.add(ch_name)
+                
+                self.channel_exclusion_list.addItem(item)
+            
+            # Update button text to show completion
+            self.calculate_variance_btn.setText("✓ Variance Calculated")
+            self.calculate_variance_btn.setStyleSheet("QPushButton { background-color: #d4edda; color: #155724; }")
+            
+            # Show message with suggestion
+            QtWidgets.QMessageBox.information(
+                self,
+                "Variance Calculated",
+                f"Calculated variance across {len(unique_labels)} ROIs.\n"
+                f"Suggested {len(suggested_channels)} channel(s) with low variance for exclusion:\n"
+                f"{', '.join(sorted(suggested_channels))}"
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to calculate variance:\n{str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
+    
+    def get_excluded_channels(self):
+        """Get the set of excluded channel names."""
+        # Update excluded channels from current selection
+        self.excluded_channels.clear()
+        for i in range(self.channel_exclusion_list.count()):
+            item = self.channel_exclusion_list.item(i)
+            if item.isSelected():
+                ch_name = item.data(Qt.UserRole)
+                if ch_name:
+                    self.excluded_channels.add(ch_name)
+        return self.excluded_channels

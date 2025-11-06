@@ -114,6 +114,7 @@ def extract_features_for_acquisition(
     custom_denoise_settings: Dict = None,
     spillover_config: Optional[Dict] = None,
     source_file: Optional[str] = None,
+    excluded_channels: Optional[set] = None,
 ) -> pd.DataFrame:
     """Module-level worker that extracts features for a single acquisition.
 
@@ -207,9 +208,27 @@ def extract_features_for_acquisition(
 
         # Intensity features per channel (subset: mean, std, p10, p90, integrated)
         channel_names: List[str] = acq_info.get("channels", [])
-        print(f"[feature_worker] Computing intensity features for {len(channel_names)} channels")
-        for idx, ch_name in enumerate(channel_names):
-            ch_img = img_stack[..., idx]
+        
+        # Filter out excluded channels
+        if excluded_channels:
+            excluded_channels_set = excluded_channels if isinstance(excluded_channels, set) else set(excluded_channels)
+            # Create filtered channel list and mapping
+            filtered_channels = []
+            channel_indices = []
+            for idx, ch_name in enumerate(channel_names):
+                if ch_name not in excluded_channels_set:
+                    filtered_channels.append(ch_name)
+                    channel_indices.append(idx)
+            channel_names = filtered_channels
+            print(f"[feature_worker] Excluding {len(excluded_channels_set)} channels from feature extraction")
+            print(f"[feature_worker] Computing intensity features for {len(channel_names)} channels (after exclusion)")
+        else:
+            channel_indices = list(range(len(channel_names)))
+            print(f"[feature_worker] Computing intensity features for {len(channel_names)} channels")
+        
+        for filtered_idx, original_idx in enumerate(channel_indices):
+            ch_name = channel_names[filtered_idx]
+            ch_img = img_stack[..., original_idx]
             if ch_img.ndim != 2:
                 print(f"[feature_worker] Warning: channel {ch_name} has invalid shape {ch_img.shape}")
             # Mean intensity via regionprops_table
@@ -356,6 +375,7 @@ def load_and_extract_features(
     custom_denoise_settings: Dict = None,
     spillover_config: Optional[Dict] = None,
     source_file: Optional[str] = None,
+    excluded_channels: Optional[set] = None,
 ) -> pd.DataFrame:
     """Load image data and extract features in a single worker process.
     
@@ -396,7 +416,8 @@ def load_and_extract_features(
             denoise_source=denoise_source,
             custom_denoise_settings=custom_denoise_settings,
             spillover_config=spillover_config,
-            source_file=source_file
+            source_file=source_file,
+            excluded_channels=excluded_channels
         )
         
     except Exception as e:

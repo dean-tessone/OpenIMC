@@ -16,6 +16,7 @@ from openimc.processing.spillover_matrix import build_spillover_from_comp_mcd
 from openimc.ui.dialogs.progress_dialog import ProgressDialog
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.data.mcd_loader import MCDLoader
+from openimc.utils.logger import get_logger
 
 # Optional seaborn for better heatmap styling
 try:
@@ -65,6 +66,9 @@ class GenerateSpilloverMatrixDialog(QtWidgets.QDialog):
         self.acquisitions = []
         self.channels = []
         self._filtering_in_progress = False  # Guard flag to prevent recursion
+        self.mcd_file_path = None  # Store MCD file path for logging
+        self.last_computation_params = None  # Store parameters for logging
+        self.last_donor_mapping = None  # Store mapping for logging
         
         self.setWindowTitle("Generate Spillover Matrix")
         self.setModal(True)
@@ -313,6 +317,7 @@ class GenerateSpilloverMatrixDialog(QtWidgets.QDialog):
         
         if file_path:
             self.mcd_file_edit.setText(file_path)
+            self.mcd_file_path = file_path
             self._load_mcd_file(file_path)
     
     def _load_mcd_file(self, file_path: str):
@@ -641,6 +646,21 @@ class GenerateSpilloverMatrixDialog(QtWidgets.QDialog):
         p_high = self.p_high_spin.value()
         channel_field = self.channel_field_combo.currentText()
         
+        # Store parameters and mapping for logging
+        self.last_computation_params = {
+            "cap": cap,
+            "aggregate": aggregate,
+            "p_low": p_low,
+            "p_high": p_high,
+            "channel_field": channel_field
+        }
+        # Store mapping with both index and ID mappings for logging
+        # Keep original integer keys for index mapping
+        self.last_donor_mapping = {
+            "_by_index": mapping_by_index.copy(),
+            "_by_id": {str(k): str(v) for k, v in mapping_by_id.items()}
+        }
+        
         # Show progress dialog
         progress = ProgressDialog("Computing spillover matrix from MCD file...", self)
         progress.show()
@@ -687,6 +707,37 @@ class GenerateSpilloverMatrixDialog(QtWidgets.QDialog):
             f"Non-zero off-diagonal entries: {n_nonzero}"
         )
         self.info_label.setStyleSheet("QLabel { color: #006600; font-size: 9pt; }")
+        
+        # Log to methods log
+        if self.last_computation_params and self.last_donor_mapping:
+            logger = get_logger()
+            # Get acquisition IDs
+            acquisition_ids = [acq.id for acq in self.acquisitions] if self.acquisitions else []
+            # Get source file name
+            source_file = os.path.basename(self.mcd_file_path) if self.mcd_file_path else None
+            
+            # Create a readable representation of the donor mapping
+            # Show the mapping by index (most reliable) and include human-readable acquisition info
+            readable_mapping = {}
+            mapping_by_index = self.last_donor_mapping.get('_by_index', {})
+            for i, acq in enumerate(self.acquisitions):
+                # Check if this acquisition index has a donor mapping
+                if i in mapping_by_index:
+                    donor_ch = mapping_by_index[i]
+                    acq_name = acq.well if acq.well else acq.name
+                    acq_id = acq.id
+                    readable_mapping[acq_id] = {
+                        "acquisition_name": acq_name,
+                        "donor_channel": donor_ch
+                    }
+            
+            logger.log_spillover_matrix(
+                parameters=self.last_computation_params,
+                donor_mapping=readable_mapping,
+                acquisitions=acquisition_ids,
+                notes=f"Generated {n_channels}x{n_channels} spillover matrix with {n_nonzero} non-zero off-diagonal entries",
+                source_file=source_file
+            )
     
     def _on_matrix_error(self, msg: str, progress: ProgressDialog):
         """Handle matrix computation error."""

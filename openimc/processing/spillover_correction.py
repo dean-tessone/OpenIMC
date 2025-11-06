@@ -244,3 +244,87 @@ def compensate_image_counts(
     
     return result.astype(np.float32)
 
+
+def comp_image_counts(
+    img_counts: np.ndarray,          # H x W x C (raw counts)
+    sm_adapted: pd.DataFrame,        # rows/cols = channel_order; diag=1
+    method: Literal["nnls", "pgd"] = "pgd",
+    tile_hw: Optional[Tuple[int, int]] = None,   # e.g., (512, 512) for tiling
+    mask: Optional[np.ndarray] = None,          # H x W; True to process; else skip
+) -> np.ndarray:
+    """
+    cytomapper::compImage analog: pixelwise NNLS using a spillover matrix.
+    
+    - img_counts: raw (or linearly denoised) intensities.
+    - sm_adapted: must already be adapted to img channel order.
+    - method: 'nnls' uses SciPy (exact per pixel). 'pgd' is fast and close.
+    - tile_hw: optional tiling to reduce peak RAM.
+    - mask: optional boolean mask to skip background for speed.
+    
+    Returns compensated image (float32), same shape.
+    """
+    assert img_counts.ndim == 3
+    H, W, C = img_counts.shape
+    
+    # Get channel order from spillover matrix
+    channel_order = list(sm_adapted.columns)
+    if len(channel_order) != C:
+        raise ValueError(f"Channel order mismatch: image has {C} channels, spillover matrix has {len(channel_order)}")
+    
+    S = sm_adapted.values.astype(np.float64, copy=False)
+    
+    def _solve_block(block: np.ndarray) -> np.ndarray:
+        Y = block.reshape(-1, C).astype(np.float64, copy=False)
+        if method == "nnls":
+            if not _HAVE_SCIPY:
+                raise RuntimeError("SciPy not available; use method='pgd'.")
+            X = _nnls_batch_scipy(Y, S)
+        else:
+            X = _nnls_batch_pgd(Y, S, max_iter=200, tol=1e-6, init="obs")
+        return X.reshape(block.shape).astype(np.float32)
+    
+    out = np.zeros_like(img_counts, dtype=np.float32)
+    
+    if tile_hw is None:
+        if mask is None:
+            out = _solve_block(img_counts)
+        else:
+            out[:] = img_counts.astype(np.float32)  # init with input
+            yy, xx = np.where(mask)
+            if yy.size:
+                Y = img_counts[yy, xx, :].reshape(-1, C).astype(np.float64, copy=False)
+                if method == "nnls":
+                    if not _HAVE_SCIPY:
+                        raise RuntimeError("SciPy not available; use method='pgd'.")
+                    X = _nnls_batch_scipy(Y, S)
+                else:
+                    X = _nnls_batch_pgd(Y, S, max_iter=200, tol=1e-6, init="obs")
+                out[yy, xx, :] = X.astype(np.float32)
+        return out
+    
+    # Tiled path
+    th, tw = tile_hw
+    for y0 in range(0, H, th):
+        for x0 in range(0, W, tw):
+            y1, x1 = min(y0 + th, H), min(x0 + tw, W)
+            if mask is not None:
+                tile_mask = mask[y0:y1, x0:x1]
+                if not tile_mask.any():
+                    out[y0:y1, x0:x1, :] = img_counts[y0:y1, x0:x1, :].astype(np.float32)
+                    continue
+                # solve only masked pixels
+                tile = img_counts[y0:y1, x0:x1, :]
+                block = tile[tile_mask, :].reshape(-1, C).astype(np.float64, copy=False)
+                if method == "nnls":
+                    if not _HAVE_SCIPY:
+                        raise RuntimeError("SciPy not available; use method='pgd'.")
+                    X = _nnls_batch_scipy(block, S)
+                else:
+                    X = _nnls_batch_pgd(block, S, max_iter=200, tol=1e-6, init="obs")
+                out[y0:y1, x0:x1, :] = tile.astype(np.float32)
+                out[y0:y1, x0:x1, :][tile_mask] = X.astype(np.float32)
+            else:
+                out[y0:y1, x0:x1, :] = _solve_block(img_counts[y0:y1, x0:x1, :])
+    
+    return out
+

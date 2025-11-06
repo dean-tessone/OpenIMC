@@ -23,6 +23,11 @@ def robust_percentile_scale(arr: np.ndarray, low: float = 1.0, high: float = 99.
 
 
 def arcsinh_normalize(arr: np.ndarray, cofactor: float = 10.0) -> np.ndarray:
+    """Apply arcsinh transformation (without normalizing to 0-1).
+    
+    Note: For segmentation, normalization to 0-1 is handled separately
+    in the preprocessing pipeline after this transformation.
+    """
     a = arr.astype(np.float32, copy=False)
     return np.arcsinh(a / cofactor)
 
@@ -36,6 +41,29 @@ def percentile_clip_normalize(arr: np.ndarray, p_low: float = 1.0, p_high: float
         normalized = (clipped - vmin) / (vmax - vmin)
     else:
         normalized = np.zeros_like(clipped)
+    return normalized
+
+
+def channelwise_minmax_normalize(arr: np.ndarray) -> np.ndarray:
+    """Normalize each channel to 0-1 range using min-max scaling.
+    
+    This function scales each channel image independently to [0, 1] using
+    min-max scaling before combining channels. This is useful for segmenting
+    when channels have different intensity ranges.
+    
+    Args:
+        arr: Input image array
+        
+    Returns:
+        Normalized array with values in [0, 1] range
+    """
+    a = arr.astype(np.float32, copy=False)
+    vmin = np.min(a)
+    vmax = np.max(a)
+    if vmax > vmin:
+        normalized = (a - vmin) / (vmax - vmin)
+    else:
+        normalized = np.zeros_like(a)
     return normalized
 
 

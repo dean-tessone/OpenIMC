@@ -23,7 +23,7 @@ try:
 except ImportError:
     _HAVE_SCIKIT_IMAGE = False
 
-from openimc.ui.utils import combine_channels, arcsinh_normalize
+from openimc.ui.utils import combine_channels, arcsinh_normalize, channelwise_minmax_normalize
 
 
 def _apply_preprocessing_pipeline(
@@ -90,7 +90,9 @@ def _apply_preprocessing_pipeline(
         result = morphology.white_tophat(result, selem)
     
     # Normalization for display only
-    if normalization_method == "arcsinh":
+    if normalization_method == "channelwise_minmax":
+        result = channelwise_minmax_normalize(result)
+    elif normalization_method == "arcsinh":
         result = arcsinh_normalize(result, cofactor=arcsinh_cofactor)
     elif normalization_method == "percentile_clip":
         p_low, p_high = percentile_params

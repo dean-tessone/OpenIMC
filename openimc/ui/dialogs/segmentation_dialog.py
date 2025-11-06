@@ -1,4 +1,6 @@
 from typing import List
+import json
+from pathlib import Path
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, QTimer
@@ -33,6 +35,45 @@ try:
 except ImportError:
     _HAVE_SCIKIT_IMAGE = False
     _HAVE_ROLLING_BALL = False
+
+# Optional CellSAM
+try:
+    from cellSAM import get_model, cellsam_pipeline  # type: ignore
+    _HAVE_CELLSAM = True
+except ImportError:
+    _HAVE_CELLSAM = False
+
+
+def _get_user_config_path() -> Path:
+    """Get path to user configuration file for storing preferences."""
+    # Use user's home directory with .openimc config folder
+    home = Path.home()
+    config_dir = home / ".openimc"
+    config_dir.mkdir(exist_ok=True)
+    return config_dir / "user_preferences.json"
+
+
+def _load_user_preferences() -> dict:
+    """Load user preferences from config file."""
+    config_path = _get_user_config_path()
+    if config_path.exists():
+        try:
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def _save_user_preferences(prefs: dict):
+    """Save user preferences to config file."""
+    config_path = _get_user_config_path()
+    try:
+        with open(config_path, 'w') as f:
+            json.dump(prefs, f, indent=2)
+    except IOError:
+        # Silently fail if we can't write to config file
+        pass
 
 
 
@@ -106,6 +147,16 @@ class SegmentationDialog(QtWidgets.QDialog):
     def accept(self):
         """Override accept to save selections before closing."""
         self._save_persisted_selections()
+        # Save API key to user preferences if DeepCell CellSAM is selected and key is provided
+        if self.model_combo.currentText() == "DeepCell CellSAM":
+            api_key = self.api_key_edit.text().strip()
+            if api_key:
+                # Save to user preferences
+                user_prefs = _load_user_preferences()
+                user_prefs["deepcell_api_key"] = api_key
+                _save_user_preferences(user_prefs)
+                # Also set in environment for current session
+                os.environ["DEEPCELL_ACCESS_TOKEN"] = api_key
         super().accept()
         
     def _create_ui(self):
@@ -133,13 +184,14 @@ class SegmentationDialog(QtWidgets.QDialog):
         model_layout.setContentsMargins(8, 8, 8, 8)
         
         self.model_combo = QtWidgets.QComboBox()
-        self.model_combo.addItems(["Cellpose Cyto3", "Cellpose Nuclei", "Classical Watershed", "Ilastik"])
+        self.model_combo.addItems(["DeepCell CellSAM", "Cellpose Cyto3", "Cellpose Nuclei", "Ilastik", "Classical Watershed"])
+        self.model_combo.setCurrentIndex(0)  # Set DeepCell CellSAM as default
         self.model_combo.currentTextChanged.connect(self._on_model_changed)
         model_layout.addWidget(QtWidgets.QLabel("Model:"))
         model_layout.addWidget(self.model_combo)
         
         # Model description
-        self.model_desc = QtWidgets.QLabel("Cytoplasm: Segments whole cells using cytoplasm + nuclear channels")
+        self.model_desc = QtWidgets.QLabel("DeepCell CellSAM: DeepCell's CellSAM model for cell segmentation. Supports nuclear-only, cyto-only, or combined modes.")
         self.model_desc.setStyleSheet("QLabel { color: #666; font-style: italic; }")
         model_layout.addWidget(self.model_desc)
         
@@ -170,7 +222,7 @@ class SegmentationDialog(QtWidgets.QDialog):
         norm_method_layout = QtWidgets.QHBoxLayout()
         norm_method_layout.addWidget(QtWidgets.QLabel("Method:"))
         self.norm_method_combo = QtWidgets.QComboBox()
-        self.norm_method_combo.addItems(["None", "arcsinh", "percentile_clip"])
+        self.norm_method_combo.addItems(["channelwise_minmax", "None", "arcsinh", "percentile_clip"])
         self.norm_method_combo.currentTextChanged.connect(self._on_norm_method_changed)
         norm_method_layout.addWidget(self.norm_method_combo)
         norm_method_layout.addStretch()
@@ -364,28 +416,40 @@ class SegmentationDialog(QtWidgets.QDialog):
         params_layout.addLayout(diameter_layout)
         
         # Flow threshold
-        flow_layout = QtWidgets.QHBoxLayout()
-        flow_layout.addWidget(QtWidgets.QLabel("Flow threshold:"))
+        flow_layout = QtWidgets.QVBoxLayout()
+        flow_row = QtWidgets.QHBoxLayout()
+        flow_row.addWidget(QtWidgets.QLabel("Flow threshold:"))
         self.flow_spinbox = QtWidgets.QDoubleSpinBox()
         self.flow_spinbox.setRange(0.0, 10.0)
         self.flow_spinbox.setDecimals(2)
         self.flow_spinbox.setValue(0.4)
         self.flow_spinbox.setSingleStep(0.1)
-        flow_layout.addWidget(self.flow_spinbox)
-        flow_layout.addStretch()
+        flow_row.addWidget(self.flow_spinbox)
+        flow_row.addStretch()
+        flow_layout.addLayout(flow_row)
+        flow_note = QtWidgets.QLabel("Enforces consistency of pixel flow direction toward center. Higher values result in fewer, more confident cells but may miss weak ones. Typical range: 0.4-1.0")
+        flow_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        flow_note.setWordWrap(True)
+        flow_layout.addWidget(flow_note)
         
         params_layout.addLayout(flow_layout)
         
         # Cell probability threshold
-        cellprob_layout = QtWidgets.QHBoxLayout()
-        cellprob_layout.addWidget(QtWidgets.QLabel("Cell probability threshold:"))
+        cellprob_layout = QtWidgets.QVBoxLayout()
+        cellprob_row = QtWidgets.QHBoxLayout()
+        cellprob_row.addWidget(QtWidgets.QLabel("Cell probability threshold:"))
         self.cellprob_spinbox = QtWidgets.QDoubleSpinBox()
         self.cellprob_spinbox.setRange(-6.0, 6.0)
         self.cellprob_spinbox.setDecimals(1)
         self.cellprob_spinbox.setValue(0.0)
         self.cellprob_spinbox.setSingleStep(0.5)
-        cellprob_layout.addWidget(self.cellprob_spinbox)
-        cellprob_layout.addStretch()
+        cellprob_row.addWidget(self.cellprob_spinbox)
+        cellprob_row.addStretch()
+        cellprob_layout.addLayout(cellprob_row)
+        cellprob_note = QtWidgets.QLabel("Minimum probability to consider a pixel as cell. Higher values remove low-probability regions but may split faint cells. Typical range: 0.0-0.2 for cytoplasm models, -2.0-0.0 for nuclei models")
+        cellprob_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        cellprob_note.setWordWrap(True)
+        cellprob_layout.addWidget(cellprob_note)
         
         params_layout.addLayout(cellprob_layout)
         
@@ -520,6 +584,127 @@ class SegmentationDialog(QtWidgets.QDialog):
         self.watershed_group.setVisible(False)
         layout.addWidget(self.watershed_group)
         
+        # CellSAM-specific parameters (hidden by default)
+        self.cellsam_group = QtWidgets.QGroupBox("DeepCell CellSAM Parameters")
+        cellsam_layout = QtWidgets.QVBoxLayout(self.cellsam_group)
+        cellsam_layout.setSpacing(4)
+        cellsam_layout.setContentsMargins(8, 8, 8, 8)
+        
+        # API key section
+        api_key_layout = QtWidgets.QVBoxLayout()
+        api_key_label = QtWidgets.QLabel("DeepCell API Key:")
+        api_key_label.setStyleSheet("QLabel { font-weight: bold; }")
+        api_key_layout.addWidget(api_key_label)
+        
+        api_key_info = QtWidgets.QLabel(
+            "Get your API key from https://users.deepcell.org/login/\n"
+            "Your username is your registration email without the domain suffix.\n"
+            "The API key is used to download the most up-to-date model weights."
+        )
+        api_key_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
+        api_key_info.setWordWrap(True)
+        api_key_layout.addWidget(api_key_info)
+        
+        api_key_input_layout = QtWidgets.QHBoxLayout()
+        self.api_key_edit = QtWidgets.QLineEdit()
+        # Check for API key in environment variable first, then user preferences
+        existing_key = os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
+        key_source = None
+        if existing_key:
+            key_source = "environment variable"
+        else:
+            # Try loading from user preferences
+            user_prefs = _load_user_preferences()
+            existing_key = user_prefs.get("deepcell_api_key", "")
+            if existing_key:
+                key_source = "saved preferences"
+        
+        if existing_key:
+            self.api_key_edit.setText(existing_key)
+            self.api_key_edit.setPlaceholderText(f"API key loaded from {key_source}")
+        else:
+            self.api_key_edit.setPlaceholderText("Enter DeepCell API key...")
+        self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        api_key_input_layout.addWidget(self.api_key_edit)
+        
+        self.show_api_key_btn = QtWidgets.QPushButton("Show")
+        self.show_api_key_btn.setCheckable(True)
+        self.show_api_key_btn.toggled.connect(self._on_show_api_key_toggled)
+        api_key_input_layout.addWidget(self.show_api_key_btn)
+        api_key_layout.addLayout(api_key_input_layout)
+        
+        cellsam_layout.addLayout(api_key_layout)
+        
+        # bbox_threshold
+        bbox_layout = QtWidgets.QHBoxLayout()
+        bbox_layout.addWidget(QtWidgets.QLabel("Bbox threshold:"))
+        self.bbox_threshold_spin = QtWidgets.QDoubleSpinBox()
+        self.bbox_threshold_spin.setRange(0.01, 1.0)
+        self.bbox_threshold_spin.setDecimals(2)
+        self.bbox_threshold_spin.setValue(0.4)
+        self.bbox_threshold_spin.setSingleStep(0.05)
+        bbox_layout.addWidget(self.bbox_threshold_spin)
+        bbox_info = QtWidgets.QLabel("(Lower for faint cells/adjacent cells: 0.01-0.1)")
+        bbox_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
+        bbox_layout.addWidget(bbox_info)
+        bbox_layout.addStretch()
+        cellsam_layout.addLayout(bbox_layout)
+        
+        # use_wsi
+        wsi_layout = QtWidgets.QVBoxLayout()
+        wsi_check_layout = QtWidgets.QHBoxLayout()
+        self.use_wsi_chk = QtWidgets.QCheckBox("Use WSI mode")
+        self.use_wsi_chk.setChecked(False)
+        wsi_info = QtWidgets.QLabel("(Enable for ROIs with >500 cells)")
+        wsi_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
+        wsi_check_layout.addWidget(self.use_wsi_chk)
+        wsi_check_layout.addWidget(wsi_info)
+        wsi_check_layout.addStretch()
+        wsi_layout.addLayout(wsi_check_layout)
+        wsi_note = QtWidgets.QLabel("Note: WSI mode tiles the image into multiple pieces for segmentation, which will increase processing time.")
+        wsi_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        wsi_note.setWordWrap(True)
+        wsi_layout.addWidget(wsi_note)
+        cellsam_layout.addLayout(wsi_layout)
+        
+        # low_contrast_enhancement
+        contrast_layout = QtWidgets.QVBoxLayout()
+        contrast_check_layout = QtWidgets.QHBoxLayout()
+        self.low_contrast_enhancement_chk = QtWidgets.QCheckBox("Low contrast enhancement")
+        self.low_contrast_enhancement_chk.setChecked(False)
+        contrast_info = QtWidgets.QLabel("(Enable for poor contrast images)")
+        contrast_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
+        contrast_check_layout.addWidget(self.low_contrast_enhancement_chk)
+        contrast_check_layout.addWidget(contrast_info)
+        contrast_check_layout.addStretch()
+        contrast_layout.addLayout(contrast_check_layout)
+        contrast_note = QtWidgets.QLabel("Note: Using both denoising (from Image Preprocessing) and low contrast enhancement together can sometimes lead to poorer segmentation masks.")
+        contrast_note.setStyleSheet("QLabel { color: #d97706; font-size: 9pt; font-style: italic; }")
+        contrast_note.setWordWrap(True)
+        contrast_layout.addWidget(contrast_note)
+        cellsam_layout.addLayout(contrast_layout)
+        
+        # gauge_cell_size
+        gauge_layout = QtWidgets.QHBoxLayout()
+        self.gauge_cell_size_chk = QtWidgets.QCheckBox("Gauge cell size")
+        self.gauge_cell_size_chk.setChecked(False)
+        gauge_info = QtWidgets.QLabel("(Runs twice: estimates error, then returns mask)")
+        gauge_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
+        gauge_layout.addWidget(self.gauge_cell_size_chk)
+        gauge_layout.addWidget(gauge_info)
+        gauge_layout.addStretch()
+        cellsam_layout.addLayout(gauge_layout)
+        
+        # GPU usage note
+        gpu_note = QtWidgets.QLabel("Note: DeepCell CellSAM automatically uses CUDA (GPU) if available and falls back to CPU if not. GPU selection is handled internally by CellSAM and cannot be controlled from this interface.")
+        gpu_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        gpu_note.setWordWrap(True)
+        cellsam_layout.addWidget(gpu_note)
+        
+        # Initially hide CellSAM parameters
+        self.cellsam_group.setVisible(False)
+        layout.addWidget(self.cellsam_group)
+        
         # GPU selection (Cellpose-specific)
         self.gpu_group = QtWidgets.QGroupBox("GPU Acceleration")
         gpu_layout = QtWidgets.QVBoxLayout(self.gpu_group)
@@ -639,25 +824,44 @@ class SegmentationDialog(QtWidgets.QDialog):
             self.params_group.setVisible(True)
             self.gpu_group.setVisible(True)
             self.watershed_group.setVisible(False)
+            self.cellsam_group.setVisible(False)
         elif model == "Classical Watershed":
             self.model_desc.setText("Classical Watershed: Marker-controlled watershed with nucleus-seeded, membrane-guided segmentation")
             self.params_group.setVisible(False)
             self.gpu_group.setVisible(False)
             self.watershed_group.setVisible(True)
+            self.cellsam_group.setVisible(False)
         elif model == "Ilastik":
             self.model_desc.setText("Ilastik: Load and run inference with a trained Ilastik model (.ilp project file)")
             self.params_group.setVisible(False)
             self.gpu_group.setVisible(False)
             self.watershed_group.setVisible(False)
+            self.cellsam_group.setVisible(False)
+        elif model == "DeepCell CellSAM":
+            self.model_desc.setText("DeepCell CellSAM: DeepCell's CellSAM model for cell segmentation. Supports nuclear-only, cyto-only, or combined modes.")
+            self.params_group.setVisible(False)
+            self.gpu_group.setVisible(False)
+            self.watershed_group.setVisible(False)
+            self.cellsam_group.setVisible(True)
         else:  # Cellpose Cyto3
             self.model_desc.setText("Cytoplasm: Segments whole cells using cytoplasm + nuclear channels")
             self.params_group.setVisible(True)
             self.gpu_group.setVisible(True)
             self.watershed_group.setVisible(False)
+            self.cellsam_group.setVisible(False)
     
     def _on_auto_diameter_toggled(self):
         """Enable/disable diameter spinbox based on auto-estimate checkbox."""
         self.diameter_spinbox.setEnabled(not self.auto_diameter_chk.isChecked())
+    
+    def _on_show_api_key_toggled(self, checked):
+        """Toggle API key visibility."""
+        if checked:
+            self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Normal)
+            self.show_api_key_btn.setText("Hide")
+        else:
+            self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+            self.show_api_key_btn.setText("Show")
     
     def get_model(self):
         """Get selected model (returns original values for compatibility)."""
@@ -667,6 +871,8 @@ class SegmentationDialog(QtWidgets.QDialog):
             return "cyto3"
         elif model == "Cellpose Nuclei":
             return "nuclei"
+        elif model == "DeepCell CellSAM":
+            return "DeepCell CellSAM"  # Keep full name for main_window processing
         else:
             return model
     
@@ -761,8 +967,12 @@ class SegmentationDialog(QtWidgets.QDialog):
             dlg.set_nuclear_channels(prefs['nuclear_channels'])
         if 'cyto_channels' in prefs:
             dlg.set_cyto_channels(prefs['cyto_channels'])
-        # Hide cytoplasm section when using nuclei-only model
-        dlg.set_cytoplasm_visible(self.model_combo.currentText() != 'Cellpose Nuclei')
+        # Hide cytoplasm section when using nuclei-only models
+        # DeepCell CellSAM supports both nuclear and cyto, so show both sections
+        is_nuclei_only = self.model_combo.currentText() == 'Cellpose Nuclei'
+        is_cellsam = self.model_combo.currentText() == 'DeepCell CellSAM'
+        # Show cytoplasm section if not nuclei-only OR if DeepCell CellSAM (which supports both)
+        dlg.set_cytoplasm_visible(not is_nuclei_only or is_cellsam)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self.preprocessing_config = {
                 'normalization_method': self.get_normalization_method(),
@@ -1131,3 +1341,32 @@ class SegmentationDialog(QtWidgets.QDialog):
     def get_membrane_fusion_method(self):
         """Get membrane fusion method (same as nuclear for now)."""
         return self.nuclear_fusion_combo.currentText()
+    
+    # CellSAM parameter getters
+    def get_cellsam_api_key(self):
+        """Get the DeepCell API key from the field, environment variable, or saved preferences."""
+        api_key = self.api_key_edit.text().strip()
+        # If field is empty, check environment variable
+        if not api_key:
+            api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
+        # If still empty, check saved preferences
+        if not api_key:
+            user_prefs = _load_user_preferences()
+            api_key = user_prefs.get("deepcell_api_key", "")
+        return api_key
+    
+    def get_cellsam_bbox_threshold(self):
+        """Get bbox threshold for CellSAM."""
+        return self.bbox_threshold_spin.value()
+    
+    def get_cellsam_use_wsi(self):
+        """Get use_wsi flag for CellSAM."""
+        return self.use_wsi_chk.isChecked()
+    
+    def get_cellsam_low_contrast_enhancement(self):
+        """Get low_contrast_enhancement flag for CellSAM."""
+        return self.low_contrast_enhancement_chk.isChecked()
+    
+    def get_cellsam_gauge_cell_size(self):
+        """Get gauge_cell_size flag for CellSAM."""
+        return self.gauge_cell_size_chk.isChecked()

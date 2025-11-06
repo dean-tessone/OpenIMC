@@ -20,7 +20,7 @@ from openimc.data.ometiff_loader import OMETIFFLoader
 from openimc.processing.export_worker import process_channel_for_export
 from openimc.processing.feature_worker import extract_features_for_acquisition, _apply_denoise_to_channel
 from openimc.processing.watershed_worker import watershed_segmentation
-from openimc.ui.utils import arcsinh_normalize, percentile_clip_normalize, combine_channels
+from openimc.ui.utils import arcsinh_normalize, percentile_clip_normalize, channelwise_minmax_normalize, combine_channels
 
 # Try to import Cellpose (optional)
 try:
@@ -28,6 +28,13 @@ try:
     _HAVE_CELLPOSE = True
 except ImportError:
     _HAVE_CELLPOSE = False
+
+# Try to import CellSAM (optional)
+try:
+    from cellSAM import get_model, cellsam_pipeline
+    _HAVE_CELLSAM = True
+except ImportError:
+    _HAVE_CELLSAM = False
 
 
 def load_data(input_path: str):
@@ -145,9 +152,20 @@ def preprocess_command(args):
 
 
 def segment_command(args):
-    """Segment cells using Cellpose or watershed method."""
+    """Segment cells using DeepCell CellSAM, Cellpose, or watershed method."""
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_data(args.input)
+    
+    # Helper function to ensure 0-1 range (used by all segmentation methods)
+    def ensure_0_1_range(img):
+        """Ensure image is normalized to 0-1 range using min-max scaling."""
+        img_float = img.astype(np.float32, copy=True)
+        vmin = np.min(img_float)
+        vmax = np.max(img_float)
+        if vmax > vmin:
+            return (img_float - vmin) / (vmax - vmin)
+        else:
+            return np.zeros_like(img_float)
     
     try:
         acquisitions = loader.list_acquisitions()
@@ -198,11 +216,127 @@ def segment_command(args):
             missing_cyto = [ch for ch in cyto_channels if ch not in channels]
             if missing_nuclear:
                 raise ValueError(f"Nuclear channels not found: {missing_nuclear}")
-            if missing_cyto and args.method != 'watershed':
+            if missing_cyto and args.method not in ['watershed', 'cellsam']:
                 raise ValueError(f"Cytoplasm channels not found: {missing_cyto}")
+            if args.method == 'cellsam' and not nuclear_channels and not cyto_channels:
+                raise ValueError("For CellSAM, at least one nuclear or cytoplasm channel must be specified")
             
             # Run segmentation
-            if args.method == 'cellpose':
+            if args.method == 'cellsam':
+                if not _HAVE_CELLSAM:
+                    raise ImportError("CellSAM not installed. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git")
+                
+                # Set API key from argument or environment variable
+                api_key = args.deepcell_api_key or os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
+                if not api_key:
+                    raise ValueError("DeepCell API key is required for CellSAM. Set --deepcell-api-key or DEEPCELL_ACCESS_TOKEN environment variable.")
+                os.environ["DEEPCELL_ACCESS_TOKEN"] = api_key
+                
+                # Initialize CellSAM model and download weights
+                print("  Initializing DeepCell CellSAM model (downloading weights if needed)...")
+                try:
+                    get_model()  # This downloads weights if not already present
+                except Exception as e:
+                    raise RuntimeError(f"Failed to initialize CellSAM model: {e}. Please check your API key and internet connection.")
+                
+                # Preprocess channels exactly like GUI: load individually, denoise, normalize, then combine
+                # Build preprocessing config
+                preprocessing_config = {
+                    'nuclear_channels': nuclear_channels,
+                    'cyto_channels': cyto_channels,
+                    'nuclear_combo_method': args.nuclear_fusion_method,
+                    'cyto_combo_method': args.cyto_fusion_method,
+                    'nuclear_weights': nuclear_weights,
+                    'cyto_weights': cyto_weights,
+                    'normalization_method': 'arcsinh' if args.arcsinh else 'None',
+                    'arcsinh_cofactor': args.arcsinh_cofactor if args.arcsinh else 10.0,
+                    'percentile_params': (1.0, 99.0)
+                }
+                
+                # Load and preprocess nuclear channels
+                nuclear_imgs = []
+                for channel in nuclear_channels:
+                    img = loader.get_image(acq.id, channel)
+                    # Apply denoising if custom settings provided
+                    if denoise_settings and channel in denoise_settings:
+                        img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
+                    # Apply normalization if configured
+                    if preprocessing_config['normalization_method'] == 'channelwise_minmax':
+                        img = channelwise_minmax_normalize(img)
+                    elif preprocessing_config['normalization_method'] == 'arcsinh':
+                        img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
+                    elif preprocessing_config['normalization_method'] == 'percentile_clip':
+                        p_low, p_high = preprocessing_config['percentile_params']
+                        img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
+                    # Ensure 0-1 range after denoising and normalization
+                    img = ensure_0_1_range(img)
+                    nuclear_imgs.append(img)
+                
+                # Combine nuclear channels
+                nuclear_combo_method = preprocessing_config['nuclear_combo_method']
+                nuclear_weights_list = preprocessing_config['nuclear_weights']
+                nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights_list)
+                # Ensure combined image is in 0-1 range
+                nuclear_img = ensure_0_1_range(nuclear_img)
+                
+                # Load and preprocess cytoplasm channels
+                cyto_img = None
+                if cyto_channels:
+                    cyto_imgs = []
+                    for channel in cyto_channels:
+                        img = loader.get_image(acq.id, channel)
+                        # Apply denoising if custom settings provided
+                        if denoise_settings and channel in denoise_settings:
+                            img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
+                        # Apply normalization if configured
+                        if preprocessing_config['normalization_method'] == 'channelwise_minmax':
+                            img = channelwise_minmax_normalize(img)
+                        elif preprocessing_config['normalization_method'] == 'arcsinh':
+                            img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
+                        elif preprocessing_config['normalization_method'] == 'percentile_clip':
+                            p_low, p_high = preprocessing_config['percentile_params']
+                            img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
+                        # Ensure 0-1 range after denoising and normalization
+                        img = ensure_0_1_range(img)
+                        cyto_imgs.append(img)
+                    
+                    # Combine cytoplasm channels
+                    cyto_combo_method = preprocessing_config['cyto_combo_method']
+                    cyto_weights_list = preprocessing_config['cyto_weights']
+                    cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights_list)
+                    # Ensure combined image is in 0-1 range
+                    cyto_img = ensure_0_1_range(cyto_img)
+                
+                # Prepare input for CellSAM (supports nuclear-only, cyto-only, or combined)
+                if nuclear_channels and cyto_channels:
+                    # Combined mode: H x W x 3 array
+                    h, w = nuclear_img.shape
+                    cellsam_input = np.zeros((h, w, 3), dtype=np.float32)
+                    cellsam_input[:, :, 1] = nuclear_img  # Channel 1 is nuclear
+                    cellsam_input[:, :, 2] = cyto_img if cyto_img is not None else nuclear_img  # Channel 2 is cyto
+                elif nuclear_channels:
+                    # Nuclear only mode: H x W array
+                    cellsam_input = nuclear_img
+                elif cyto_channels:
+                    # Cyto only mode: H x W array
+                    cellsam_input = cyto_img if cyto_img is not None else nuclear_img
+                else:
+                    raise ValueError("At least one channel (nuclear or cyto) must be selected for CellSAM")
+                
+                # Run CellSAM pipeline
+                print(f"  Running DeepCell CellSAM segmentation...")
+                mask = cellsam_pipeline(
+                    cellsam_input,
+                    bbox_threshold=args.bbox_threshold,
+                    use_wsi=args.use_wsi,
+                    low_contrast_enhancement=args.low_contrast_enhancement,
+                    gauge_cell_size=args.gauge_cell_size
+                )
+                # Use mask directly without modifications
+                if isinstance(mask, np.ndarray):
+                    mask = mask.copy()
+                
+            elif args.method == 'cellpose':
                 if not _HAVE_CELLPOSE:
                     raise ImportError("Cellpose not installed. Install with: pip install cellpose")
                 
@@ -228,17 +362,23 @@ def segment_command(args):
                     if denoise_settings and channel in denoise_settings:
                         img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
                     # Apply normalization if configured
-                    if preprocessing_config['normalization_method'] == 'arcsinh':
+                    if preprocessing_config['normalization_method'] == 'channelwise_minmax':
+                        img = channelwise_minmax_normalize(img)
+                    elif preprocessing_config['normalization_method'] == 'arcsinh':
                         img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
                     elif preprocessing_config['normalization_method'] == 'percentile_clip':
                         p_low, p_high = preprocessing_config['percentile_params']
                         img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
+                    # Ensure 0-1 range after denoising and normalization
+                    img = ensure_0_1_range(img)
                     nuclear_imgs.append(img)
                 
                 # Combine nuclear channels
                 nuclear_combo_method = preprocessing_config['nuclear_combo_method']
                 nuclear_weights_list = preprocessing_config['nuclear_weights']
                 nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights_list)
+                # Ensure combined image is in 0-1 range
+                nuclear_img = ensure_0_1_range(nuclear_img)
                 
                 # Load and preprocess cytoplasm channels
                 cyto_img = None
@@ -250,17 +390,28 @@ def segment_command(args):
                         if denoise_settings and channel in denoise_settings:
                             img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
                         # Apply normalization if configured
-                        if preprocessing_config['normalization_method'] == 'arcsinh':
+                        if preprocessing_config['normalization_method'] == 'channelwise_minmax':
+                            img = channelwise_minmax_normalize(img)
+                        elif preprocessing_config['normalization_method'] == 'arcsinh':
                             img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
                         elif preprocessing_config['normalization_method'] == 'percentile_clip':
                             p_low, p_high = preprocessing_config['percentile_params']
                             img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
+                        # Ensure 0-1 range after denoising and normalization
+                        img = ensure_0_1_range(img)
                         cyto_imgs.append(img)
                     
                     # Combine cytoplasm channels
                     cyto_combo_method = preprocessing_config['cyto_combo_method']
                     cyto_weights_list = preprocessing_config['cyto_weights']
                     cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights_list)
+                    # Ensure combined image is in 0-1 range
+                    cyto_img = ensure_0_1_range(cyto_img)
+                
+                # Ensure images are in 0-1 range before passing to Cellpose
+                nuclear_img = ensure_0_1_range(nuclear_img)
+                if cyto_img is not None:
+                    cyto_img = ensure_0_1_range(cyto_img)
                 
                 # Prepare input images for Cellpose
                 if args.model == 'nuclei':
@@ -442,7 +593,9 @@ def extract_features_command(args):
                 args.arcsinh_cofactor if args.arcsinh else 10.0,
                 "custom" if denoise_settings else "None",
                 denoise_settings,
-                acq.source_file
+                None,  # spillover_config
+                acq.source_file,
+                None  # excluded_channels (CLI doesn't support channel exclusion yet)
             )
             
             # Add acquisition info
@@ -1029,11 +1182,11 @@ Examples:
     preprocess_parser.set_defaults(func=preprocess_command)
     
     # Segment command
-    segment_parser = subparsers.add_parser('segment', help='Segment cells (Cellpose or watershed)')
+    segment_parser = subparsers.add_parser('segment', help='Segment cells (DeepCell CellSAM, Cellpose, or watershed)')
     segment_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
     segment_parser.add_argument('output', help='Output directory for segmentation masks')
     segment_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (uses first if not specified)')
-    segment_parser.add_argument('--method', choices=['cellpose', 'watershed'], default='cellpose', help='Segmentation method')
+    segment_parser.add_argument('--method', choices=['cellsam', 'cellpose', 'watershed'], default='cellsam', help='Segmentation method (default: cellsam)')
     segment_parser.add_argument('--nuclear-channels', type=str, required=True, help='Comma-separated list of nuclear channel names')
     segment_parser.add_argument('--cytoplasm-channels', type=str, help='Comma-separated list of cytoplasm channel names (for cyto3 model)')
     segment_parser.add_argument('--nuclear-fusion-method', choices=['single', 'mean', 'weighted', 'max', 'pca1'], default='mean', help='Method to combine nuclear channels (default: mean)')
@@ -1048,6 +1201,12 @@ Examples:
     segment_parser.add_argument('--min-cell-area', type=int, default=100, help='Minimum cell area in pixels (watershed, default: 100)')
     segment_parser.add_argument('--max-cell-area', type=int, default=10000, help='Maximum cell area in pixels (watershed, default: 10000)')
     segment_parser.add_argument('--compactness', type=float, default=0.01, help='Watershed compactness (default: 0.01)')
+    # DeepCell CellSAM parameters
+    segment_parser.add_argument('--deepcell-api-key', type=str, help='DeepCell API key (CellSAM). Can also be set via DEEPCELL_ACCESS_TOKEN environment variable')
+    segment_parser.add_argument('--bbox-threshold', type=float, default=0.4, help='Bbox threshold for CellSAM (default: 0.4, lower for faint cells: 0.01-0.1)')
+    segment_parser.add_argument('--use-wsi', action='store_true', help='Use WSI mode for CellSAM (for ROIs with >500 cells, increases processing time)')
+    segment_parser.add_argument('--low-contrast-enhancement', action='store_true', help='Enable low contrast enhancement for CellSAM (for poor contrast images)')
+    segment_parser.add_argument('--gauge-cell-size', action='store_true', help='Enable gauge cell size for CellSAM (runs twice: estimates error, then returns mask)')
     segment_parser.add_argument('--arcsinh', action='store_true', help='Apply arcsinh normalization before segmentation')
     segment_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='Arcsinh cofactor (default: 10.0)')
     segment_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')

@@ -16,6 +16,7 @@ from openimc.data.ometiff_loader import OMETIFFLoader
 from openimc.processing.feature_worker import extract_features_for_acquisition, load_and_extract_features
 from openimc.processing.watershed_worker import watershed_segmentation
 from openimc.processing.export_worker import process_channel_for_export
+from openimc.processing.spillover_correction import comp_image_counts, load_spillover
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -75,6 +76,7 @@ from openimc.ui.utils import (
     robust_percentile_scale,
     arcsinh_normalize,
     percentile_clip_normalize,
+    channelwise_minmax_normalize,
     stack_to_rgb,
     combine_channels,
 )
@@ -123,6 +125,14 @@ else:
     # Import models under the expected name when available
     from cellpose import models  # type: ignore
 
+# Optional CellSAM
+_HAVE_CELLSAM = False
+try:
+    from cellSAM import get_model, cellsam_pipeline  # type: ignore
+    _HAVE_CELLSAM = True
+except ImportError:
+    _HAVE_CELLSAM = False
+
 # Optional image processing deps (scikit-image, scipy)
 _HAVE_SCIKIT_IMAGE = False
 try:
@@ -157,7 +167,7 @@ def _load_and_preprocess_acquisition_worker(task_data):
         import numpy as np
         from openimc.data.mcd_loader import MCDLoader
         from openimc.data.ometiff_loader import OMETIFFLoader
-        from openimc.ui.utils import combine_channels, arcsinh_normalize, percentile_clip_normalize
+        from openimc.ui.utils import combine_channels, arcsinh_normalize, percentile_clip_normalize, channelwise_minmax_normalize
         
         # Recreate loader (can't pickle loader objects)
         loader = None
@@ -187,6 +197,8 @@ def _load_and_preprocess_acquisition_worker(task_data):
             norm_method = config.get('normalization_method', 'None')
             if norm_method == 'None':
                 return img
+            elif norm_method == 'channelwise_minmax':
+                return channelwise_minmax_normalize(img)
             elif norm_method == 'arcsinh':
                 cofactor = config.get('arcsinh_cofactor', 10.0)
                 return arcsinh_normalize(img, cofactor)
@@ -671,6 +683,48 @@ class MainWindow(QtWidgets.QMainWindow):
         scaling_layout.addLayout(button_row)
         self.scaling_frame.setVisible(False)
         
+        # Spillover correction controls
+        self.spillover_correction_chk = QtWidgets.QCheckBox("Spillover correction")
+        self.spillover_correction_chk.toggled.connect(self._on_spillover_correction_toggled)
+        
+        self.spillover_frame = QtWidgets.QFrame()
+        self.spillover_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        self.spillover_frame.setMaximumWidth(400)  # Fit within scrollable panel
+        spillover_layout = QtWidgets.QVBoxLayout(self.spillover_frame)
+        spillover_layout.addWidget(QtWidgets.QLabel("Spillover Matrix:"))
+        
+        # Matrix file selection
+        matrix_file_row = QtWidgets.QHBoxLayout()
+        matrix_file_row.addWidget(QtWidgets.QLabel("Matrix:"))
+        self.spillover_matrix_file_edit = QtWidgets.QLineEdit()
+        self.spillover_matrix_file_edit.setPlaceholderText("No matrix loaded...")
+        self.spillover_matrix_file_edit.setReadOnly(True)
+        self.spillover_matrix_file_btn = QtWidgets.QPushButton("Browse...")
+        self.spillover_matrix_file_btn.clicked.connect(self._select_spillover_matrix)
+        matrix_file_row.addWidget(self.spillover_matrix_file_edit)
+        matrix_file_row.addWidget(self.spillover_matrix_file_btn)
+        spillover_layout.addLayout(matrix_file_row)
+        
+        # Method selection
+        method_row = QtWidgets.QHBoxLayout()
+        method_row.addWidget(QtWidgets.QLabel("Method:"))
+        self.spillover_method_combo = QtWidgets.QComboBox()
+        self.spillover_method_combo.addItems(["pgd", "nnls"])
+        self.spillover_method_combo.setToolTip("pgd: Fast projected gradient descent\nnnls: Exact non-negative least squares (slower)")
+        self.spillover_method_combo.currentTextChanged.connect(self._on_spillover_method_changed)
+        method_row.addWidget(self.spillover_method_combo)
+        method_row.addStretch()
+        spillover_layout.addLayout(method_row)
+        
+        self.spillover_frame.setVisible(False)
+        
+        # Store spillover correction state
+        self.spillover_matrix: Optional[pd.DataFrame] = None
+        self.spillover_matrix_path: Optional[str] = None
+        self.spillover_correction_enabled = False
+        self.spillover_method = "pgd"
+        self._spillover_warning_shown = False  # Track if we've shown the warning
+        
         # Store per-channel scaling values
         self.channel_scaling = {}  # {channel_name: {'min': value, 'max': value}}
         
@@ -787,6 +841,8 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.denoise_frame)
         v.addWidget(self.custom_scaling_chk)
         v.addWidget(self.scaling_frame)
+        v.addWidget(self.spillover_correction_chk)
+        v.addWidget(self.spillover_frame)
         v.addWidget(self.color_assignment_frame)
 
         v.addSpacing(4)
@@ -1465,6 +1521,66 @@ class MainWindow(QtWidgets.QMainWindow):
             self.preserve_zoom = True
             self._view_selected()
     
+    def _on_spillover_correction_toggled(self):
+        """Handle spillover correction checkbox toggle."""
+        self.preserve_zoom = True
+        self.spillover_frame.setVisible(self.spillover_correction_chk.isChecked())
+        self.spillover_correction_enabled = self.spillover_correction_chk.isChecked()
+        # Auto-refresh when toggled (will check for matrix during viewing)
+        self._view_selected()
+    
+    def _select_spillover_matrix(self):
+        """Open file dialog to select spillover matrix CSV."""
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select Spillover Matrix CSV",
+            "",
+            "CSV Files (*.csv);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                self.spillover_matrix = load_spillover(file_path)
+                self.spillover_matrix_path = file_path
+                self.spillover_matrix_file_edit.setText(os.path.basename(file_path))
+                # Reset warning flag since matrix is now loaded
+                self._spillover_warning_shown = False
+                
+                # Check if matrix matches current acquisition channels
+                if self.current_acq_id:
+                    selected_channels = self._selected_channels()
+                    if selected_channels:
+                        # Check overlap
+                        matrix_channels = set(self.spillover_matrix.columns)
+                        image_channels = set(selected_channels)
+                        common = matrix_channels.intersection(image_channels)
+                        if not common:
+                            QtWidgets.QMessageBox.warning(
+                                self,
+                                "Channel Mismatch",
+                                "No overlapping channels between the spillover matrix and selected channels."
+                            )
+                
+                # Enable correction if checkbox is checked
+                if self.spillover_correction_chk.isChecked():
+                    self.preserve_zoom = True
+                    self._view_selected()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Error loading spillover matrix:\n{str(e)}"
+                )
+                self.spillover_matrix = None
+                self.spillover_matrix_path = None
+                self.spillover_matrix_file_edit.setText("")
+    
+    def _on_spillover_method_changed(self):
+        """Handle changes to spillover correction method."""
+        self.spillover_method = self.spillover_method_combo.currentText()
+        if self.spillover_correction_enabled:
+            self.preserve_zoom = True
+            self._view_selected()
     
     def _filter_channels(self):
         """Filter channels based on search text."""
@@ -2441,6 +2557,123 @@ class MainWindow(QtWidgets.QMainWindow):
             img = arcsinh_normalize(img, cofactor=cofactor)
         
         return img
+    
+    def _load_image_with_denoising_only(self, acq_id: str, channel: str) -> np.ndarray:
+        """Load image and apply denoising only (no normalization)."""
+        # Try cache first
+        cache_key = (acq_id, channel)
+        with self._cache_lock:
+            img = self.image_cache.get(cache_key)
+        if img is None:
+            loader = self._get_loader_for_acquisition(acq_id)
+            if loader is None:
+                raise ValueError(f"No loader found for acquisition {acq_id}")
+            img = loader.get_image(acq_id, channel)
+            with self._cache_lock:
+                self.image_cache[cache_key] = img
+        
+        # Apply per-channel denoising (operates in raw space)
+        try:
+            img = self._apply_denoise(channel, img)
+        except Exception:
+            pass
+        
+        return img
+    
+    def _apply_spillover_correction_to_channels(
+        self, 
+        acq_id: str, 
+        channels: List[str]
+    ) -> Dict[str, np.ndarray]:
+        """
+        Apply spillover correction to a set of channels.
+        Order: 1) denoising, 2) spillover correction, 3) normalization/scaling
+        
+        Returns a dictionary of corrected channel images with normalization applied.
+        """
+        # Check if correction is enabled and matrix is loaded
+        if not self.spillover_correction_enabled or self.spillover_matrix is None:
+            # Show warning once if correction is enabled but no matrix
+            if self.spillover_correction_enabled and self.spillover_matrix is None and not self._spillover_warning_shown:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "No Spillover Matrix",
+                    "Spillover correction is enabled but no matrix is loaded. Images will be displayed without correction.\n\nPlease load a spillover matrix CSV file or disable spillover correction."
+                )
+                self._spillover_warning_shown = True
+            # Return images with full normalization if correction not enabled
+            return {ch: self._load_image_with_normalization(acq_id, ch) for ch in channels}
+        
+        # Step 1: Load all channels with denoising only (no normalization)
+        channel_images_denoised = {}
+        for ch in channels:
+            channel_images_denoised[ch] = self._load_image_with_denoising_only(acq_id, ch)
+        
+        # Find channels that are in both the image and spillover matrix
+        matrix_channels = set(self.spillover_matrix.columns)
+        image_channels = set(channels)
+        common_channels = sorted(list(matrix_channels.intersection(image_channels)), key=lambda x: channels.index(x) if x in channels else 999)
+        
+        if not common_channels:
+            # No overlap, apply normalization to original images and return
+            channel_images = {}
+            for ch in channels:
+                img = channel_images_denoised[ch]
+                # Apply normalization if configured
+                norm_cfg = self.channel_normalization.get(ch)
+                if norm_cfg and norm_cfg.get("method") == "arcsinh":
+                    cofactor = float(norm_cfg.get("cofactor", 10.0))
+                    img = arcsinh_normalize(img, cofactor=cofactor)
+                channel_images[ch] = img
+            return channel_images
+        
+        # Step 2: Apply spillover correction
+        # Get image dimensions from first channel
+        first_img = channel_images_denoised[common_channels[0]]
+        H, W = first_img.shape
+        
+        # Stack channels into 3D array (H x W x C)
+        # Only include channels that are in the spillover matrix
+        channel_stack = []
+        channel_order = []
+        for ch in common_channels:
+            channel_stack.append(channel_images_denoised[ch])
+            channel_order.append(ch)
+        
+        # Stack into 3D array
+        img_stack = np.stack(channel_stack, axis=2)  # H x W x C
+        
+        # Adapt spillover matrix to channel order
+        # Create a submatrix with only the channels we're processing, in the correct order
+        sm_adapted = self.spillover_matrix.loc[channel_order, channel_order]
+        
+        # Apply spillover correction
+        try:
+            corrected_stack = comp_image_counts(
+                img_stack,
+                sm_adapted,
+                method=self.spillover_method
+            )
+            
+            # Update channel_images_denoised with corrected values
+            for i, ch in enumerate(channel_order):
+                channel_images_denoised[ch] = corrected_stack[:, :, i]
+        except Exception as e:
+            print(f"Error applying spillover correction: {e}")
+            # Continue with original images on error
+        
+        # Step 3: Apply normalization/scaling to all channels
+        channel_images = {}
+        for ch in channels:
+            img = channel_images_denoised[ch]
+            # Apply normalization if configured
+            norm_cfg = self.channel_normalization.get(ch)
+            if norm_cfg and norm_cfg.get("method") == "arcsinh":
+                cofactor = float(norm_cfg.get("cofactor", 10.0))
+                img = arcsinh_normalize(img, cofactor=cofactor)
+            channel_images[ch] = img
+        
+        return channel_images
 
     def _start_prefetch_all_channels(self, acq_id: str):
         """Prefetch all channels for the given acquisition in the background (non-blocking)."""
@@ -2543,7 +2776,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._show_rgb_composite(chans, grayscale)
             else:
                 # Grid view for multiple channels (when grid_view is True)
-                images = [self._load_image_with_normalization(self.current_acq_id, c) for c in chans]
+                # Apply spillover correction if enabled
+                if self.spillover_correction_enabled and self.spillover_matrix is not None:
+                    corrected_images = self._apply_spillover_correction_to_channels(self.current_acq_id, chans)
+                    images = [corrected_images[c] for c in chans]
+                else:
+                    images = [self._load_image_with_normalization(self.current_acq_id, c) for c in chans]
                 
                 # Apply segmentation overlay to all images if enabled
                 if self.segmentation_overlay:
@@ -2653,7 +2891,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._show_rgb_composite(selected_channels, grayscale)
             else:
                 # Grid view for multiple channels (when grid_view is True)
-                images = [self._load_image_with_normalization(self.current_acq_id, c) for c in selected_channels]
+                # Apply spillover correction if enabled
+                if self.spillover_correction_enabled and self.spillover_matrix is not None:
+                    corrected_images = self._apply_spillover_correction_to_channels(self.current_acq_id, selected_channels)
+                    images = [corrected_images[c] for c in selected_channels]
+                else:
+                    images = [self._load_image_with_normalization(self.current_acq_id, c) for c in selected_channels]
                 
                 # Apply segmentation overlay to all images if enabled
                 if self.segmentation_overlay:
@@ -2705,10 +2948,22 @@ class MainWindow(QtWidgets.QMainWindow):
         rgb_titles = []
         raw_channels = []  # Store raw images for colorbar
         
+        # Collect all channels that will be used in RGB composite
+        all_rgb_channels = list(set(red_selection + green_selection + blue_selection))
+        
+        # Apply spillover correction if enabled (to all channels used in RGB)
+        if self.spillover_correction_enabled and self.spillover_matrix is not None and all_rgb_channels:
+            corrected_images = self._apply_spillover_correction_to_channels(self.current_acq_id, all_rgb_channels)
+        else:
+            corrected_images = {}
+        
         # Get the first selected channel to determine image size
         first_img = None
         if selected_channels:
-            first_img = self._load_image_with_normalization(self.current_acq_id, selected_channels[0])
+            if selected_channels[0] in corrected_images:
+                first_img = corrected_images[selected_channels[0]]
+            else:
+                first_img = self._load_image_with_normalization(self.current_acq_id, selected_channels[0])
         
         if first_img is None:
             QtWidgets.QMessageBox.information(self, "No RGB channels", "Please select at least one channel for RGB composite.")
@@ -2721,7 +2976,10 @@ class MainWindow(QtWidgets.QMainWindow):
             acc = np.zeros_like(first_img, dtype=np.float32)
             for ch_name in names:
                 try:
-                    img = self._load_image_with_normalization(self.current_acq_id, ch_name)
+                    if ch_name in corrected_images:
+                        img = corrected_images[ch_name]
+                    else:
+                        img = self._load_image_with_normalization(self.current_acq_id, ch_name)
                 except Exception:
                     img = np.zeros_like(first_img)
                 acc += img.astype(np.float32)
@@ -3432,7 +3690,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                    arcsinh_cofactor: float,
                                    percentile_params: Tuple[float, float]) -> np.ndarray:
         """Apply normalization to an image for export."""
-        if normalization_method == "arcsinh":
+        if normalization_method == "channelwise_minmax":
+            return channelwise_minmax_normalize(img)
+        elif normalization_method == "arcsinh":
             return arcsinh_normalize(img, cofactor=arcsinh_cofactor)
         elif normalization_method == "percentile_clip":
             p_low, p_high = percentile_params
@@ -3749,7 +4009,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         # Check dependencies based on selected model
-        if model != "Classical Watershed" and not _HAVE_CELLPOSE:
+        if model == "DeepCell CellSAM":
+            if not _HAVE_CELLSAM:
+                QtWidgets.QMessageBox.critical(
+                    self, "Missing dependency", 
+                    "CellSAM library is required for segmentation.\n"
+                    "Install it with: pip install git+https://github.com/vanvalenlab/cellSAM.git"
+                )
+                return
+        elif model != "Classical Watershed" and not _HAVE_CELLPOSE:
             QtWidgets.QMessageBox.critical(
                 self, "Missing dependency", 
                 "Cellpose library is required for segmentation.\n"
@@ -3792,6 +4060,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if model == "Classical Watershed" and not cyto_channels:
             QtWidgets.QMessageBox.warning(self, "No membrane channels", "Please select at least one membrane/cytoplasm channel in the preprocessing configuration for watershed segmentation.")
             return
+        
+        # For DeepCell CellSAM, at least one channel (nuclear or cyto) must be selected
+        if model == "DeepCell CellSAM":
+            if not nuclear_channels and not cyto_channels:
+                QtWidgets.QMessageBox.warning(self, "No channels selected", "Please select at least one nuclear or cytoplasm channel in the preprocessing configuration for CellSAM segmentation.")
+                return
         
         try:
             if segment_all:
@@ -3936,13 +4210,16 @@ class MainWindow(QtWidgets.QMainWindow):
                             cellprob_threshold: float = 0.0, show_overlay: bool = True, 
                             save_masks: bool = False, masks_directory: str = None, gpu_id = None, preprocessing_config = None, use_viewer_denoising: bool = False,
                             denoise_source: str = "Use viewer settings", custom_denoise_settings: dict = None, dlg = None):
-        """Perform the actual segmentation using Cellpose."""
+        """Perform the actual segmentation using Cellpose, CellSAM, or Watershed."""
         # Create progress dialog
         progress_dlg = ProgressDialog("Cell Segmentation", self)
         progress_dlg.show()
         
         try:
-            progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
+            if model == "DeepCell CellSAM":
+                progress_dlg.update_progress(0, "Initializing DeepCell CellSAM model", "Loading model...")
+            else:
+                progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
             
             # Determine GPU usage
             use_gpu = False
@@ -3964,6 +4241,45 @@ class MainWindow(QtWidgets.QMainWindow):
             # Initialize model based on type
             if model == "Classical Watershed":
                 model_obj = None  # Watershed doesn't use Cellpose model
+            elif model == "DeepCell CellSAM":
+                model_obj = None  # CellSAM model is initialized separately
+                # Set API key from dialog
+                if dlg is not None:
+                    api_key = dlg.get_cellsam_api_key()
+                    if api_key:
+                        os.environ.update({"DEEPCELL_ACCESS_TOKEN": api_key})
+                    elif not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
+                        QtWidgets.QMessageBox.critical(
+                            self, "Missing API Key",
+                            "DeepCell API key is required for CellSAM.\n"
+                            "Please enter your API key in the CellSAM Parameters section.\n"
+                            "Get your key from https://users.deepcell.org/login/"
+                        )
+                        progress_dlg.close()
+                        return
+                else:
+                    if not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
+                        QtWidgets.QMessageBox.critical(
+                            self, "Missing API Key",
+                            "DeepCell API key is required for CellSAM.\n"
+                            "Please set DEEPCELL_ACCESS_TOKEN environment variable or enter it in the dialog."
+                        )
+                        progress_dlg.close()
+                        return
+                
+                # Initialize CellSAM model and download weights
+                progress_dlg.update_progress(5, "Initializing CellSAM model", "Downloading model weights...")
+                try:
+                    get_model()  # This downloads weights if not already present
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(
+                        self, "CellSAM Initialization Failed",
+                        f"Failed to initialize CellSAM model:\n{str(e)}\n\n"
+                        "Please check your API key and internet connection."
+                    )
+                    progress_dlg.close()
+                    return
+                progress_dlg.update_progress(10, "CellSAM model ready", "Model initialized successfully")
             elif model == "nuclei":
                 model_obj = models.Cellpose(gpu=use_gpu, model_type='nuclei')
             else:  # cyto3
@@ -3972,6 +4288,9 @@ class MainWindow(QtWidgets.QMainWindow):
             # Set device if using GPU
             if model == "Classical Watershed":
                 progress_dlg.update_progress(5, "Initializing watershed segmentation", "Using classical watershed algorithm...")
+            elif model == "DeepCell CellSAM":
+                # Progress already updated above
+                pass
             elif use_gpu and gpu_device is not None:
                 if gpu_device == 'mps':
                     progress_dlg.update_progress(5, "Initializing Cellpose model", "Using Apple Metal Performance Shaders...")
@@ -3988,21 +4307,87 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             
             # Prepare input images
-            if model == "nuclei":
+            if model == "DeepCell CellSAM":
+                # DeepCell CellSAM supports three modes:
+                # 1. Nuclear only: H x W array
+                # 2. Cyto only: H x W array
+                # 3. Combined: H x W x C array where channel 0 is blank, channel 1 is nuclear, channel 2 is cyto
+                # Images are already normalized to 0-1 range from preprocessing
+                nuclear_channels_list = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+                cyto_channels_list = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+                
+                # Ensure images are in 0-1 range (should already be, but double-check)
+                nuclear_img_normalized = self._ensure_0_1_range(nuclear_img)
+                cyto_img_normalized = None
+                if cyto_img is not None:
+                    cyto_img_normalized = self._ensure_0_1_range(cyto_img)
+                
+                if nuclear_channels_list and cyto_channels_list:
+                    # Combined mode: H x W x 3 array
+                    h, w = nuclear_img_normalized.shape
+                    cellsam_input = np.zeros((h, w, 3), dtype=np.float32)
+                    cellsam_input[:, :, 1] = nuclear_img_normalized  # Channel 1 is nuclear
+                    cellsam_input[:, :, 2] = cyto_img_normalized if cyto_img_normalized is not None else nuclear_img_normalized  # Channel 2 is cyto
+                elif nuclear_channels_list:
+                    # Nuclear only mode: H x W array
+                    cellsam_input = nuclear_img_normalized
+                elif cyto_channels_list:
+                    # Cyto only mode: H x W array
+                    cellsam_input = cyto_img_normalized if cyto_img_normalized is not None else nuclear_img_normalized
+                else:
+                    raise ValueError("At least one channel (nuclear or cyto) must be selected for CellSAM")
+                
+                images = None  # Not used for CellSAM
+                channels = None  # Not used for CellSAM
+            elif model == "nuclei":
                 # For nuclei model, use only nuclear channel
-                images = [nuclear_img]
+                # Ensure 0-1 range
+                nuclear_img_normalized = self._ensure_0_1_range(nuclear_img)
+                images = [nuclear_img_normalized]
                 channels = [0, 0]  # [cytoplasm, nucleus] - both are nuclear channel
             else:  # cyto3
                 # For cyto3 model, use both channels
+                # Ensure 0-1 range
+                nuclear_img_normalized = self._ensure_0_1_range(nuclear_img)
                 if cyto_img is None:
-                    cyto_img = nuclear_img  # Fallback to nuclear channel
-                images = [cyto_img, nuclear_img]
+                    cyto_img_normalized = nuclear_img_normalized  # Fallback to nuclear channel
+                else:
+                    cyto_img_normalized = self._ensure_0_1_range(cyto_img)
+                images = [cyto_img_normalized, nuclear_img_normalized]
                 channels = [0, 1]  # [cytoplasm, nucleus]
             
-            progress_dlg.update_progress(60, "Running segmentation", "Processing with Cellpose...")
+            progress_dlg.update_progress(60, "Running segmentation", "Processing...")
             
             # Run segmentation
-            if model == "Classical Watershed":
+            if model == "DeepCell CellSAM":
+                if dlg is None:
+                    raise ValueError("Dialog object is required for DeepCell CellSAM segmentation")
+                
+                # Get DeepCell CellSAM parameters from dialog
+                bbox_threshold = dlg.get_cellsam_bbox_threshold()
+                use_wsi = dlg.get_cellsam_use_wsi()
+                low_contrast_enhancement = dlg.get_cellsam_low_contrast_enhancement()
+                gauge_cell_size = dlg.get_cellsam_gauge_cell_size()
+                
+                # Run DeepCell CellSAM pipeline
+                progress_dlg.update_progress(65, "Running DeepCell CellSAM", "Processing image...")
+                mask = cellsam_pipeline(
+                    cellsam_input,
+                    bbox_threshold=bbox_threshold,
+                    use_wsi=use_wsi,
+                    low_contrast_enhancement=low_contrast_enhancement,
+                    gauge_cell_size=gauge_cell_size
+                )
+                # Use mask directly without any modifications - preserve exactly what CellSAM returns
+                # Ensure mask is a numpy array and make a copy to avoid any potential modifications
+                if isinstance(mask, np.ndarray):
+                    mask = mask.copy()
+                # Convert to list format for consistency with other segmentation methods
+                masks = [mask]
+                flows = [None]
+                styles = [None]
+                diams = [None]
+            elif model == "Classical Watershed":
                 if dlg is None:
                     raise ValueError("Dialog object is required for watershed segmentation")
                 
@@ -4093,16 +4478,36 @@ class MainWindow(QtWidgets.QMainWindow):
             progress_dlg.close()
             
             # Get channel information from preprocessing config (for display purposes)
-            if model != "Classical Watershed":
+            if model not in ["Classical Watershed", "DeepCell CellSAM"]:
                 nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
                 cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
-            # For watershed, these are already defined above
+            elif model == "DeepCell CellSAM":
+                nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+                cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+            # For watershed, channels are already defined above
             
             # Log segmentation operation
             logger = get_logger()
             n_cells = len(np.unique(masks[0])) - 1
             
-            if model == "Classical Watershed":
+            if model == "DeepCell CellSAM":
+                # Log DeepCell CellSAM segmentation
+                params = {
+                    "method": "cellsam",
+                    "bbox_threshold": bbox_threshold,
+                    "use_wsi": use_wsi,
+                    "low_contrast_enhancement": low_contrast_enhancement,
+                    "gauge_cell_size": gauge_cell_size,
+                    "nuclear_channels": nuclear_channels,
+                    "cyto_channels": cyto_channels,
+                    "input_mode": "combined" if (nuclear_channels and cyto_channels) else ("nuclear" if nuclear_channels else "cyto"),
+                    "n_cells": int(n_cells)
+                }
+                if denoise_source == "custom" and custom_denoise_settings:
+                    params["denoise_settings"] = custom_denoise_settings
+                else:
+                    params["denoise_source"] = denoise_source
+            elif model == "Classical Watershed":
                 # Log watershed segmentation
                 params = {
                     "method": "watershed",
@@ -4157,8 +4562,9 @@ class MainWindow(QtWidgets.QMainWindow):
             # Get source file name
             source_file = os.path.basename(self.current_path) if self.current_path else None
             
+            method_name = "watershed" if model == "Classical Watershed" else ("cellsam" if model == "DeepCell CellSAM" else "cellpose")
             logger.log_segmentation(
-                method="watershed" if model == "Classical Watershed" else "cellpose",
+                method=method_name,
                 parameters=params,
                 acquisitions=[self.current_acq_id],
                 output_path=masks_directory if save_masks else None,
@@ -4196,12 +4602,20 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "No acquisitions", "No acquisitions available for segmentation.")
             return
         
-        # Watershed segmentation is not supported in batch mode yet
+        # Watershed and CellSAM segmentation are not supported in batch mode yet
         if model == "Classical Watershed":
             QtWidgets.QMessageBox.warning(
                 self, "Batch Watershed Not Supported", 
                 "Batch segmentation is not yet supported for Classical Watershed.\n"
                 "Please run watershed segmentation on individual acquisitions."
+            )
+            return
+        
+        if model == "DeepCell CellSAM":
+            QtWidgets.QMessageBox.warning(
+                self, "Batch DeepCell CellSAM Not Supported", 
+                "Batch segmentation is not yet supported for DeepCell CellSAM.\n"
+                "Please run DeepCell CellSAM segmentation on individual acquisitions."
             )
             return
         
@@ -4816,12 +5230,16 @@ class MainWindow(QtWidgets.QMainWindow):
                     pass
             # Apply normalization if configured
             img = self._apply_normalization(img, config, self.current_acq_id, channel)
+            # Ensure 0-1 range after denoising and normalization
+            img = self._ensure_0_1_range(img)
             nuclear_imgs.append(img)
         
         # Combine nuclear channels
         nuclear_combo_method = config.get('nuclear_combo_method', 'single')
         nuclear_weights = config.get('nuclear_weights')
         nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights)
+        # Ensure combined image is in 0-1 range
+        nuclear_img = self._ensure_0_1_range(nuclear_img)
         
         # Load and normalize cytoplasm channels
         cyto_img = None
@@ -4844,12 +5262,16 @@ class MainWindow(QtWidgets.QMainWindow):
                         pass
                 # Apply normalization if configured
                 img = self._apply_normalization(img, config, self.current_acq_id, channel)
+                # Ensure 0-1 range after denoising and normalization
+                img = self._ensure_0_1_range(img)
                 cyto_imgs.append(img)
             
             # Combine cytoplasm channels
             cyto_combo_method = config.get('cyto_combo_method', 'single')
             cyto_weights = config.get('cyto_weights')
             cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights)
+            # Ensure combined image is in 0-1 range
+            cyto_img = self._ensure_0_1_range(cyto_img)
         
         return nuclear_img, cyto_img
     
@@ -4868,9 +5290,12 @@ class MainWindow(QtWidgets.QMainWindow):
         elif norm_method == 'percentile_clip':
             p_low, p_high = config.get('percentile_params', (1.0, 99.0))
             cache_key += f"_{p_low}_{p_high}"
+        # channelwise_minmax doesn't need extra cache key params
         
         # Apply normalization
-        if norm_method == 'arcsinh':
+        if norm_method == 'channelwise_minmax':
+            return channelwise_minmax_normalize(img)
+        elif norm_method == 'arcsinh':
             cofactor = config.get('arcsinh_cofactor', 10.0)
             return arcsinh_normalize(img, cofactor)
         elif norm_method == 'percentile_clip':
@@ -4878,6 +5303,17 @@ class MainWindow(QtWidgets.QMainWindow):
             return percentile_clip_normalize(img, p_low, p_high)
         
         return img
+    
+    def _ensure_0_1_range(self, img: np.ndarray) -> np.ndarray:
+        """Ensure image is normalized to 0-1 range using min-max scaling."""
+        img_float = img.astype(np.float32, copy=True)
+        vmin = np.min(img_float)
+        vmax = np.max(img_float)
+        if vmax > vmin:
+            normalized = (img_float - vmin) / (vmax - vmin)
+        else:
+            normalized = np.zeros_like(img_float)
+        return normalized
     
     def _on_segmentation_overlay_toggled(self):
         """Handle segmentation overlay checkbox toggle."""
@@ -4930,6 +5366,9 @@ class MainWindow(QtWidgets.QMainWindow):
         custom_denoise_settings = dlg.get_custom_denoise_settings()
         spillover_config = dlg.get_spillover_config()
         
+        # Get excluded channels
+        excluded_channels = dlg.get_excluded_channels()
+        
         # Store the normalization configuration for later use in clustering
         self.feature_extraction_config = {
             'normalization_config': normalization_config,
@@ -4948,7 +5387,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Perform feature extraction
         try:
-            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings, spillover_config)
+            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings, spillover_config, excluded_channels)
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self, 
@@ -4957,7 +5396,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
     
 
-    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings, spillover_config=None):
+    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings, spillover_config=None, excluded_channels=None):
         """Perform the actual feature extraction using multiprocessing.
         
         This now parallelizes both image loading and feature extraction for better performance.
@@ -5021,7 +5460,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         denoise_source,
                         custom_denoise_settings,
                         spillover_config,  # spillover correction config
-                        source_file
+                        source_file,
+                        excluded_channels  # excluded channels set
                     ))
                 except Exception as e:
                     print(f"[main] Error preparing arguments for {acq_id}: {e}")
@@ -5040,10 +5480,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 with mp.Pool(processes=max_workers) as pool:
                     # Submit all tasks - each worker loads and extracts in parallel
                     futures = []
-                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file) in mp_args:
+                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file, excluded_channels) in mp_args:
                         future = pool.apply_async(
                             load_and_extract_features,
-                            (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file)
+                            (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file, excluded_channels)
                         )
                         futures.append((acq_id, future))
                     
