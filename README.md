@@ -14,12 +14,13 @@ OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imagi
 - **Visual Quality Assessment**: Real-time visualization with custom scaling for marker evaluation
 
 ### **Advanced Segmentation**
+- **DeepCell CellSAM**: Foundation model for cell segmentation with automatic GPU acceleration
 - **Cellpose Integration**: GPU-accelerated cell segmentation using state-of-the-art Cellpose models
 - **Multiple Models**: Support for cyto3 and nuclei segmentation models
 - **Ilastik Integration**: Load and run inference with trained Ilastik models (.ilp project files)
 - **Classical Watershed**: Marker-controlled watershed segmentation with nucleus-seeded, membrane-guided segmentation
 - **Overlay Visualization**: Real-time mask overlay on original images
-- **GPU Acceleration**: CUDA and MPS support for faster processing (Cellpose)
+- **GPU Acceleration**: CUDA and MPS support for faster processing (Cellpose, automatic for CellSAM)
 
 ### **Feature Extraction**
 - **Comprehensive Feature Sets**: Extract morphometric (area, perimeter, eccentricity) and intensity features (mean, median, std)
@@ -50,6 +51,7 @@ OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imagi
 - Visualize individual channels with custom scaling
 
 ### 3. **Segmentation**
+- **DeepCell CellSAM**: Run foundation model-based segmentation (automatic GPU acceleration)
 - **Cellpose**: Run GPU-accelerated segmentation (cyto3 or nuclei models)
 - **Ilastik**: Load and run inference with your trained Ilastik models
 - **Watershed**: Use classical marker-controlled watershed segmentation
@@ -153,6 +155,7 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
 - scikit-image, scikit-learn (image processing and ML)
 
 ### Optional Dependencies
+- **DeepCell CellSAM**: Foundation model for cell segmentation (install via: `pip install git+https://github.com/vanvalenlab/cellSAM.git`)
 - **Cellpose** (3.1.1.2): Cell segmentation
 - **PyTorch** (≥1.9.0): GPU acceleration
 - **Ilastik**: Pixel classification and segmentation (must be installed separately)
@@ -194,8 +197,12 @@ openimc preprocess input.mcd output/ --denoise-settings '{"channel1": {"hot": {"
 
 Note: Arcsinh normalization is not applied to exported images. Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
 
-**2. Segment cells** - Run Cellpose or watershed segmentation:
+**2. Segment cells** - Run DeepCell CellSAM, Cellpose, or watershed segmentation:
 ```bash
+# DeepCell CellSAM (default method, automatic GPU acceleration)
+openimc segment input.mcd output/ --method cellsam --nuclear-channels DAPI --deepcell-api-key YOUR_API_KEY
+openimc segment input.mcd output/ --method cellsam --nuclear-channels DAPI --cytoplasm-channels CK8_CK18 --bbox-threshold 0.05 --use-wsi
+
 # Cellpose (cytoplasm channels optional for cyto3 model, will fallback to nuclear if not provided)
 openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI --model cyto3 --gpu-id 0
 
@@ -279,6 +286,11 @@ openimc <command> --help
 - **Cellpose**: GPU-accelerated cell segmentation framework
   - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
   - Project: https://www.cellpose.org/
+
+- **DeepCell CellSAM**: Foundation model for cell segmentation
+  - Paper: Israel et al., A Foundation Model for Cell Segmentation (bioRxiv 2023)
+  - Project: https://github.com/vanvalenlab/cellSAM
+  - Website: https://vanvalenlab.github.io/cellSAM/
 
 - **Ilastik**: Interactive learning and segmentation toolkit
   - Paper: Berg et al., ilastik: interactive machine learning for (bio)image analysis
