@@ -1,4 +1,4 @@
-Modified MIT License
+MIT License
 
 Copyright (c) 2025 Dean Tessone
 
@@ -19,27 +19,31 @@ furnished to do so, subject to the following conditions:
      Copyright (c) California Institute of Technology / Van Valen Lab.  
      Licensed under a **Modified Apache 2.0 License** restricting use to
      **non-commercial academic purposes only**.  
-     For commercial use or redistribution involving CellSAM functionality,
+     For any commercial use or redistribution involving CellSAM functionality,
      contact vanvalenlab@gmail.com.  
-     (See the included license file in `third_party/licenses/CellSAM_LICENSE`.)
+     (See the included license file in `third_party/licenses/CELLSAM_LICENSE`.)
 
    • Cellpose  
      Copyright (c) 2020 Howard Hughes Medical Institute.  
      Licensed under the **BSD 3-Clause ("New" or "Revised") License**.  
      Permissive; commercial use permitted with attribution.  
-     (See `third_party/licenses/Cellpose_LICENSE`.)
+     (See `third_party/licenses/CELLPOSE_LICENSE`.)
 
    • read-imc  
      Copyright (c) Simon Pernet and the Bodenmiller Group.  
      Licensed under the **MIT License**.  
-     (See `third_party/licenses/readimc_LICENSE`.)
+     (See `third_party/licenses/READIMC_LICENSE`.)
 
    • Ilastik  
-     Copyright (c) The Ilastik Team.  
-     Licensed under the **GNU General Public License v2 or later (GPLv2+)**.  
-     Used solely in **headless/external mode** via its command-line interface;
-     no modification or linking of GPL code occurs.  
-     (See `third_party/licenses/Ilastik_LICENSE`.)
+     Copyright (c) 2011–2018 The Ilastik Developers <team@ilastik.org>.  
+     Licensed under the **GNU General Public License v2 or later (GPLv2+)**
+     with an explicit **exception** allowing external workflows, applets,
+     and plugins to remain under their own license terms when communicating
+     through the documented Ilastik APIs.  
+     This software does **not modify** or extend Ilastik; it invokes Ilastik
+     externally in headless mode, and is therefore **not a derivative work**
+     under the GPL.  
+     (See `third_party/licenses/ILASTIK_LICENSE`.)
 
    Integration of these components does not alter or supersede their original
    license terms. The MIT License applies only to original code and contributions
