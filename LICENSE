@@ -1,4 +1,4 @@
-MIT License
+Modified MIT License
 
 Copyright (c) 2025 Dean Tessone
 
@@ -9,13 +9,54 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. THIRD-PARTY COMPONENTS
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   This software integrates or invokes the following third-party tools,
+   each governed by its own license. Users must comply with their respective
+   license terms when using, distributing, or modifying this software.
+
+   • DeepCell CellSAM  
+     Copyright (c) California Institute of Technology / Van Valen Lab.  
+     Licensed under a **Modified Apache 2.0 License** restricting use to
+     **non-commercial academic purposes only**.  
+     For commercial use or redistribution involving CellSAM functionality,
+     contact vanvalenlab@gmail.com.  
+     (See the included license file in `third_party/licenses/CellSAM_LICENSE`.)
+
+   • Cellpose  
+     Copyright (c) 2020 Howard Hughes Medical Institute.  
+     Licensed under the **BSD 3-Clause ("New" or "Revised") License**.  
+     Permissive; commercial use permitted with attribution.  
+     (See `third_party/licenses/Cellpose_LICENSE`.)
+
+   • read-imc  
+     Copyright (c) Simon Pernet and the Bodenmiller Group.  
+     Licensed under the **MIT License**.  
+     (See `third_party/licenses/readimc_LICENSE`.)
+
+   • Ilastik  
+     Copyright (c) The Ilastik Team.  
+     Licensed under the **GNU General Public License v2 or later (GPLv2+)**.  
+     Used solely in **headless/external mode** via its command-line interface;
+     no modification or linking of GPL code occurs.  
+     (See `third_party/licenses/Ilastik_LICENSE`.)
+
+   Integration of these components does not alter or supersede their original
+   license terms. The MIT License applies only to original code and contributions
+   authored by Dean Tessone.
+
+2. ATTRIBUTION
+
+   Attribution to the original authors of third-party tools must be maintained
+   in documentation, user interfaces, or other appropriate places within
+   derivative works and redistributions.
+
+3. DISCLAIMER OF WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
