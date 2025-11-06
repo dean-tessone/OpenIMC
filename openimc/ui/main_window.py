@@ -108,6 +108,7 @@ from openimc.ui.dialogs.comparison_dialog import DynamicComparisonDialog
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.qc_analysis_dialog import QCAnalysisDialog
 from openimc.ui.dialogs.spillover_matrix_dialog import GenerateSpilloverMatrixDialog
+from openimc.ui.dialogs.batch_correction_dialog import BatchCorrectionDialog
 from openimc.utils.logger import get_logger
 
 
@@ -446,6 +447,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.comparison_btn = QtWidgets.QPushButton("Comparison mode")
         self.segment_btn = QtWidgets.QPushButton("Cell Segmentation")
         self.extract_features_btn = QtWidgets.QPushButton("Extract Features")
+        self.batch_correction_btn = QtWidgets.QPushButton("Batch Correction")
         self.clustering_btn = QtWidgets.QPushButton("Cell Clustering")
         self.spatial_btn = QtWidgets.QPushButton("Spatial Analysis")
         self.reset_zoom_btn = QtWidgets.QPushButton("Reset Zoom")
@@ -851,6 +853,7 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.comparison_btn)
         v.addWidget(self.segment_btn)
         v.addWidget(self.extract_features_btn)
+        v.addWidget(self.batch_correction_btn)
         v.addWidget(self.clustering_btn)
         v.addWidget(self.spatial_btn)
         v.addSpacing(4)
@@ -907,6 +910,8 @@ class MainWindow(QtWidgets.QMainWindow):
         analysis_menu = self.menuBar().addMenu("&Analysis")
         act_spillover_matrix = analysis_menu.addAction("Generate Spillover Matrix…")
         act_spillover_matrix.triggered.connect(self._open_spillover_matrix_dialog)
+        act_batch_correction = analysis_menu.addAction("Batch Correction…")
+        act_batch_correction.triggered.connect(self._open_batch_correction_dialog)
         act_clustering = analysis_menu.addAction("Cell Clustering…")
         act_clustering.triggered.connect(self._open_clustering_dialog)
         act_spatial = analysis_menu.addAction("Spatial Analysis…")
@@ -929,6 +934,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.comparison_btn.clicked.connect(self._comparison)
         self.segment_btn.clicked.connect(self._run_segmentation)
         self.extract_features_btn.clicked.connect(self._extract_features)
+        self.batch_correction_btn.clicked.connect(self._open_batch_correction_dialog)
         self.clustering_btn.clicked.connect(self._open_clustering_dialog)
         self.spatial_btn.clicked.connect(self._open_spatial_dialog)
 
@@ -5945,6 +5951,44 @@ class MainWindow(QtWidgets.QMainWindow):
         """Open the generate spillover matrix dialog."""
         dlg = GenerateSpilloverMatrixDialog(self)
         dlg.exec_()
+    
+    def _open_batch_correction_dialog(self):
+        """Open the batch correction dialog."""
+        # Check if we have feature data or allow loading files
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            # Still allow opening dialog to load files
+            pass
+        
+        dlg = BatchCorrectionDialog(self.feature_dataframe, self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Get corrected dataframe
+            corrected_df = dlg.get_corrected_dataframe()
+            if corrected_df is not None and not corrected_df.empty:
+                # Update stored feature dataframe
+                self.feature_dataframe = corrected_df
+                
+                # Save to file if requested
+                output_path = dlg.get_output_path()
+                if output_path:
+                    try:
+                        corrected_df.to_csv(output_path, index=False)
+                        QtWidgets.QMessageBox.information(
+                            self,
+                            "Success",
+                            f"Batch correction completed and saved to:\n{output_path}"
+                        )
+                    except Exception as e:
+                        QtWidgets.QMessageBox.critical(
+                            self,
+                            "Save Error",
+                            f"Failed to save corrected features:\n{str(e)}"
+                        )
+                else:
+                    QtWidgets.QMessageBox.information(
+                        self,
+                        "Success",
+                        "Batch correction completed. Corrected features are now loaded in memory."
+                    )
 
 
 

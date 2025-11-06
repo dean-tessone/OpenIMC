@@ -1,4 +1,5 @@
 from typing import List
+import os
 import pandas as pd
 
 import numpy as np
@@ -3816,11 +3817,35 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
             # Get cell data for this cluster
             cluster_cells = self.current_cluster['cells']
             
+            # Filter cells by source_file if available (only show cells from open mcd file)
+            # This ensures explore clusters only works with the currently open .mcd file
+            filtered_cells = []
+            if 'source_file' in self.feature_dataframe.columns and parent_window.current_path:
+                current_source_file = os.path.basename(parent_window.current_path)
+                for cell_idx in cluster_cells:
+                    cell_data = self.feature_dataframe.iloc[cell_idx]
+                    cell_source_file = cell_data.get('source_file', '')
+                    # Match by basename to handle different path formats
+                    if os.path.basename(str(cell_source_file)) == current_source_file:
+                        filtered_cells.append(cell_idx)
+            else:
+                # If no source_file column or no current_path, use all cells
+                filtered_cells = cluster_cells
+            
+            if not filtered_cells:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "No Cells Available",
+                    "No cells from the currently open .mcd file are in this cluster.\n"
+                    "Explore clusters only works with cells from the open .mcd file."
+                )
+                return
+            
             # Limit to first 12 cells for performance
-            max_cells = min(12, len(cluster_cells))
+            max_cells = min(12, len(filtered_cells))
             crop_size = 30  # 30x30 pixel crop
             
-            for i, cell_idx in enumerate(cluster_cells[:max_cells]):
+            for i, cell_idx in enumerate(filtered_cells[:max_cells]):
                 if i >= max_cells:
                     break
                 

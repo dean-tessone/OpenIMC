@@ -34,3 +34,7 @@ python-igraph>=0.11.0
 umap-learn>=0.5.0
 hdbscan>=0.8.0
 openai>=1.42.0
+
+#Batch Correction
+combat>=0.1.0
+harmonypy>=0.0.9
