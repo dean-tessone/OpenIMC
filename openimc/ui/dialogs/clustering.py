@@ -44,6 +44,21 @@ try:
 except ImportError:
     _HAVE_HDBSCAN = False
 
+# Optional scikit-learn for k-means and metrics
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score, silhouette_samples
+    _HAVE_SKLEARN = True
+except ImportError:
+    _HAVE_SKLEARN = False
+
+# Optional t-SNE for dimensionality reduction
+try:
+    from sklearn.manifold import TSNE
+    _HAVE_TSNE = True
+except ImportError:
+    _HAVE_TSNE = False
+
 
 # --------------------------
 # Cell Clustering Dialog
@@ -68,6 +83,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.clustered_data = None
         self.clustered_data_unscaled = None  # Store original unscaled data for heatmap display
         self.umap_embedding = None
+        self.tsne_embedding = None
         self.cluster_annotation_map = {}
         self.cluster_backend_names = {}  # Store normalized names for CSV export
         self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
@@ -98,6 +114,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         options_layout.addWidget(QtWidgets.QLabel("Clustering Method:"))
         self.clustering_type = QtWidgets.QComboBox()
         clustering_types = ["Hierarchical"]
+        if _HAVE_SKLEARN:
+            clustering_types.append("K-means")
         if _HAVE_LEIDEN:
             clustering_types.append("Leiden")
         if _HAVE_HDBSCAN:
@@ -123,13 +141,19 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.seed_spinbox.setToolTip("Random seed for reproducibility (default: 42)")
         options_layout.addWidget(self.seed_spinbox)
         
-        # Number of clusters (only for hierarchical)
+        # Number of clusters (for hierarchical and k-means)
         self.n_clusters_label = QtWidgets.QLabel("Number of clusters:")
         options_layout.addWidget(self.n_clusters_label)
         self.n_clusters = QtWidgets.QSpinBox()
-        self.n_clusters.setRange(2, 20)
+        self.n_clusters.setRange(2, 50)
         self.n_clusters.setValue(5)
         options_layout.addWidget(self.n_clusters)
+        
+        # K-range search button (for hierarchical and k-means)
+        self.k_range_btn = QtWidgets.QPushButton("Find Optimal K")
+        self.k_range_btn.setToolTip("Search over a range of k values and plot elbow/silhouette scores")
+        self.k_range_btn.clicked.connect(self._open_k_range_dialog)
+        options_layout.addWidget(self.k_range_btn)
         
         # Hierarchical method selection (initially visible)
         self.hierarchical_label = QtWidgets.QLabel("Linkage Method:")
@@ -152,6 +176,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.leiden_mode_group.addButton(self.modularity_radio)
         leiden_options_layout.addWidget(self.resolution_radio)
         leiden_options_layout.addWidget(self.modularity_radio)
+        
+        # N neighbors parameter for graph construction
+        n_neighbors_layout = QtWidgets.QHBoxLayout()
+        self.n_neighbors_label = QtWidgets.QLabel("N neighbors:")
+        self.n_neighbors_spinbox = QtWidgets.QSpinBox()
+        self.n_neighbors_spinbox.setRange(5, 100)
+        self.n_neighbors_spinbox.setValue(15)
+        self.n_neighbors_spinbox.setToolTip("Number of neighbors for k-NN graph construction")
+        n_neighbors_layout.addWidget(self.n_neighbors_label)
+        n_neighbors_layout.addWidget(self.n_neighbors_spinbox)
+        leiden_options_layout.addLayout(n_neighbors_layout)
         
         # Resolution parameter
         resolution_layout = QtWidgets.QHBoxLayout()
@@ -253,7 +288,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
         viz_layout = QtWidgets.QHBoxLayout()
         viz_layout.addWidget(QtWidgets.QLabel("View:"))
         self.view_combo = QtWidgets.QComboBox()
-        self.view_combo.addItems(["Heatmap", "UMAP", "Stacked Bars", "Differential Expression", "Boxplot/Violin Plot"])
+        view_items = ["Heatmap", "UMAP", "Stacked Bars", "Differential Expression", "Boxplot/Violin Plot"]
+        if _HAVE_TSNE:
+            view_items.insert(2, "t-SNE")  # Insert after UMAP
+        self.view_combo.addItems(view_items)
         self.view_combo.currentTextChanged.connect(self._on_view_changed)
         viz_layout.addWidget(self.view_combo)
 
@@ -442,6 +480,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         is_leiden = clustering_type == "Leiden"
         is_hierarchical = clustering_type == "Hierarchical"
         is_hdbscan = clustering_type == "HDBSCAN"
+        is_kmeans = clustering_type == "K-means"
         
         # Show/hide Leiden options group
         self.leiden_options_group.setVisible(is_leiden)
@@ -452,11 +491,16 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Show/hide hierarchical method selection
         self.hierarchical_label.setVisible(is_hierarchical)
         self.hierarchical_method.setVisible(is_hierarchical)
-        # Show/hide number of clusters only for hierarchical
+        
+        # Show/hide number of clusters for hierarchical and k-means
         if hasattr(self, 'n_clusters_label'):
-            self.n_clusters_label.setVisible(is_hierarchical)
+            self.n_clusters_label.setVisible(is_hierarchical or is_kmeans)
         if hasattr(self, 'n_clusters'):
-            self.n_clusters.setVisible(is_hierarchical)
+            self.n_clusters.setVisible(is_hierarchical or is_kmeans)
+        
+        # Show/hide k-range search button for hierarchical and k-means
+        if hasattr(self, 'k_range_btn'):
+            self.k_range_btn.setVisible(is_hierarchical or is_kmeans)
         
         # Show/hide dendrogram controls for hierarchical methods
         self.dendro_label.setVisible(is_hierarchical)
@@ -782,11 +826,15 @@ class CellClusteringDialog(QtWidgets.QDialog):
     
     def _perform_clustering(self, data, n_clusters, method):
         """Perform clustering using specified method."""
-        if method == "leiden":
+        clustering_type = self.clustering_type.currentText()
+        
+        if clustering_type == "Leiden":
             return self._perform_leiden_clustering(data)
-        elif method == "hdbscan":
+        elif clustering_type == "HDBSCAN":
             return self._perform_hdbscan_clustering(data)
-        else:
+        elif clustering_type == "K-means":
+            return self._perform_kmeans_clustering(data, n_clusters)
+        else:  # Hierarchical
             return self._perform_hierarchical_clustering(data, n_clusters, method)
     
     def _perform_hierarchical_clustering(self, data, n_clusters, method):
@@ -809,36 +857,72 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         return clustered_data, cluster_labels
     
+    def _perform_kmeans_clustering(self, data, n_clusters):
+        """Perform K-means clustering."""
+        if not _HAVE_SKLEARN:
+            raise ImportError("scikit-learn is required for K-means clustering")
+        
+        # Get seed from UI
+        seed = self.seed_spinbox.value()
+        
+        # Perform K-means clustering
+        kmeans = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
+        cluster_labels = kmeans.fit_predict(data.values)
+        
+        # Convert to 1-based labels
+        cluster_labels = cluster_labels + 1
+        
+        # Sort data by cluster
+        data_with_clusters = data.copy()
+        data_with_clusters['cluster'] = cluster_labels
+        
+        # Sort by cluster
+        clustered_data = data_with_clusters.sort_values('cluster')
+        
+        return clustered_data, cluster_labels
+    
     def _perform_leiden_clustering(self, data):
-        """Perform Leiden clustering."""
+        """Perform Leiden clustering using k-NN graph."""
         if not _HAVE_LEIDEN:
             raise ImportError("leidenalg and igraph are required for Leiden clustering")
+        if not _HAVE_SKLEARN:
+            raise ImportError("scikit-learn is required for k-NN graph construction")
         
-        # Calculate distance matrix
-        distances = pdist(data.values, metric='euclidean')
+        from sklearn.neighbors import NearestNeighbors
         
-        # Convert to similarity matrix (invert distances)
-        max_dist = np.max(distances)
-        similarities = max_dist - distances
+        # Get n_neighbors from UI
+        n_neighbors = self.n_neighbors_spinbox.value()
         
-        # Create graph from similarity matrix
+        # Build k-NN graph
+        nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='euclidean').fit(data.values)
+        distances, indices = nbrs.kneighbors(data.values)
+        
+        # Create graph from k-NN
         n = data.shape[0]
         edges = []
         weights = []
         
-        # Convert condensed distance matrix to edge list
-        idx = 0
         for i in range(n):
-            for j in range(i + 1, n):
-                if similarities[idx] > 0:  # Only add positive similarities
-                    edges.append((i, j))
-                    weights.append(similarities[idx])
-                idx += 1
+            for j_idx, neighbor_idx in enumerate(indices[i]):
+                if neighbor_idx != i:  # Don't add self-loops
+                    edges.append((i, neighbor_idx))
+                    # Convert distance to similarity (inverse, normalized)
+                    weight = 1.0 / (1.0 + distances[i][j_idx])
+                    weights.append(weight)
         
-        # Create igraph
+        # Create igraph (undirected - convert to symmetric)
+        edge_set = set()
+        symmetric_edges = []
+        symmetric_weights = []
+        for (i, j), w in zip(edges, weights):
+            if (i, j) not in edge_set and (j, i) not in edge_set:
+                edge_set.add((i, j))
+                symmetric_edges.append((i, j))
+                symmetric_weights.append(w)
+        
         g = ig.Graph(n)
-        g.add_edges(edges)
-        g.es['weight'] = weights
+        g.add_edges(symmetric_edges)
+        g.es['weight'] = symmetric_weights
         
         # Get seed from UI
         seed = self.seed_spinbox.value()
@@ -1570,6 +1654,181 @@ class CellClusteringDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "UMAP Error", f"Error during UMAP analysis: {str(e)}")
     
+    def _run_tsne(self):
+        """Run t-SNE dimensionality reduction."""
+        if not _HAVE_TSNE:
+            QtWidgets.QMessageBox.warning(self, "t-SNE Not Available", "scikit-learn is required for t-SNE.")
+            return
+        
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No feature data available for t-SNE.")
+            return
+        
+        try:
+            # Get feature columns (same logic as clustering)
+            feature_cols = self._select_feature_columns(self.feature_dataframe)
+            if not feature_cols:
+                QtWidgets.QMessageBox.warning(self, "No Features", "No numeric features available for t-SNE.")
+                return
+            
+            data = self.feature_dataframe[feature_cols].copy()
+            
+            # Apply scaling (same as clustering)
+            scaling_method = self.clustering_scaling_combo.currentText()
+            scaling_map = {
+                "Z-score": "zscore",
+                "MAD (Median Absolute Deviation)": "mad"
+            }
+            selected_scaling = scaling_map[scaling_method]
+            data_scaled = self._apply_scaling(data, selected_scaling)
+            data_scaled = data_scaled.fillna(0)
+            
+            if data_scaled.empty or data_scaled.shape[0] < 2:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for t-SNE analysis after scaling.")
+                return
+            
+            # Get seed from UI
+            seed = self.seed_spinbox.value()
+            
+            # Simple input dialog for perplexity
+            max_perplexity = min(30, data_scaled.shape[0] - 1)
+            perplexity, ok = QtWidgets.QInputDialog.getInt(
+                self,
+                "t-SNE Perplexity",
+                f"Set perplexity (5–{max_perplexity}):\n\nNote: Using random seed {seed} from clustering options above.",
+                value=min(30, max_perplexity),
+                min=5,
+                max=max_perplexity
+            )
+            if not ok:
+                return
+            
+            # Perform t-SNE
+            self.tsne_embedding = TSNE(n_components=2, perplexity=perplexity, random_state=seed, n_iter=1000).fit_transform(data_scaled.values)
+            
+            # Store index for alignment
+            self.tsne_index = data_scaled.index
+            # Store raw data for feature-based coloring
+            self.tsne_raw_data = data_scaled
+            self.tsne_selected_columns = feature_cols
+            
+            # Create plot
+            self._create_tsne_plot()
+            
+            # Populate color-by options
+            self._populate_color_by_options()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "t-SNE Error", f"Error during t-SNE analysis: {str(e)}")
+    
+    def _create_tsne_plot(self):
+        """Create t-SNE scatter plot."""
+        if self.tsne_embedding is None:
+            return
+        
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        self.figure.tight_layout(pad=1.0)
+        
+        # Determine coloring
+        color_by = self.color_by_combo.currentText() if hasattr(self, 'color_by_combo') else 'Cluster'
+        if color_by == 'Cluster' and self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
+            # Align cluster labels to t-SNE order
+            if hasattr(self, 'tsne_index') and self.tsne_index is not None:
+                cluster_labels_series = self.clustered_data['cluster']
+                cluster_labels = cluster_labels_series.reindex(self.tsne_index).values
+            else:
+                cluster_labels = self.clustered_data['cluster'].values
+            unique_clusters = sorted(np.unique(cluster_labels))
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
+            cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
+            handles = []
+            labels = []
+            for cluster_id in unique_clusters:
+                mask = cluster_labels == cluster_id
+                sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
+                                c=[cluster_color_map[cluster_id]],
+                                alpha=0.8, s=18, edgecolors='none')
+                handles.append(sc)
+                labels.append(self._get_cluster_display_name(cluster_id))
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8)
+        elif color_by == 'Source File' and 'source_file' in self.feature_dataframe.columns:
+            # Color by source file to visualize batch effects
+            if hasattr(self, 'tsne_index') and self.tsne_index is not None:
+                source_file_series = self.feature_dataframe.loc[self.tsne_index, 'source_file']
+                source_files = source_file_series.values
+            else:
+                source_files = self.feature_dataframe['source_file'].values
+            unique_files = sorted([f for f in np.unique(source_files) if pd.notna(f)])
+            colors = plt.cm.tab20(np.linspace(0, 1, len(unique_files)))
+            file_color_map = {file_name: colors[i] for i, file_name in enumerate(unique_files)}
+            handles = []
+            labels = []
+            for file_name in unique_files:
+                mask = source_files == file_name
+                sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
+                                c=[file_color_map[file_name]],
+                                alpha=0.8, s=18, edgecolors='none')
+                handles.append(sc)
+                labels.append(str(file_name))
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Source File')
+        elif color_by == 'Phenotype' and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
+            # Color by cluster phenotype
+            if hasattr(self, 'tsne_index') and self.tsne_index is not None:
+                phenotype_series = self.clustered_data['cluster_phenotype'].reindex(self.tsne_index)
+                phenotypes = phenotype_series.fillna('Unassigned').values
+            else:
+                phenotypes = self.clustered_data['cluster_phenotype'].fillna('Unassigned').values
+            unique_phenotypes = sorted([p for p in np.unique(phenotypes) if pd.notna(p)])
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_phenotypes)))
+            phenotype_color_map = {p: colors[i] for i, p in enumerate(unique_phenotypes)}
+            handles = []
+            labels = []
+            for phenotype in unique_phenotypes:
+                mask = phenotypes == phenotype
+                sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
+                                c=[phenotype_color_map[phenotype]],
+                                alpha=0.8, s=18, edgecolors='none')
+                handles.append(sc)
+                labels.append(str(phenotype))
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Phenotype')
+        elif color_by == 'Manual Phenotype' and 'manual_phenotype' in self.feature_dataframe.columns:
+            # Color by manual phenotype
+            if hasattr(self, 'tsne_index') and self.tsne_index is not None:
+                manual_phenotype_series = self.feature_dataframe.loc[self.tsne_index, 'manual_phenotype']
+                manual_phenotypes = manual_phenotype_series.fillna('Unassigned').values
+            else:
+                manual_phenotypes = self.feature_dataframe['manual_phenotype'].fillna('Unassigned').values
+            unique_phenotypes = sorted([p for p in np.unique(manual_phenotypes) if pd.notna(p)])
+            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_phenotypes)))
+            phenotype_color_map = {p: colors[i] for i, p in enumerate(unique_phenotypes)}
+            handles = []
+            labels = []
+            for phenotype in unique_phenotypes:
+                mask = manual_phenotypes == phenotype
+                sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
+                                c=[phenotype_color_map[phenotype]],
+                                alpha=0.8, s=18, edgecolors='none')
+                handles.append(sc)
+                labels.append(str(phenotype))
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Manual Phenotype')
+        elif hasattr(self, 'tsne_raw_data') and color_by in getattr(self, 'tsne_selected_columns', []):
+            # Continuous coloring by selected feature (aligned to t-SNE order)
+            vals = self.tsne_raw_data[color_by].values
+            sc = ax.scatter(self.tsne_embedding[:, 0], self.tsne_embedding[:, 1], c=vals,
+                            cmap='viridis', alpha=0.85, s=16, edgecolors='none')
+            cbar = self.figure.colorbar(sc, ax=ax)
+            cbar.set_label(color_by)
+        else:
+            # Fallback single color
+            ax.scatter(self.tsne_embedding[:, 0], self.tsne_embedding[:, 1], c='blue', alpha=0.7, s=16, edgecolors='none')
+        
+        ax.set_xlabel('t-SNE 1', fontsize=10)
+        ax.set_ylabel('t-SNE 2', fontsize=10)
+        ax.set_title('t-SNE Visualization', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        self.canvas.draw()
+    
     def _show_heatmap(self):
         """Switch back to heatmap view."""
         if self.clustered_data is not None:
@@ -1591,6 +1850,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 self._run_umap()
             else:
                 self._create_umap_plot()
+        elif view == 't-SNE':
+            if getattr(self, 'tsne_embedding', None) is None:
+                self._run_tsne()
+            else:
+                self._create_tsne_plot()
         elif view == 'Stacked Bars':
             self._show_stacked_bars()
         elif view == 'Differential Expression':
@@ -1608,12 +1872,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
     def _update_viz_controls_visibility(self):
         """Show/hide controls depending on selected view."""
         view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
-        # Color-by visible only for UMAP
+        # Color-by visible only for UMAP and t-SNE
         for i in range(self.color_by_combo.count()):
             pass
         if hasattr(self, 'color_by_label'):
-            self.color_by_label.setVisible(view == 'UMAP')
-        self.color_by_combo.setVisible(view == 'UMAP')
+            self.color_by_label.setVisible(view in ['UMAP', 't-SNE'])
+        self.color_by_combo.setVisible(view in ['UMAP', 't-SNE'])
         # Group-by visible only for Stacked Bars
         if hasattr(self, 'group_by_label'):
             self.group_by_label.setVisible(view == 'Stacked Bars')
@@ -1868,8 +2132,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if 'source_file' in self.feature_dataframe.columns:
             if self.color_by_combo.findText('Source File') < 0:
                 self.color_by_combo.addItem('Source File')
+        # Add feature columns from UMAP or t-SNE
         for col in getattr(self, 'umap_selected_columns', []) or []:
             self.color_by_combo.addItem(col)
+        for col in getattr(self, 'tsne_selected_columns', []) or []:
+            if self.color_by_combo.findText(col) < 0:
+                self.color_by_combo.addItem(col)
         # Add phenotype if available
         if hasattr(self, 'clustered_data') and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
             if self.color_by_combo.findText('Phenotype') < 0:
@@ -1884,8 +2152,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.color_by_combo.blockSignals(False)
 
     def _on_color_by_changed(self, _text: str):
-        if getattr(self, 'umap_embedding', None) is not None:
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else ''
+        if view == 'UMAP' and getattr(self, 'umap_embedding', None) is not None:
             self._create_umap_plot()
+        elif view == 't-SNE' and getattr(self, 'tsne_embedding', None) is not None:
+            self._create_tsne_plot()
 
     def _show_stacked_bars(self):
         """Show stacked bar plots of cluster frequencies per selected group (ROI/condition/slide)."""
@@ -2826,6 +3097,215 @@ class CellClusteringDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Export Error", f"Error exporting statistical results: {str(e)}")
 
+    def _open_k_range_dialog(self):
+        """Open dialog to search over k range and plot elbow/silhouette scores."""
+        clustering_type = self.clustering_type.currentText()
+        if clustering_type not in ["Hierarchical", "K-means"]:
+            QtWidgets.QMessageBox.warning(self, "Invalid Method", 
+                                         "K-range search is only available for Hierarchical and K-means clustering.")
+            return
+        
+        # Check if we have prepared data
+        if not hasattr(self, 'feature_dataframe') or self.feature_dataframe is None:
+            QtWidgets.QMessageBox.warning(self, "No Data", "Please select features first.")
+            return
+        
+        # Get feature columns
+        feature_cols = self._select_feature_columns(self.feature_dataframe)
+        if not feature_cols:
+            QtWidgets.QMessageBox.warning(self, "No Features", "No numeric features available.")
+            return
+        
+        # Create dialog
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Find Optimal K")
+        dlg.setMinimumSize(600, 400)
+        layout = QtWidgets.QVBoxLayout(dlg)
+        
+        # Input parameters
+        params_layout = QtWidgets.QFormLayout()
+        
+        # K range
+        k_min_spin = QtWidgets.QSpinBox()
+        k_min_spin.setRange(2, 20)
+        k_min_spin.setValue(2)
+        k_max_spin = QtWidgets.QSpinBox()
+        k_max_spin.setRange(2, 30)
+        k_max_spin.setValue(10)
+        k_range_layout = QtWidgets.QHBoxLayout()
+        k_range_layout.addWidget(k_min_spin)
+        k_range_layout.addWidget(QtWidgets.QLabel("to"))
+        k_range_layout.addWidget(k_max_spin)
+        params_layout.addRow("K range:", k_range_layout)
+        
+        # Linkage method (for hierarchical only)
+        linkage_combo = None
+        if clustering_type == "Hierarchical":
+            linkage_combo = QtWidgets.QComboBox()
+            linkage_combo.addItems(["ward", "complete", "average", "single"])
+            linkage_combo.setCurrentText(self.hierarchical_method.currentText())
+            params_layout.addRow("Linkage method:", linkage_combo)
+        
+        layout.addLayout(params_layout)
+        
+        # Progress bar
+        progress = QtWidgets.QProgressBar()
+        progress.setRange(0, 100)
+        progress.setValue(0)
+        layout.addWidget(progress)
+        
+        # Results label
+        results_label = QtWidgets.QLabel("")
+        layout.addWidget(results_label)
+        
+        # Plot area
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+        fig = Figure(figsize=(10, 6))
+        canvas = FigureCanvas(fig)
+        layout.addWidget(canvas)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        run_btn = QtWidgets.QPushButton("Run Analysis")
+        close_btn = QtWidgets.QPushButton("Close")
+        button_layout.addWidget(run_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+        
+        def run_analysis():
+            k_min = k_min_spin.value()
+            k_max = k_max_spin.value()
+            if k_min >= k_max:
+                QtWidgets.QMessageBox.warning(dlg, "Invalid Range", "K min must be less than K max.")
+                return
+            
+            k_values = list(range(k_min, k_max + 1))
+            progress.setRange(0, len(k_values))
+            
+            # Get and scale data
+            data = self.feature_dataframe[feature_cols].copy()
+            scaling_method = self.clustering_scaling_combo.currentText()
+            scaling_map = {
+                "Z-score": "zscore",
+                "MAD (Median Absolute Deviation)": "mad"
+            }
+            selected_scaling = scaling_map[scaling_method]
+            data_scaled = self._apply_scaling(data, selected_scaling)
+            data_scaled = data_scaled.fillna(0)
+            
+            if data_scaled.empty:
+                QtWidgets.QMessageBox.warning(dlg, "No Data", "No data available after scaling.")
+                return
+            
+            seed = self.seed_spinbox.value()
+            inertias = []
+            silhouette_scores = []
+            
+            try:
+                for idx, k in enumerate(k_values):
+                    progress.setValue(idx + 1)
+                    QtWidgets.QApplication.processEvents()
+                    
+                    if clustering_type == "K-means":
+                        if not _HAVE_SKLEARN:
+                            raise ImportError("scikit-learn required")
+                        kmeans = KMeans(n_clusters=k, random_state=seed, n_init=10)
+                        labels = kmeans.fit_predict(data_scaled.values)
+                        inertias.append(kmeans.inertia_)
+                        if len(np.unique(labels)) > 1:
+                            sil_score = silhouette_score(data_scaled.values, labels)
+                        else:
+                            sil_score = 0
+                        silhouette_scores.append(sil_score)
+                    else:  # Hierarchical
+                        linkage_method = linkage_combo.currentText() if linkage_combo else "ward"
+                        distances = pdist(data_scaled.values, metric='euclidean')
+                        linkage_matrix = linkage(distances, method=linkage_method)
+                        labels = fcluster(linkage_matrix, k, criterion='maxclust')
+                        
+                        # Calculate WCSS (within-cluster sum of squares) for elbow
+                        wcss = 0
+                        for cluster_id in np.unique(labels):
+                            cluster_data = data_scaled.values[labels == cluster_id]
+                            if len(cluster_data) > 0:
+                                centroid = cluster_data.mean(axis=0)
+                                wcss += np.sum((cluster_data - centroid) ** 2)
+                        inertias.append(wcss)
+                        
+                        # Calculate silhouette
+                        if len(np.unique(labels)) > 1:
+                            sil_score = silhouette_score(data_scaled.values, labels)
+                        else:
+                            sil_score = 0
+                        silhouette_scores.append(sil_score)
+                
+                # Find optimal k
+                # Elbow: find point with maximum curvature (second derivative)
+                if len(inertias) > 2:
+                    # Calculate rate of change
+                    deltas = np.diff(inertias)
+                    deltas2 = np.diff(deltas)
+                    if len(deltas2) > 0:
+                        elbow_idx = np.argmax(np.abs(deltas2)) + 1
+                        optimal_k_elbow = k_values[elbow_idx]
+                    else:
+                        optimal_k_elbow = k_values[np.argmin(inertias)]
+                else:
+                    optimal_k_elbow = k_values[0]
+                
+                # Silhouette: maximum score
+                optimal_k_silhouette = k_values[np.argmax(silhouette_scores)]
+                
+                # Plot results
+                fig.clear()
+                ax1 = fig.add_subplot(121)
+                ax2 = fig.add_subplot(122)
+                
+                # Elbow plot
+                ax1.plot(k_values, inertias, 'bo-', linewidth=2, markersize=8)
+                ax1.axvline(x=optimal_k_elbow, color='r', linestyle='--', alpha=0.7, label=f'Suggested (elbow): k={optimal_k_elbow}')
+                ax1.set_xlabel('Number of clusters (k)', fontsize=10)
+                ax1.set_ylabel('WCSS / Inertia', fontsize=10)
+                ax1.set_title('Elbow Method', fontsize=12)
+                ax1.grid(True, alpha=0.3)
+                ax1.legend()
+                
+                # Silhouette plot
+                ax2.plot(k_values, silhouette_scores, 'go-', linewidth=2, markersize=8)
+                ax2.axvline(x=optimal_k_silhouette, color='r', linestyle='--', alpha=0.7, label=f'Suggested (silhouette): k={optimal_k_silhouette}')
+                ax2.set_xlabel('Number of clusters (k)', fontsize=10)
+                ax2.set_ylabel('Silhouette Score', fontsize=10)
+                ax2.set_title('Silhouette Score', fontsize=12)
+                ax2.grid(True, alpha=0.3)
+                ax2.legend()
+                
+                fig.tight_layout()
+                canvas.draw()
+                
+                # Update results label
+                results_text = (f"Optimal k (elbow method): {optimal_k_elbow}\n"
+                              f"Optimal k (silhouette): {optimal_k_silhouette}\n"
+                              f"Max silhouette score: {max(silhouette_scores):.3f}")
+                results_label.setText(results_text)
+                
+                # Update n_clusters spinbox with optimal value
+                if optimal_k_silhouette >= 2:
+                    self.n_clusters.setValue(optimal_k_silhouette)
+                
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(dlg, "Error", f"Error during k-range analysis: {str(e)}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                progress.setValue(len(k_values))
+        
+        run_btn.clicked.connect(run_analysis)
+        close_btn.clicked.connect(dlg.accept)
+        
+        dlg.exec_()
+    
     def _open_gating_dialog(self):
         """Open gating rules editor and apply on save."""
         # Allow selection among intensity features by default

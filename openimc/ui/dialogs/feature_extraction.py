@@ -44,6 +44,10 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self._populate_denoise_channel_list()
         self._on_denoise_source_changed()
         self._sync_hot_controls_visibility()
+        
+        # Initialize spillover correction
+        self._spillover_matrix = None
+        self._spillover_method = None
     
     def _create_ui(self):
         """Create the user interface."""
@@ -94,17 +98,16 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         top_row.addWidget(output_group, 1)
         layout.addLayout(top_row)
         
-        # Middle section: Preprocessing options (compact)
-        preprocess_group = QtWidgets.QGroupBox("Image Preprocessing")
-        preprocess_layout = QtWidgets.QHBoxLayout(preprocess_group)
+        # Middle section: Preprocessing options (separate boxes)
+        preprocess_layout = QtWidgets.QHBoxLayout()
+        preprocess_layout.setSpacing(10)
         
-        # Denoising (left side - happens first)
-        denoise_frame = QtWidgets.QFrame()
-        denoise_layout = QtWidgets.QVBoxLayout(denoise_frame)
-        denoise_layout.setContentsMargins(0, 0, 0, 0)
+        # Denoising (left box - happens first)
+        denoise_group = QtWidgets.QGroupBox("1. Denoising")
+        denoise_layout = QtWidgets.QVBoxLayout(denoise_group)
         
         denoise_source_layout = QtWidgets.QHBoxLayout()
-        denoise_source_layout.addWidget(QtWidgets.QLabel("Denoising:"))
+        denoise_source_layout.addWidget(QtWidgets.QLabel("Source:"))
         self.denoise_source_combo = QtWidgets.QComboBox()
         self.denoise_source_combo.addItems(["None", "Viewer", "Custom"])  # Remove ambiguous 'Segmentation' source
         self.denoise_source_combo.currentTextChanged.connect(self._on_denoise_source_changed)
@@ -112,14 +115,38 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         denoise_source_layout.addStretch()
         denoise_layout.addLayout(denoise_source_layout)
         
-        preprocess_layout.addWidget(denoise_frame)
+        preprocess_layout.addWidget(denoise_group)
         
-        # Normalization (right side - arcsinh applied after feature extraction)
-        norm_frame = QtWidgets.QFrame()
-        norm_layout = QtWidgets.QVBoxLayout(norm_frame)
-        norm_layout.setContentsMargins(0, 0, 0, 0)
+        # Spillover correction (middle box)
+        spillover_group = QtWidgets.QGroupBox("2. Spillover Correction")
+        spillover_layout = QtWidgets.QVBoxLayout(spillover_group)
         
-        self.normalize_chk = QtWidgets.QCheckBox("Arcsinh normalization")
+        self.spillover_chk = QtWidgets.QCheckBox("Enable spillover correction")
+        self.spillover_chk.setChecked(False)
+        self.spillover_chk.setToolTip("Apply spillover correction to extracted intensity features after feature extraction but before arcsinh scaling")
+        self.spillover_chk.toggled.connect(self._on_spillover_toggled)
+        spillover_layout.addWidget(self.spillover_chk)
+        
+        spillover_file_layout = QtWidgets.QHBoxLayout()
+        spillover_file_layout.addWidget(QtWidgets.QLabel("Matrix:"))
+        self.spillover_file_edit = QtWidgets.QLineEdit()
+        self.spillover_file_edit.setPlaceholderText("Select spillover matrix CSV...")
+        self.spillover_file_edit.setReadOnly(True)
+        self.spillover_file_edit.setEnabled(False)
+        self.spillover_file_btn = QtWidgets.QPushButton("Browse...")
+        self.spillover_file_btn.setEnabled(False)
+        self.spillover_file_btn.clicked.connect(self._select_spillover_file)
+        spillover_file_layout.addWidget(self.spillover_file_edit)
+        spillover_file_layout.addWidget(self.spillover_file_btn)
+        spillover_layout.addLayout(spillover_file_layout)
+        
+        preprocess_layout.addWidget(spillover_group)
+        
+        # Normalization (right box - arcsinh applied after feature extraction)
+        norm_group = QtWidgets.QGroupBox("3. Arcsinh Scaling")
+        norm_layout = QtWidgets.QVBoxLayout(norm_group)
+        
+        self.normalize_chk = QtWidgets.QCheckBox("Enable arcsinh normalization")
         self.normalize_chk.setChecked(False)
         self.normalize_chk.setToolTip("Apply arcsinh transformation to extracted intensity features (mean, median, std, etc.), not to raw images")
         norm_layout.addWidget(self.normalize_chk)
@@ -137,16 +164,16 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         
         # Note about arcsinh being applied after feature extraction
         arcsinh_note = QtWidgets.QLabel(
-            "Note: Arcsinh scaling is applied after feature extraction\n"
-            "on the denoised or raw images."
+            "Applied after feature extraction\n"
+            "and spillover correction"
         )
         arcsinh_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
         arcsinh_note.setWordWrap(True)
         norm_layout.addWidget(arcsinh_note)
         
-        preprocess_layout.addWidget(norm_frame)
+        preprocess_layout.addWidget(norm_group)
         
-        layout.addWidget(preprocess_group)
+        layout.addLayout(preprocess_layout)
         
         # Custom denoising frame (collapsible)
         self.custom_denoise_frame = QtWidgets.QFrame()
@@ -590,6 +617,45 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.hot_pixel_n_spin.setVisible(is_threshold)
         self.hot_pixel_n_label.setVisible(is_threshold)
     
+    def _on_spillover_toggled(self):
+        """Handle spillover correction checkbox toggle."""
+        enabled = self.spillover_chk.isChecked()
+        self.spillover_file_edit.setEnabled(enabled)
+        self.spillover_file_btn.setEnabled(enabled)
+    
+    def _select_spillover_file(self):
+        """Open spillover correction dialog to select matrix file."""
+        from openimc.ui.dialogs.spillover_correction_dialog import SpilloverCorrectionDialog
+        
+        # Get channels from first acquisition
+        channels = []
+        for acq in self.acquisitions:
+            if acq.id in self.segmentation_masks:
+                parent = self.parent()
+                if hasattr(parent, 'loader') and hasattr(parent, 'current_acq_id'):
+                    original_acq_id = parent.current_acq_id
+                    parent.current_acq_id = acq.id
+                    try:
+                        channels = parent.loader.get_channels(acq.id)
+                        break
+                    finally:
+                        parent.current_acq_id = original_acq_id
+        
+        dlg = SpilloverCorrectionDialog(self, channels=channels)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            file_path = dlg.get_spillover_file_path()
+            if file_path:
+                self.spillover_file_edit.setText(file_path)
+                self._spillover_matrix = dlg.get_spillover_matrix()
+                self._spillover_method = dlg.get_method()
+            else:
+                self._spillover_matrix = None
+                self._spillover_method = None
+        else:
+            # If dialog was cancelled, uncheck the checkbox if no file is set
+            if not self.spillover_file_edit.text():
+                self.spillover_chk.setChecked(False)
+    
     # ---------- Getter Methods ----------
     def get_normalization_config(self):
         """Get the normalization configuration."""
@@ -607,3 +673,12 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
     def get_custom_denoise_settings(self):
         """Get the custom denoising settings."""
         return self.custom_denoise_settings
+    
+    def get_spillover_config(self):
+        """Get the spillover correction configuration."""
+        if self.spillover_chk.isChecked() and self._spillover_matrix is not None:
+            return {
+                'matrix': self._spillover_matrix,
+                'method': self._spillover_method or 'pgd'
+            }
+        return None

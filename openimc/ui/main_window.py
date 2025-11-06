@@ -105,6 +105,7 @@ from openimc.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
 from openimc.ui.dialogs.comparison_dialog import DynamicComparisonDialog
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.qc_analysis_dialog import QCAnalysisDialog
+from openimc.ui.dialogs.spillover_matrix_dialog import GenerateSpilloverMatrixDialog
 from openimc.utils.logger import get_logger
 
 
@@ -848,6 +849,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Analysis menu
         analysis_menu = self.menuBar().addMenu("&Analysis")
+        act_spillover_matrix = analysis_menu.addAction("Generate Spillover Matrix…")
+        act_spillover_matrix.triggered.connect(self._open_spillover_matrix_dialog)
         act_clustering = analysis_menu.addAction("Cell Clustering…")
         act_clustering.triggered.connect(self._open_clustering_dialog)
         act_spatial = analysis_menu.addAction("Spatial Analysis…")
@@ -4925,12 +4928,14 @@ class MainWindow(QtWidgets.QMainWindow):
         normalization_config = dlg.get_normalization_config()
         denoise_source = dlg.get_denoise_source()
         custom_denoise_settings = dlg.get_custom_denoise_settings()
+        spillover_config = dlg.get_spillover_config()
         
         # Store the normalization configuration for later use in clustering
         self.feature_extraction_config = {
             'normalization_config': normalization_config,
             'denoise_source': denoise_source,
-            'custom_denoise_settings': custom_denoise_settings
+            'custom_denoise_settings': custom_denoise_settings,
+            'spillover_config': spillover_config
         }
         
         if not selected_acquisitions:
@@ -4943,7 +4948,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Perform feature extraction
         try:
-            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings)
+            self._perform_feature_extraction(selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings, spillover_config)
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self, 
@@ -4952,7 +4957,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
     
 
-    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings):
+    def _perform_feature_extraction(self, selected_acquisitions, selected_features, output_path, normalization_config, denoise_source, custom_denoise_settings, spillover_config=None):
         """Perform the actual feature extraction using multiprocessing.
         
         This now parallelizes both image loading and feature extraction for better performance.
@@ -5015,6 +5020,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         cofactor,
                         denoise_source,
                         custom_denoise_settings,
+                        spillover_config,  # spillover correction config
                         source_file
                     ))
                 except Exception as e:
@@ -5034,10 +5040,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 with mp.Pool(processes=max_workers) as pool:
                     # Submit all tasks - each worker loads and extracts in parallel
                     futures = []
-                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in mp_args:
+                    for (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file) in mp_args:
                         future = pool.apply_async(
                             load_and_extract_features,
-                            (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file)
+                            (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file)
                         )
                         futures.append((acq_id, future))
                     
@@ -5070,13 +5076,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 progress_dlg.update_progress(0, "Multiprocessing failed, using sequential processing", "Processing acquisitions one by one")
                 
                 # Fallback to sequential processing
-                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file) in enumerate(mp_args):
+                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file) in enumerate(mp_args):
                     if progress_dlg.is_cancelled():
                         break
                     
                     try:
                         result = load_and_extract_features(
-                            acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, source_file
+                            acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file
                         )
                         
                         if result is not None and not result.empty:
@@ -5493,6 +5499,11 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         dlg = QCAnalysisDialog(self)
+        dlg.exec_()
+    
+    def _open_spillover_matrix_dialog(self):
+        """Open the generate spillover matrix dialog."""
+        dlg = GenerateSpilloverMatrixDialog(self)
         dlg.exec_()
 
 

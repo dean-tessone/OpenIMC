@@ -9,6 +9,13 @@ from openimc.data.mcd_loader import MCDLoader
 from openimc.data.ometiff_loader import OMETIFFLoader
 from openimc.ui.utils import arcsinh_normalize
 
+# Optional spillover correction
+try:
+    from openimc.processing.spillover_correction import compensate_counts
+    _HAVE_SPILLOVER = True
+except ImportError:
+    _HAVE_SPILLOVER = False
+
 # Optional scikit-image for denoising
 try:
     from skimage import morphology, filters
@@ -105,6 +112,7 @@ def extract_features_for_acquisition(
     cofactor: float,
     denoise_source: str = "None",
     custom_denoise_settings: Dict = None,
+    spillover_config: Optional[Dict] = None,
     source_file: Optional[str] = None,
 ) -> pd.DataFrame:
     """Module-level worker that extracts features for a single acquisition.
@@ -240,10 +248,65 @@ def extract_features_for_acquisition(
             inten_df[f"{ch_name}_integrated"] = integrated_vals
             inten_df[f"{ch_name}_frac_pos"] = frac_pos_vals
 
-            # Apply arcsinh transformation to extracted intensity features if enabled
-            # Note: frac_pos is a proportion (0-1), so it should not be transformed
-            if arcsinh_enabled:
-                print(f"[feature_worker] Applying arcsinh transformation to extracted intensity features with cofactor={cofactor}")
+            # Merge with morphology on label
+            morph_df = morph_df.merge(inten_df, on="label", how="left")
+
+        # Apply spillover correction to extracted intensity features (after feature extraction, before arcsinh)
+        # Spillover correction operates on raw intensity values (linear scale)
+        if spillover_config and _HAVE_SPILLOVER:
+            spillover_matrix = spillover_config.get('matrix')
+            spillover_method = spillover_config.get('method', 'pgd')
+            channel_names = acq_info.get("channels", [])
+            
+            if spillover_matrix is not None and len(channel_names) > 0:
+                print(f"[feature_worker] Applying spillover correction to intensity features (method={spillover_method})")
+                try:
+                    # Apply spillover correction to each intensity feature type separately
+                    # Intensity features: mean, median, std, mad, p10, p90, integrated
+                    # Note: frac_pos is a proportion (0-1), so it should not be corrected
+                    intensity_feature_types = ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated']
+                    
+                    for feature_type in intensity_feature_types:
+                        # Extract columns for this feature type across all channels
+                        feature_cols = [f"{ch_name}_{feature_type}" for ch_name in channel_names 
+                                       if f"{ch_name}_{feature_type}" in morph_df.columns]
+                        
+                        if not feature_cols:
+                            continue
+                        
+                        # Create a temporary DataFrame with cells x channels for this feature type
+                        feature_data = morph_df[feature_cols].copy()
+                        # Rename columns to match channel names (remove the feature_type suffix)
+                        channel_map = {col: col.replace(f"_{feature_type}", "") for col in feature_cols}
+                        feature_data.rename(columns=channel_map, inplace=True)
+                        
+                        # Apply spillover correction
+                        comp_data, _ = compensate_counts(
+                            feature_data,
+                            spillover_matrix,
+                            method=spillover_method,
+                            strict_align=False,
+                            return_all_channels=True
+                        )
+                        
+                        # Rename columns back and update morph_df
+                        comp_data.rename(columns={ch: f"{ch}_{feature_type}" for ch in comp_data.columns}, inplace=True)
+                        for col in comp_data.columns:
+                            if col in morph_df.columns:
+                                morph_df[col] = comp_data[col].values
+                    
+                    print(f"[feature_worker] Spillover correction applied successfully to intensity features")
+                except Exception as e:
+                    print(f"[feature_worker] WARNING: Spillover correction failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Continue without spillover correction rather than failing
+        
+        # Apply arcsinh transformation to extracted intensity features if enabled
+        # Note: frac_pos is a proportion (0-1), so it should not be transformed
+        if arcsinh_enabled:
+            print(f"[feature_worker] Applying arcsinh transformation to extracted intensity features with cofactor={cofactor}")
+            for ch_name in channel_names:
                 intensity_feature_cols = [
                     f"{ch_name}_mean",
                     f"{ch_name}_median",
@@ -254,12 +317,9 @@ def extract_features_for_acquisition(
                     f"{ch_name}_integrated"
                 ]
                 for col in intensity_feature_cols:
-                    if col in inten_df.columns:
+                    if col in morph_df.columns:
                         # Apply arcsinh transform to the feature values (1D array)
-                        inten_df[col] = arcsinh_normalize(inten_df[col].values, cofactor=cofactor)
-
-            # Merge with morphology on label
-            morph_df = morph_df.merge(inten_df, on="label", how="left")
+                        morph_df[col] = arcsinh_normalize(morph_df[col].values, cofactor=cofactor)
 
         # Add acquisition id and cell id
         morph_df.rename(columns={"label": "cell_id"}, inplace=True)
@@ -294,6 +354,7 @@ def load_and_extract_features(
     cofactor: float,
     denoise_source: str = "None",
     custom_denoise_settings: Dict = None,
+    spillover_config: Optional[Dict] = None,
     source_file: Optional[str] = None,
 ) -> pd.DataFrame:
     """Load image data and extract features in a single worker process.
@@ -334,6 +395,7 @@ def load_and_extract_features(
             cofactor=cofactor,
             denoise_source=denoise_source,
             custom_denoise_settings=custom_denoise_settings,
+            spillover_config=spillover_config,
             source_file=source_file
         )
         
