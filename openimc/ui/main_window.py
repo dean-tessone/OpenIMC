@@ -160,7 +160,7 @@ def _load_and_preprocess_acquisition_worker(task_data):
     Worker function to load and preprocess a single acquisition for segmentation.
     This function is isolated at module level to be picklable for multiprocessing.
     """
-    (acq_id, acq_name, file_path, loader_type, preprocessing_config, 
+    (original_acq_id, unique_acq_id, acq_name, file_path, loader_type, preprocessing_config, 
      denoise_source, custom_denoise_settings, source_file) = task_data
     
     try:
@@ -329,7 +329,8 @@ def _load_and_preprocess_acquisition_worker(task_data):
         # Load and normalize nuclear channels
         nuclear_imgs = []
         for channel in nuclear_channels:
-            img = loader.get_image(acq_id, channel)
+            # Use original_acq_id for loader calls
+            img = loader.get_image(original_acq_id, channel)
             if img is None:
                 continue
             
@@ -358,7 +359,8 @@ def _load_and_preprocess_acquisition_worker(task_data):
         if cyto_channels:
             cyto_imgs = []
             for channel in cyto_channels:
-                img = loader.get_image(acq_id, channel)
+                # Use original_acq_id for loader calls
+                img = loader.get_image(original_acq_id, channel)
                 if img is None:
                     continue
                 
@@ -384,7 +386,7 @@ def _load_and_preprocess_acquisition_worker(task_data):
         
         # Return result with acquisition info
         return {
-            'acq_id': acq_id,
+            'acq_id': unique_acq_id,  # Return unique ID for lookup in main process
             'acq_name': acq_name,
             'nuclear_img': nuclear_img,
             'cyto_img': cyto_img,
@@ -392,7 +394,7 @@ def _load_and_preprocess_acquisition_worker(task_data):
         }
         
     except Exception as e:
-        print(f"Error processing acquisition {acq_name} ({acq_id}): {e}")
+        print(f"Error processing acquisition {acq_name} ({unique_acq_id}): {e}")
         return None
 
 
@@ -417,6 +419,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Multi-file support: track multiple MCD files and their loaders
         self.mcd_loaders: Dict[str, MCDLoader] = {}  # Maps file path to MCDLoader
         self.acq_to_file: Dict[str, str] = {}  # Maps acquisition ID to source file path
+        self.unique_acq_to_original: Dict[str, str] = {}  # Maps unique acquisition ID to original ID
         self.acquisitions: List[AcquisitionInfo] = []
         self.current_acq_id: Optional[str] = None
         # Image cache and prefetching
@@ -461,6 +464,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.grid_view_chk.setChecked(True)
         self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
         self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
+        
+        # Overlay mode selection (outline vs mask)
+        overlay_mode_layout = QtWidgets.QHBoxLayout()
+        overlay_mode_layout.addWidget(QtWidgets.QLabel("Mode:"))
+        self.segmentation_overlay_mode_combo = QtWidgets.QComboBox()
+        self.segmentation_overlay_mode_combo.addItems(["Mask", "Outline"])
+        self.segmentation_overlay_mode_combo.setCurrentText("Mask")
+        self.segmentation_overlay_mode_combo.currentTextChanged.connect(self._on_segmentation_overlay_mode_changed)
+        overlay_mode_layout.addWidget(self.segmentation_overlay_mode_combo)
+        overlay_mode_layout.addStretch()
+        self.segmentation_overlay_mode_widget = QtWidgets.QWidget()
+        self.segmentation_overlay_mode_widget.setLayout(overlay_mode_layout)
+        self.segmentation_overlay_mode_widget.setVisible(False)  # Hidden by default until overlay is enabled
         
         # Scale bar controls
         self.scale_bar_chk = QtWidgets.QCheckBox("Show scale bar")
@@ -743,12 +759,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segmentation_masks = {}  # {acq_id: mask_array}
         self.segmentation_colors = {}  # {acq_id: colors_array}
         self.segmentation_overlay = False
+        self.segmentation_overlay_mode = "Mask"  # "Outline" or "Mask"
         self.preprocessing_cache = PreprocessingCache()
         # Per-channel denoise config {channel: {"hot": {...}, "speckle": {...}, "background": {...}}}
         self.channel_denoise: Dict[str, Dict[str, dict]] = {}
         
         # Feature extraction state
         self.feature_dataframe = None  # Store extracted features in memory
+        self.batch_corrected_dataframe = None  # Store batch-corrected features in memory
         
         # Color assignment for RGB composite
         self.color_assignment_frame = QtWidgets.QFrame()
@@ -837,6 +855,7 @@ class MainWindow(QtWidgets.QMainWindow):
         v.addWidget(self.grid_view_chk)
         v.addWidget(self.show_all_channels_btn)
         v.addWidget(self.segmentation_overlay_chk)
+        v.addWidget(self.segmentation_overlay_mode_widget)
         v.addWidget(self.scale_bar_chk)
         v.addWidget(self.scale_bar_widget)
         v.addWidget(self.denoise_enable_chk)
@@ -888,6 +907,8 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         act_open = file_menu.addAction("Open File/Folder…")
         act_open.triggered.connect(self._open_dialog)
+        act_load_features = file_menu.addAction("Load Feature File…")
+        act_load_features.triggered.connect(self._load_feature_file)
         file_menu.addSeparator()
         
         # Export submenu
@@ -985,6 +1006,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Close existing loaders
         self._close_all_loaders()
         
+        # Clear image cache to avoid collisions with old cache entries
+        with self._cache_lock:
+            self.image_cache.clear()
+        
         # Track all acquisitions and their source files
         all_acquisitions = []
         file_channel_sets = {}  # Maps file path to set of all channels in that file
@@ -1006,13 +1031,37 @@ class MainWindow(QtWidgets.QMainWindow):
                 
                 # Get acquisitions for this file
                 file_acqs = loader.list_acquisitions(source_file=path)
-                all_acquisitions.extend(file_acqs)
+                
+                # Create unique acquisition IDs by incorporating file identifier
+                # Use a hash of the file path to create a short unique identifier
+                import hashlib
+                file_hash = hashlib.md5(path.encode()).hexdigest()[:8]
+                file_id = f"file_{file_hash}"
                 
                 # Track channels for mismatch detection (union of all channels in this file)
                 file_channels = set()
                 for acq in file_acqs:
+                    # Create unique acquisition ID by combining original ID with file identifier
+                    unique_acq_id = f"{acq.id}__{file_id}"
+                    
+                    # Create new AcquisitionInfo with unique ID
+                    from openimc.data.mcd_loader import AcquisitionInfo
+                    unique_acq = AcquisitionInfo(
+                        id=unique_acq_id,
+                        name=acq.name,
+                        well=acq.well,
+                        size=acq.size,
+                        channels=acq.channels,
+                        channel_metals=acq.channel_metals,
+                        channel_labels=acq.channel_labels,
+                        metadata=acq.metadata,
+                        source_file=acq.source_file
+                    )
+                    all_acquisitions.append(unique_acq)
+                    
                     file_channels.update(acq.channels)
-                    self.acq_to_file[acq.id] = path
+                    self.acq_to_file[unique_acq_id] = path
+                    self.unique_acq_to_original[unique_acq_id] = acq.id  # Store mapping from unique to original ID
                 file_channel_sets[path] = file_channels
                 
             except Exception as e:
@@ -1050,11 +1099,22 @@ class MainWindow(QtWidgets.QMainWindow):
         
         if self.acquisitions:
             self._populate_channels(self.acquisitions[0].id)
-            # For initial file load, if no channels were pre-selected, select the first channel
+            # For initial file load, if no channels were pre-selected, select DNA1 if it exists, otherwise first channel
             if not self._selected_channels() and self.channel_list.count() > 0:
-                # Select first channel by default for initial display
-                item = self.channel_list.item(0)
-                item.setCheckState(Qt.Checked)
+                # Look for channel containing DNA1 first
+                dna1_item = None
+                for i in range(self.channel_list.count()):
+                    item = self.channel_list.item(i)
+                    if "DNA1" in item.text():
+                        dna1_item = item
+                        break
+                
+                # Select DNA1 if found, otherwise select first channel
+                if dna1_item:
+                    dna1_item.setCheckState(Qt.Checked)
+                else:
+                    item = self.channel_list.item(0)
+                    item.setCheckState(Qt.Checked)
     
     def _check_channel_mismatches(self, channel_sets: List[set], paths: List[str]):
         """Check if MCD files have different channels and warn the user."""
@@ -1119,16 +1179,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
         self.mcd_loaders.clear()
         self.acq_to_file.clear()
+        self.unique_acq_to_original.clear()
     
     def _get_loader_for_acquisition(self, acq_id: str) -> Optional[Union[MCDLoader, OMETIFFLoader]]:
         """Get the appropriate loader for a given acquisition ID."""
         # If we have multiple MCD files, use the loader for the acquisition's source file
         if acq_id in self.acq_to_file:
             file_path = self.acq_to_file[acq_id]
-            return self.mcd_loaders.get(file_path)
+            loader = self.mcd_loaders.get(file_path)
+            return loader
         
         # Otherwise, use the single loader (for OME-TIFF or single MCD file)
         return self.loader
+    
+    def _get_original_acq_id(self, acq_id: str) -> str:
+        """Get the original acquisition ID from a unique ID (for multi-file support)."""
+        # If this is a unique ID (contains __file_), extract the original ID
+        if acq_id in self.unique_acq_to_original:
+            original_id = self.unique_acq_to_original[acq_id]
+            return original_id
+        # Otherwise, it's already the original ID
+        return acq_id
     
     @property
     def current_loader(self) -> Optional[Union[MCDLoader, OMETIFFLoader]]:
@@ -1199,11 +1270,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.acq_combo.addItem(label, ai.id)
         if self.acquisitions:
             self._populate_channels(self.acquisitions[0].id)
-            # For initial file load, if no channels were pre-selected, select the first channel
+            # For initial file load, if no channels were pre-selected, select DNA1 if it exists, otherwise first channel
             if not self._selected_channels() and self.channel_list.count() > 0:
-                # Select first channel by default for initial display
-                item = self.channel_list.item(0)
-                item.setCheckState(Qt.Checked)
+                # Look for channel containing DNA1 first
+                dna1_item = None
+                for i in range(self.channel_list.count()):
+                    item = self.channel_list.item(i)
+                    if "DNA1" in item.text():
+                        dna1_item = item
+                        break
+                
+                # Select DNA1 if found, otherwise select first channel
+                if dna1_item:
+                    dna1_item.setCheckState(Qt.Checked)
+                else:
+                    item = self.channel_list.item(0)
+                    item.setCheckState(Qt.Checked)
 
     # ---------- Acquisition / channels ----------
     def _on_acq_changed(self, idx: int):
@@ -1227,12 +1309,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def _populate_channels(self, acq_id: str):
         self.current_acq_id = acq_id
         self.channel_list.clear()
+        
+        # Update segmentation overlay text for new acquisition
+        self._update_segmentation_overlay_text()
         try:
             loader = self._get_loader_for_acquisition(acq_id)
             if loader is None:
                 QtWidgets.QMessageBox.critical(self, "Loader error", f"No loader found for acquisition {acq_id}")
                 return
-            chans = loader.get_channels(acq_id)
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(acq_id)
+            chans = loader.get_channels(original_acq_id)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Channels error", str(e))
             return
@@ -1464,6 +1551,22 @@ class MainWindow(QtWidgets.QMainWindow):
             acq_info = next((ai for ai in self.acquisitions if ai.id == acq_id), None)
         return acq_info
     
+    def _get_cache_key(self, acq_id: str, channel: str) -> Tuple[str, str, str]:
+        """Get a unique cache key for an acquisition and channel.
+        
+        When multiple MCD files are loaded, acquisition IDs may not be unique across files.
+        This method includes the source file path in the cache key to prevent collisions.
+        """
+        if acq_id in self.acq_to_file:
+            # Include source file path to make cache key unique
+            source_file = self.acq_to_file[acq_id]
+            cache_key = (source_file, acq_id, channel)
+            return cache_key
+        else:
+            # Single file or OME-TIFF: use acq_id and channel (no file path needed)
+            cache_key = ("", acq_id, channel)
+            return cache_key
+    
     def _get_acquisition_subtitle(self, acq_id: str) -> str:
         """Get acquisition subtitle showing well/description instead of acquisition number."""
         acq_info = self._get_acquisition_info(acq_id)
@@ -1471,10 +1574,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return "Unknown"
         
         # Use well if available, otherwise use name (which might be more descriptive)
-        if acq_info.well:
-            return f"{acq_info.well}"
-        else:
-            return acq_info.name
+        subtitle = f"{acq_info.well}" if acq_info.well else acq_info.name
+        return subtitle
 
     def _on_custom_scaling_toggled(self):
         """Handle custom scaling checkbox toggle."""
@@ -2019,7 +2120,13 @@ class MainWindow(QtWidgets.QMainWindow):
         
         try:
             # Get all channels for current acquisition
-            all_channels = self.loader.get_channels(self.current_acq_id)
+            loader = self._get_loader_for_acquisition(self.current_acq_id)
+            if loader is None:
+                QtWidgets.QMessageBox.information(self, "No loader", "No loader found for current acquisition.")
+                return
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(self.current_acq_id)
+            all_channels = loader.get_channels(original_acq_id)
             if not all_channels:
                 QtWidgets.QMessageBox.information(self, "No channels", "No channels available.")
                 return
@@ -2385,7 +2492,10 @@ class MainWindow(QtWidgets.QMainWindow):
         for channel in channels_to_revert:
             try:
                 if self.current_acq_id:
-                    img = self.loader.get_image(self.current_acq_id, channel)
+                    loader = self._get_loader_for_acquisition(self.current_acq_id)
+                    if loader is None:
+                        continue
+                    img = loader.get_image(self.current_acq_id, channel)
                     min_val = float(np.min(img))
                     max_val = float(np.max(img))
                     
@@ -2420,7 +2530,10 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.current_acq_id is None:
                 return
             try:
-                img = self.loader.get_image(self.current_acq_id, current_channel)
+                loader = self._get_loader_for_acquisition(self.current_acq_id)
+                if loader is None:
+                    return
+                img = loader.get_image(self.current_acq_id, current_channel)
                 min_val = float(np.min(img))
                 max_val = float(np.max(img))
             except Exception as e:
@@ -2476,7 +2589,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         try:
-            img = self.loader.get_image(self.current_acq_id, current_channel)
+            loader = self._get_loader_for_acquisition(self.current_acq_id)
+            if loader is None:
+                return
+            img = loader.get_image(self.current_acq_id, current_channel)
             # Apply denoising if enabled/configured before normalization
             try:
                 img = self._apply_denoise(current_channel, img)
@@ -2516,7 +2632,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         
         try:
-            img = self.loader.get_image(self.current_acq_id, current_channel)
+            loader = self._get_loader_for_acquisition(self.current_acq_id)
+            if loader is None:
+                return
+            img = loader.get_image(self.current_acq_id, current_channel)
             min_val = float(np.min(img))
             max_val = float(np.max(img))
             
@@ -2539,14 +2658,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_image_with_normalization(self, acq_id: str, channel: str) -> np.ndarray:
         """Load image, apply denoising (per-channel) then normalization if enabled."""
         # Try cache first
-        cache_key = (acq_id, channel)
+        cache_key = self._get_cache_key(acq_id, channel)
         with self._cache_lock:
             img = self.image_cache.get(cache_key)
         if img is None:
             loader = self._get_loader_for_acquisition(acq_id)
             if loader is None:
                 raise ValueError(f"No loader found for acquisition {acq_id}")
-            img = loader.get_image(acq_id, channel)
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(acq_id)
+            img = loader.get_image(original_acq_id, channel)
             with self._cache_lock:
                 self.image_cache[cache_key] = img
         
@@ -2567,14 +2688,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _load_image_with_denoising_only(self, acq_id: str, channel: str) -> np.ndarray:
         """Load image and apply denoising only (no normalization)."""
         # Try cache first
-        cache_key = (acq_id, channel)
+        cache_key = self._get_cache_key(acq_id, channel)
         with self._cache_lock:
             img = self.image_cache.get(cache_key)
         if img is None:
             loader = self._get_loader_for_acquisition(acq_id)
             if loader is None:
                 raise ValueError(f"No loader found for acquisition {acq_id}")
-            img = loader.get_image(acq_id, channel)
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(acq_id)
+            img = loader.get_image(original_acq_id, channel)
             with self._cache_lock:
                 self.image_cache[cache_key] = img
         
@@ -2696,19 +2819,24 @@ class MainWindow(QtWidgets.QMainWindow):
 
         channels = []
         try:
-            channels = loader.get_channels(acq_id)
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(acq_id)
+            channels = loader.get_channels(original_acq_id)
         except Exception:
             return
 
         def _prefetch():
             try:
+                # Get original acquisition ID if this is a unique ID
+                original_acq_id = self._get_original_acq_id(acq_id)
                 # Load the full stack once, then split into channels for faster access
-                stack = loader.get_all_channels(acq_id)
+                stack = loader.get_all_channels(original_acq_id)
                 # Store in cache
                 with self._cache_lock:
                     for i, ch in enumerate(channels):
                         try:
-                            self.image_cache[(acq_id, ch)] = stack[..., i]
+                            cache_key = self._get_cache_key(acq_id, ch)
+                            self.image_cache[cache_key] = stack[..., i]
                         except Exception:
                             continue
             except Exception:
@@ -3324,7 +3452,9 @@ class MainWindow(QtWidgets.QMainWindow):
         loader = self._get_loader_for_acquisition(self.current_acq_id)
         if loader is None:
             raise ValueError(f"No loader found for acquisition {self.current_acq_id}")
-        all_channels = loader.get_channels(self.current_acq_id)
+        # Get original acquisition ID if this is a unique ID
+        original_acq_id = self._get_original_acq_id(self.current_acq_id)
+        all_channels = loader.get_channels(original_acq_id)
         if not all_channels:
             raise ValueError("No channels found for this acquisition")
         
@@ -3346,7 +3476,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             
             # Load raw image
-            img = self.loader.get_image(self.current_acq_id, channel)
+            img = loader.get_image(self.current_acq_id, channel)
             raw_channel_data.append(img)
             channel_names.append(channel)
         
@@ -3521,7 +3651,11 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             
             # Get all channels for this acquisition
-            all_channels = self.loader.get_channels(acq_info.id)
+            loader = self._get_loader_for_acquisition(acq_info.id)
+            if loader is None:
+                print(f"Warning: No loader found for acquisition {acq_info.name}")
+                continue
+            all_channels = loader.get_channels(acq_info.id)
             if not all_channels:
                 print(f"Warning: No channels found for acquisition {acq_info.name}")
                 continue
@@ -3535,7 +3669,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     return False
                     
                 # Load raw image
-                img = self.loader.get_image(acq_info.id, channel)
+                img = loader.get_image(acq_info.id, channel)
                 raw_channel_data.append(img)
                 channel_names.append(channel)
             
@@ -3734,9 +3868,10 @@ class MainWindow(QtWidgets.QMainWindow):
         channel_metals = []
         channel_labels = []
         
-        if hasattr(self.loader, '_acq_channel_metals') and acq_id in self.loader._acq_channel_metals:
-            channel_metals = self.loader._acq_channel_metals[acq_id]
-            channel_labels = self.loader._acq_channel_labels[acq_id]
+        loader = self._get_loader_for_acquisition(acq_id)
+        if loader and hasattr(loader, '_acq_channel_metals') and acq_id in loader._acq_channel_metals:
+            channel_metals = loader._acq_channel_metals[acq_id]
+            channel_labels = loader._acq_channel_labels[acq_id]
         
         # Ensure we have the same number of metals/labels as channels
         while len(channel_metals) < len(channel_names):
@@ -3991,7 +4126,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if loader is None:
             QtWidgets.QMessageBox.critical(self, "Loader error", "No loader found for current acquisition.")
             return
-        channels = loader.get_channels(self.current_acq_id)
+        # Get original acquisition ID if this is a unique ID
+        original_acq_id = self._get_original_acq_id(self.current_acq_id)
+        channels = loader.get_channels(original_acq_id)
         if not channels:
             QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
             return
@@ -4109,14 +4246,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if loader is None:
             QtWidgets.QMessageBox.critical(self, "Loader error", "No loader found for current acquisition.")
             return
-        channels = loader.get_channels(self.current_acq_id)
+        # Get original acquisition ID if this is a unique ID
+        original_acq_id = self._get_original_acq_id(self.current_acq_id)
+        channels = loader.get_channels(original_acq_id)
         if not channels:
             QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
             return
         
         try:
             # Load image stack
-            img_stack = loader.get_all_channels(self.current_acq_id)
+            img_stack = loader.get_all_channels(original_acq_id)
             
             # Get preprocessing config from segmentation dialog (optional for Ilastik)
             preprocessing_config = seg_dlg.get_preprocessing_config()
@@ -4424,8 +4563,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 loader = self._get_loader_for_acquisition(self.current_acq_id)
                 if loader is None:
                     raise ValueError("No loader found for current acquisition")
-                img_stack = loader.get_all_channels(self.current_acq_id)
-                channel_names = loader.get_channels(self.current_acq_id)
+                # Get original acquisition ID if this is a unique ID
+                original_acq_id = self._get_original_acq_id(self.current_acq_id)
+                img_stack = loader.get_all_channels(original_acq_id)
+                channel_names = loader.get_channels(original_acq_id)
                 
                 # Run watershed segmentation
                 masks = watershed_segmentation(
@@ -4479,7 +4620,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # Update display if overlay is enabled
             if show_overlay:
                 self.segmentation_overlay_chk.setChecked(True)
+                self.segmentation_overlay_mode_widget.setVisible(True)
                 self._update_display_with_segmentation()
+            
+            # Update overlay text with new cell count
+            self._update_segmentation_overlay_text()
             
             progress_dlg.close()
             
@@ -4608,8 +4753,15 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "No acquisitions", "No acquisitions available for segmentation.")
             return
         
-        # Watershed and CellSAM segmentation are not supported in batch mode yet
+        # Create progress dialog for batch processing
+        total_acquisitions = len(self.acquisitions)
+        progress_dlg = ProgressDialog("Batch Cell Segmentation", self)
+        progress_dlg.set_maximum(total_acquisitions)
+        progress_dlg.show()
+        
+        # Watershed segmentation is not supported in batch mode yet
         if model == "Classical Watershed":
+            progress_dlg.close()
             QtWidgets.QMessageBox.warning(
                 self, "Batch Watershed Not Supported", 
                 "Batch segmentation is not yet supported for Classical Watershed.\n"
@@ -4617,19 +4769,13 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         
+        # CellSAM batch processing: sequential (one at a time) since CellSAM doesn't support batch processing
         if model == "DeepCell CellSAM":
-            QtWidgets.QMessageBox.warning(
-                self, "Batch DeepCell CellSAM Not Supported", 
-                "Batch segmentation is not yet supported for DeepCell CellSAM.\n"
-                "Please run DeepCell CellSAM segmentation on individual acquisitions."
+            self._perform_cellsam_batch_segmentation(
+                preprocessing_config, denoise_source, custom_denoise_settings, 
+                save_masks, masks_directory, dlg, progress_dlg, total_acquisitions
             )
             return
-        
-        # Create progress dialog for batch processing
-        total_acquisitions = len(self.acquisitions)
-        progress_dlg = ProgressDialog("Batch Cell Segmentation", self)
-        progress_dlg.set_maximum(total_acquisitions)
-        progress_dlg.show()
         
         try:
             # Set fixed batch size
@@ -4777,6 +4923,264 @@ class MainWindow(QtWidgets.QMainWindow):
             progress_dlg.close()
     
     
+    def _perform_cellsam_batch_segmentation(self, preprocessing_config: dict, denoise_source: str, 
+                                            custom_denoise_settings: dict, save_masks: bool, 
+                                            masks_directory: str, dlg, progress_dlg, total_acquisitions: int):
+        """Perform sequential batch segmentation for CellSAM (one acquisition at a time)."""
+        if dlg is None:
+            QtWidgets.QMessageBox.critical(
+                self, "Missing Dialog", 
+                "Dialog object is required for DeepCell CellSAM segmentation."
+            )
+            progress_dlg.close()
+            return
+        
+        try:
+            # Initialize CellSAM model once
+            progress_dlg.update_progress(0, "Initializing DeepCell CellSAM", "Setting up model...")
+            
+            # Set API key from dialog
+            api_key = dlg.get_cellsam_api_key()
+            if api_key:
+                os.environ.update({"DEEPCELL_ACCESS_TOKEN": api_key})
+            elif not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
+                progress_dlg.close()
+                QtWidgets.QMessageBox.critical(
+                    self, "Missing API Key",
+                    "DeepCell API key is required for CellSAM.\n"
+                    "Please enter your API key in the CellSAM Parameters section.\n"
+                    "Get your key from https://users.deepcell.org/login/"
+                )
+                return
+            
+            # Initialize CellSAM model and download weights
+            progress_dlg.update_progress(0, "Initializing CellSAM model", "Downloading model weights...")
+            try:
+                get_model()  # This downloads weights if not already present
+            except Exception as e:
+                progress_dlg.close()
+                QtWidgets.QMessageBox.critical(
+                    self, "CellSAM Initialization Failed",
+                    f"Failed to initialize CellSAM model:\n{str(e)}\n\n"
+                    "Please check your API key and internet connection."
+                )
+                return
+            
+            # Get CellSAM parameters from dialog
+            bbox_threshold = dlg.get_cellsam_bbox_threshold()
+            use_wsi = dlg.get_cellsam_use_wsi()
+            low_contrast_enhancement = dlg.get_cellsam_low_contrast_enhancement()
+            gauge_cell_size = dlg.get_cellsam_gauge_cell_size()
+            
+            # Process each acquisition sequentially
+            successful_segmentations = 0
+            
+            for acq_idx, acq in enumerate(self.acquisitions):
+                if progress_dlg.is_cancelled():
+                    break
+                
+                acq_id = acq.id
+                acq_name = acq.name
+                
+                progress_dlg.update_progress(
+                    successful_segmentations,
+                    f"Processing acquisition {acq_idx + 1}/{total_acquisitions}",
+                    f"Loading {acq_name}... ({successful_segmentations}/{total_acquisitions} completed)"
+                )
+                
+                try:
+                    # Preprocess this acquisition
+                    nuclear_img, cyto_img = self._preprocess_acquisition_for_cellsam(
+                        acq_id, preprocessing_config, progress_dlg, denoise_source, custom_denoise_settings
+                    )
+                    
+                    # Prepare CellSAM input
+                    nuclear_channels_list = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+                    cyto_channels_list = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+                    
+                    if nuclear_channels_list and cyto_channels_list:
+                        # Combined mode: H x W x 3 array
+                        if nuclear_img is None:
+                            raise ValueError("Failed to load nuclear channels for combined mode")
+                        if cyto_img is None:
+                            raise ValueError("Failed to load cytoplasm channels for combined mode")
+                        h, w = nuclear_img.shape
+                        cellsam_input = np.zeros((h, w, 3), dtype=np.float32)
+                        cellsam_input[:, :, 1] = nuclear_img  # Channel 1 is nuclear
+                        cellsam_input[:, :, 2] = cyto_img  # Channel 2 is cyto
+                    elif nuclear_channels_list:
+                        # Nuclear only mode: H x W array
+                        if nuclear_img is None:
+                            raise ValueError("Failed to load nuclear channels")
+                        cellsam_input = nuclear_img
+                    elif cyto_channels_list:
+                        # Cyto only mode: H x W array
+                        if cyto_img is None:
+                            raise ValueError("Failed to load cytoplasm channels")
+                        cellsam_input = cyto_img
+                    else:
+                        raise ValueError("At least one channel (nuclear or cyto) must be selected for CellSAM")
+                    
+                    # Run CellSAM segmentation
+                    progress_dlg.update_progress(
+                        successful_segmentations,
+                        f"Segmenting {acq_name}",
+                        f"Running CellSAM... ({successful_segmentations}/{total_acquisitions} completed)"
+                    )
+                    
+                    mask = cellsam_pipeline(
+                        cellsam_input,
+                        bbox_threshold=bbox_threshold,
+                        use_wsi=use_wsi,
+                        low_contrast_enhancement=low_contrast_enhancement,
+                        gauge_cell_size=gauge_cell_size
+                    )
+                    
+                    # Store the mask
+                    if isinstance(mask, np.ndarray):
+                        mask = mask.copy()
+                    self.segmentation_masks[acq_id] = mask
+                    # Clear colors for this acquisition so they get regenerated
+                    if acq_id in self.segmentation_colors:
+                        del self.segmentation_colors[acq_id]
+                    
+                    successful_segmentations += 1
+                    
+                    # Save mask if requested
+                    if save_masks:
+                        self._save_segmentation_masks_for_acquisition(mask, acq_id, masks_directory)
+                    
+                    # Update progress
+                    progress_dlg.update_progress(
+                        successful_segmentations,
+                        f"Completed {acq_name}",
+                        f"Segmented {acq_name} ({successful_segmentations}/{total_acquisitions} completed)"
+                    )
+                    
+                except Exception as e:
+                    print(f"Error segmenting acquisition {acq_name} ({acq_id}): {e}")
+                    # Continue with next acquisition
+                    continue
+            
+            progress_dlg.update_progress(
+                total_acquisitions, 
+                "Batch segmentation complete", 
+                f"Successfully segmented {successful_segmentations}/{total_acquisitions} acquisitions"
+            )
+            
+            # Show completion message
+            QtWidgets.QMessageBox.information(
+                self, "Batch Segmentation Complete",
+                f"Successfully segmented {successful_segmentations} out of {total_acquisitions} acquisitions.\n"
+                f"Segmentation masks are available for overlay display."
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "Batch Segmentation Failed", 
+                f"Batch segmentation failed with error:\n{str(e)}"
+            )
+        finally:
+            progress_dlg.close()
+    
+    
+    def _preprocess_acquisition_for_cellsam(self, acq_id: str, preprocessing_config: dict, progress_dlg, 
+                                           denoise_source: str, custom_denoise_settings: dict) -> tuple:
+        """Preprocess a specific acquisition for CellSAM segmentation."""
+        if not preprocessing_config:
+            raise ValueError("Preprocessing configuration is required for segmentation")
+        
+        # Get the correct loader for this acquisition
+        loader = self._get_loader_for_acquisition(acq_id)
+        if loader is None:
+            raise ValueError(f"No loader found for acquisition {acq_id}")
+        
+        config = preprocessing_config
+        
+        # Get nuclear channels
+        nuclear_channels = config.get('nuclear_channels', [])
+        
+        # Get cytoplasm channels
+        cyto_channels = config.get('cyto_channels', [])
+        
+        # For CellSAM, at least one channel type must be selected
+        if not nuclear_channels and not cyto_channels:
+            raise ValueError("At least one channel (nuclear or cyto) must be selected for CellSAM")
+        
+        # Get original acquisition ID if this is a unique ID
+        original_acq_id = self._get_original_acq_id(acq_id)
+        
+        # Load and normalize nuclear channels
+        nuclear_img = None
+        if nuclear_channels:
+            nuclear_imgs = []
+            for channel in nuclear_channels:
+                img = loader.get_image(original_acq_id, channel)
+                if img is None:
+                    continue
+                
+                # Apply denoising
+                if denoise_source == "viewer":
+                    # Viewer denoising requires viewer state, skip for batch processing
+                    pass
+                elif denoise_source == "custom" and custom_denoise_settings:
+                    try:
+                        img = self._apply_custom_denoise(channel, img, custom_denoise_settings)
+                    except Exception:
+                        pass
+                
+                # Apply normalization
+                img = self._apply_normalization(img, config, acq_id, channel)
+                # Ensure 0-1 range after denoising and normalization
+                img = self._ensure_0_1_range(img)
+                nuclear_imgs.append(img)
+            
+            if not nuclear_imgs:
+                raise ValueError(f"Failed to load nuclear channels for acquisition {acq_id}")
+            
+            # Combine nuclear channels
+            nuclear_combo_method = config.get('nuclear_combo_method', 'single')
+            nuclear_weights = config.get('nuclear_weights')
+            nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights)
+            # Ensure combined image is in 0-1 range
+            nuclear_img = self._ensure_0_1_range(nuclear_img)
+        
+        # Load and normalize cytoplasm channels
+        cyto_img = None
+        if cyto_channels:
+            cyto_imgs = []
+            for channel in cyto_channels:
+                img = loader.get_image(original_acq_id, channel)
+                if img is None:
+                    continue
+                
+                # Apply denoising
+                if denoise_source == "viewer":
+                    # Viewer denoising requires viewer state, skip for batch processing
+                    pass
+                elif denoise_source == "custom" and custom_denoise_settings:
+                    try:
+                        img = self._apply_custom_denoise(channel, img, custom_denoise_settings)
+                    except Exception:
+                        pass
+                
+                # Apply normalization
+                img = self._apply_normalization(img, config, acq_id, channel)
+                # Ensure 0-1 range after denoising and normalization
+                img = self._ensure_0_1_range(img)
+                cyto_imgs.append(img)
+            
+            if cyto_imgs:
+                # Combine cytoplasm channels
+                cyto_combo_method = config.get('cyto_combo_method', 'single')
+                cyto_weights = config.get('cyto_weights')
+                cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights)
+                # Ensure combined image is in 0-1 range
+                cyto_img = self._ensure_0_1_range(cyto_img)
+        
+        return nuclear_img, cyto_img
+    
+    
     def _load_batch_acquisitions(self, acquisitions, preprocessing_config: dict, progress_dlg, denoise_source: str = "none", custom_denoise_settings: dict = None) -> dict:
         """Load and preprocess a batch of acquisitions efficiently using multiprocessing."""
         batch_images = []
@@ -4830,8 +5234,11 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 denoise_source_worker = denoise_source
             
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(acq.id)
             mp_args.append((
-                acq.id,
+                original_acq_id,  # Use original ID for loader
+                acq.id,  # Pass unique ID for tracking
                 acq.name,
                 file_path,
                 loader_type,
@@ -5138,13 +5545,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_selected()
     
     def _get_segmentation_overlay(self, img: np.ndarray) -> np.ndarray:
-        """Create segmentation overlay for display."""
+        """Create segmentation overlay for display (outline or mask mode)."""
         if not self.segmentation_overlay or self.current_acq_id not in self.segmentation_masks:
             return img
         
         mask = self.segmentation_masks[self.current_acq_id]
         
-        # Create colored overlay
+        # Create overlay
         overlay = np.zeros((*img.shape[:2], 3), dtype=np.float32)
         
         # Get or generate colors for this acquisition
@@ -5155,11 +5562,35 @@ class MainWindow(QtWidgets.QMainWindow):
         
         colors = self.segmentation_colors[self.current_acq_id]
         
-        for i, label in enumerate(unique_labels):
-            if label == 0:  # Background
-                continue
-            cell_mask = (mask == label)
-            overlay[cell_mask, :] = colors[i]
+        # Get current overlay mode
+        overlay_mode = getattr(self, 'segmentation_overlay_mode', 'Mask')
+        
+        if overlay_mode == "Outline":
+            # Use efficient edge detection instead of computing full contours
+            # Compute all outlines at once by eroding the entire mask
+            # Create binary mask (non-zero labels)
+            binary_mask = (mask > 0)
+            
+            # Erode by 1 pixel to get interior regions
+            interior = ndi.binary_erosion(binary_mask, structure=np.ones((3, 3)))
+            
+            # Outline is the difference (original - interior)
+            outline_mask = binary_mask & ~interior
+            
+            # Color outline pixels with their corresponding label colors
+            for i, label in enumerate(unique_labels):
+                if label == 0:  # Background
+                    continue
+                # Find outline pixels that belong to this label
+                label_outline = outline_mask & (mask == label)
+                overlay[label_outline, :] = colors[i]
+        else:  # Mask mode (filled)
+            # Fill all pixels of each cell with colors
+            for i, label in enumerate(unique_labels):
+                if label == 0:  # Background
+                    continue
+                cell_mask = (mask == label)
+                overlay[cell_mask, :] = colors[i]
         
         # Blend with original image
         if img.ndim == 2:
@@ -5171,7 +5602,7 @@ class MainWindow(QtWidgets.QMainWindow):
         img_norm = (img_rgb - img_rgb.min()) / (img_rgb.max() - img_rgb.min() + 1e-8)
         overlay_norm = (overlay - overlay.min()) / (overlay.max() - overlay.min() + 1e-8)
         
-        # Blend (50% original, 50% overlay)
+        # Blend (70% original, 30% overlay for subtle outline effect)
         blended = 0.7 * img_norm + 0.3 * overlay_norm
         
         return blended
@@ -5221,8 +5652,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if progress_dlg:
             progress_dlg.update_progress(25, "Preprocessing images", "Loading nuclear channels...")
         nuclear_imgs = []
+        # Get original acquisition ID if this is a unique ID
+        original_acq_id = self._get_original_acq_id(self.current_acq_id)
         for channel in nuclear_channels:
-            img = loader.get_image(self.current_acq_id, channel)
+            img = loader.get_image(original_acq_id, channel)
             # Apply denoising based on source selection (always from raw loader image)
             if denoise_source == "viewer" and use_viewer_denoising:
                 try:
@@ -5254,7 +5687,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 progress_dlg.update_progress(35, "Preprocessing images", "Loading cytoplasm channels...")
             cyto_imgs = []
             for channel in cyto_channels:
-                img = loader.get_image(self.current_acq_id, channel)
+                img = loader.get_image(original_acq_id, channel)
                 # Apply denoising based on source selection (always from raw loader image)
                 if denoise_source == "viewer" and use_viewer_denoising:
                     try:
@@ -5321,21 +5754,37 @@ class MainWindow(QtWidgets.QMainWindow):
             normalized = np.zeros_like(img_float)
         return normalized
     
+    def _update_segmentation_overlay_text(self):
+        """Update the segmentation overlay checkbox text with current cell count."""
+        if self.segmentation_overlay and self.current_acq_id and self.current_acq_id in self.segmentation_masks:
+            cell_count = len(np.unique(self.segmentation_masks[self.current_acq_id])) - 1
+            self.segmentation_overlay_chk.setText(f"Show segmentation overlay ({cell_count} cells)")
+        else:
+            self.segmentation_overlay_chk.setText("Show segmentation overlay")
+    
     def _on_segmentation_overlay_toggled(self):
         """Handle segmentation overlay checkbox toggle."""
         self.segmentation_overlay = self.segmentation_overlay_chk.isChecked()
+        
+        # Show/hide mode selector based on overlay state
+        self.segmentation_overlay_mode_widget.setVisible(self.segmentation_overlay)
+        
+        # Update checkbox text
+        self._update_segmentation_overlay_text()
         
         # Update display if we have segmentation masks
         if self.current_acq_id in self.segmentation_masks:
             self.preserve_zoom = True
             self._view_selected()
-            
-            # Update checkbox text to show cell count
-            if self.segmentation_overlay:
-                cell_count = len(np.unique(self.segmentation_masks[self.current_acq_id])) - 1
-                self.segmentation_overlay_chk.setText(f"Show segmentation overlay ({cell_count} cells)")
-            else:
-                self.segmentation_overlay_chk.setText("Show segmentation overlay")
+    
+    def _on_segmentation_overlay_mode_changed(self, mode: str):
+        """Handle segmentation overlay mode change (Outline vs Mask)."""
+        self.segmentation_overlay_mode = mode
+        
+        # Update display if overlay is enabled and we have segmentation masks
+        if self.segmentation_overlay and self.current_acq_id in self.segmentation_masks:
+            self.preserve_zoom = True
+            self._view_selected()
     
     def _on_scale_bar_toggled(self, checked):
         """Handle scale bar checkbox toggle."""
@@ -5453,8 +5902,10 @@ class MainWindow(QtWidgets.QMainWindow):
                         print(f"[main] Cannot determine file path for acquisition {acq_id}, skipping")
                         continue
                     
+                    # Get original acquisition ID if this is a unique ID
+                    original_acq_id = self._get_original_acq_id(acq_id)
                     mp_args.append((
-                        acq_id, 
+                        original_acq_id,  # Use original ID for loader
                         mask, 
                         selected_features, 
                         acq_info_dict, 
@@ -5855,6 +6306,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if loaded_count > 0:
             self.segmentation_overlay = True
             self.segmentation_overlay_chk.setChecked(True)
+            self.segmentation_overlay_mode_widget.setVisible(True)
+            # Update overlay text with cell count for current acquisition
+            self._update_segmentation_overlay_text()
             # Update display
             self._view_selected()
         
@@ -5910,7 +6364,9 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self, 
                 "No Feature Data", 
-                "No feature data available. Please extract features first using the 'Extract Features' button."
+                "No feature data available. Please:\n"
+                "- Extract features using the 'Extract Features' button, or\n"
+                "- Load features using 'Analysis > Load Feature File'"
             )
             return
         
@@ -5919,9 +6375,54 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, 'feature_extraction_config') and self.feature_extraction_config:
             normalization_config = self.feature_extraction_config.get('normalization_config')
         
-        # Open clustering dialog
-        dlg = CellClusteringDialog(self.feature_dataframe, normalization_config, self)
+        # Open clustering dialog with both original and batch-corrected features
+        dlg = CellClusteringDialog(
+            self.feature_dataframe, 
+            normalization_config, 
+            batch_corrected_dataframe=self.batch_corrected_dataframe,
+            parent=self
+        )
         dlg.exec_()
+        
+        # Update main window dataframes with cluster assignments from dialog
+        # This ensures cluster, cluster_id, cluster_phenotype, etc. are appended to both dataframes
+        if hasattr(dlg, 'clustered_data') and dlg.clustered_data is not None:
+            # Get all cluster-related columns to copy
+            cluster_cols = [col for col in dlg.clustered_data.columns 
+                          if col in ['cluster', 'cluster_id', 'cluster_phenotype'] 
+                          or col.startswith('cluster_')]
+            
+            if cluster_cols:
+                # Helper function to update a dataframe with cluster assignments
+                def update_dataframe_with_clusters(target_df, source_df, cluster_cols):
+                    """Update target dataframe with cluster columns from source."""
+                    for col in cluster_cols:
+                        if col not in target_df.columns:
+                            # Initialize with default value (0 for numeric, empty string for string)
+                            if col in ['cluster', 'cluster_id']:
+                                target_df[col] = 0
+                            else:
+                                target_df[col] = ''
+                    
+                    # Match by index if possible
+                    if source_df.index.isin(target_df.index).any():
+                        matching_indices = source_df.index.intersection(target_df.index)
+                        for col in cluster_cols:
+                            target_df.loc[matching_indices, col] = source_df.loc[matching_indices, col].values
+                    # Otherwise match by cell_id
+                    elif 'cell_id' in source_df.columns and 'cell_id' in target_df.columns:
+                        # Create mapping from cell_id to cluster values
+                        for col in cluster_cols:
+                            cluster_map = dict(zip(source_df['cell_id'], source_df[col]))
+                            mask = target_df['cell_id'].isin(cluster_map.keys())
+                            target_df.loc[mask, col] = target_df.loc[mask, 'cell_id'].map(cluster_map)
+                
+                # Update original feature dataframe
+                update_dataframe_with_clusters(self.feature_dataframe, dlg.clustered_data, cluster_cols)
+                
+                # Update batch-corrected dataframe if it exists
+                if self.batch_corrected_dataframe is not None and not self.batch_corrected_dataframe.empty:
+                    update_dataframe_with_clusters(self.batch_corrected_dataframe, dlg.clustered_data, cluster_cols)
 
     def _open_spatial_dialog(self):
         """Open the spatial analysis dialog."""
@@ -5929,10 +6430,17 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Feature Data",
-                "No feature data available. Please extract features first using the 'Extract Features' button."
+                "No feature data available. Please:\n"
+                "- Extract features using the 'Extract Features' button, or\n"
+                "- Load features using 'Analysis > Load Feature File'"
             )
             return
-        dlg = SpatialAnalysisDialog(self.feature_dataframe, self)
+        # Open spatial analysis dialog with both original and batch-corrected features
+        dlg = SpatialAnalysisDialog(
+            self.feature_dataframe, 
+            batch_corrected_dataframe=self.batch_corrected_dataframe,
+            parent=self
+        )
         dlg.exec_()
     
     def _open_qc_dialog(self):
@@ -5952,6 +6460,52 @@ class MainWindow(QtWidgets.QMainWindow):
         dlg = GenerateSpilloverMatrixDialog(self)
         dlg.exec_()
     
+    def _load_feature_file(self):
+        """Load a feature file directly into memory."""
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Load Feature File",
+            "",
+            "CSV Files (*.csv);;All Files (*)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            df = pd.read_csv(file_path)
+            
+            # Validate that it's a valid feature file
+            if 'cell_id' not in df.columns:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Invalid File",
+                    f"The file does not appear to be a valid feature file.\n"
+                    f"Missing required column: 'cell_id'"
+                )
+                return
+            
+            # Ensure source_file column exists
+            if 'source_file' not in df.columns:
+                df['source_file'] = os.path.basename(file_path)
+            
+            # Store in memory
+            self.feature_dataframe = df
+            
+            QtWidgets.QMessageBox.information(
+                self,
+                "Features Loaded",
+                f"Successfully loaded {len(df)} cells with {len(df.columns)} columns from:\n{os.path.basename(file_path)}\n\n"
+                f"Features are now available for clustering, spatial analysis, and batch correction."
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Load Error",
+                f"Failed to load feature file:\n{str(e)}"
+            )
+    
     def _open_batch_correction_dialog(self):
         """Open the batch correction dialog."""
         # Check if we have feature data or allow loading files
@@ -5961,11 +6515,25 @@ class MainWindow(QtWidgets.QMainWindow):
         
         dlg = BatchCorrectionDialog(self.feature_dataframe, self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Get combined dataframe (from loaded files or current)
+            combined_df = dlg.get_combined_dataframe()
+            if combined_df is not None and not combined_df.empty:
+                # If features were loaded from files in the dialog, store them
+                if not dlg.use_current_radio.isChecked() and dlg.loaded_files:
+                    # Features were loaded from files - store them as main feature dataframe
+                    self.feature_dataframe = combined_df
+                    QtWidgets.QMessageBox.information(
+                        self,
+                        "Features Loaded",
+                        f"Loaded {len(combined_df)} cells from {len(dlg.loaded_files)} file(s).\n"
+                        f"Features are now available for clustering and spatial analysis."
+                    )
+            
             # Get corrected dataframe
             corrected_df = dlg.get_corrected_dataframe()
             if corrected_df is not None and not corrected_df.empty:
-                # Update stored feature dataframe
-                self.feature_dataframe = corrected_df
+                # Store batch-corrected features separately (keep original)
+                self.batch_corrected_dataframe = corrected_df
                 
                 # Save to file if requested
                 output_path = dlg.get_output_path()
@@ -5975,7 +6543,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         QtWidgets.QMessageBox.information(
                             self,
                             "Success",
-                            f"Batch correction completed and saved to:\n{output_path}"
+                            f"Batch correction completed and saved to:\n{output_path}\n\n"
+                            f"Both original and batch-corrected features are now available in memory."
                         )
                     except Exception as e:
                         QtWidgets.QMessageBox.critical(
@@ -5987,7 +6556,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     QtWidgets.QMessageBox.information(
                         self,
                         "Success",
-                        "Batch correction completed. Corrected features are now loaded in memory."
+                        "Batch correction completed. Both original and batch-corrected features are now available in memory."
                     )
 
 

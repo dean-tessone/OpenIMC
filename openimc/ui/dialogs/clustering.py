@@ -61,11 +61,53 @@ except ImportError:
     _HAVE_TSNE = False
 
 
+def _get_vivid_colors(n):
+    """
+    Generate n vivid, distinct colors suitable for cluster visualization.
+    Uses tab20, tab20b, tab20c for first 60 colors, then hsv for additional colors.
+    
+    Args:
+        n: Number of colors needed
+        
+    Returns:
+        Array of RGBA colors (n, 4)
+    """
+    colors = []
+    
+    # Use tab20, tab20b, tab20c for first 60 colors (vivid and distinct)
+    if n <= 20:
+        colors = plt.cm.tab20(np.linspace(0, 1, n))
+    elif n <= 40:
+        colors = np.vstack([
+            plt.cm.tab20(np.linspace(0, 1, 20)),
+            plt.cm.tab20b(np.linspace(0, 1, n - 20))
+        ])
+    elif n <= 60:
+        colors = np.vstack([
+            plt.cm.tab20(np.linspace(0, 1, 20)),
+            plt.cm.tab20b(np.linspace(0, 1, 20)),
+            plt.cm.tab20c(np.linspace(0, 1, n - 40))
+        ])
+    else:
+        # For more than 60 colors, use tab20 series + hsv for the rest
+        colors = np.vstack([
+            plt.cm.tab20(np.linspace(0, 1, 20)),
+            plt.cm.tab20b(np.linspace(0, 1, 20)),
+            plt.cm.tab20c(np.linspace(0, 1, 20))
+        ])
+        # Use hsv colormap for additional colors, avoiding very dark/light values
+        remaining = n - 60
+        hsv_colors = plt.cm.hsv(np.linspace(0.1, 0.9, remaining))
+        colors = np.vstack([colors, hsv_colors])
+    
+    return colors
+
+
 # --------------------------
 # Cell Clustering Dialog
 # --------------------------
 class CellClusteringDialog(QtWidgets.QDialog):
-    def __init__(self, feature_dataframe, normalization_config=None, parent=None):
+    def __init__(self, feature_dataframe, normalization_config=None, batch_corrected_dataframe=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Cell Clustering Analysis")
         self.setModal(True)
@@ -78,7 +120,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.resize(dialog_width, dialog_height)
         
         self.setMinimumSize(800, 600)
-        self.feature_dataframe = feature_dataframe
+        self.original_feature_dataframe = feature_dataframe  # Store original
+        self.batch_corrected_dataframe = batch_corrected_dataframe  # Store batch-corrected
+        # Default to batch-corrected features if available, otherwise use original
+        if batch_corrected_dataframe is not None and not batch_corrected_dataframe.empty:
+            self.feature_dataframe = batch_corrected_dataframe.copy()
+        else:
+            self.feature_dataframe = feature_dataframe  # Active dataframe (can be switched)
         self.normalization_config = normalization_config
         self.cluster_labels = None
         self.clustered_data = None
@@ -87,6 +135,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.tsne_embedding = None
         self.cluster_annotation_map = {}
         self.cluster_backend_names = {}  # Store normalized names for CSV export
+        self.patient_annotation_map = {}  # Store custom patient/source file labels
         self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
         self.llm_phenotype_cache = {}  # Cache for LLM phenotype suggestions
         self.seed = 42  # Default seed for reproducibility
@@ -109,20 +158,41 @@ class CellClusteringDialog(QtWidgets.QDialog):
         options_group = QtWidgets.QGroupBox("Clustering Options")
         options_layout = QtWidgets.QHBoxLayout(options_group)
         
+        # Feature set selector (if batch-corrected data is available)
+        if self.batch_corrected_dataframe is not None and not self.batch_corrected_dataframe.empty:
+            options_layout.addWidget(QtWidgets.QLabel("Feature Set:"))
+            self.feature_set_combo = QtWidgets.QComboBox()
+            self.feature_set_combo.addItem("Original Features")
+            self.feature_set_combo.addItem("Batch-Corrected Features")
+            self.feature_set_combo.setToolTip("Choose between original or batch-corrected feature sets")
+            self.feature_set_combo.currentTextChanged.connect(self._on_feature_set_changed)
+            # Default to batch-corrected features if available (block signals to avoid triggering callback during init)
+            self.feature_set_combo.blockSignals(True)
+            self.feature_set_combo.setCurrentText("Batch-Corrected Features")
+            self.feature_set_combo.blockSignals(False)
+            options_layout.addWidget(self.feature_set_combo)
+            options_layout.addSpacing(10)
+        
         # (Aggregation and morphometric inclusion moved to Feature Selector dialog)
         
         # Clustering method type (first)
         options_layout.addWidget(QtWidgets.QLabel("Clustering Method:"))
         self.clustering_type = QtWidgets.QComboBox()
-        clustering_types = ["Hierarchical"]
-        if _HAVE_SKLEARN:
-            clustering_types.append("K-means")
+        clustering_types = []
         if _HAVE_LEIDEN:
             clustering_types.append("Leiden")
+            clustering_types.append("Louvain")
+        clustering_types.append("Hierarchical")
+        if _HAVE_SKLEARN:
+            clustering_types.append("K-means")
         if _HAVE_HDBSCAN:
             clustering_types.append("HDBSCAN")
         self.clustering_type.addItems(clustering_types)
-        self.clustering_type.setCurrentText("Hierarchical")
+        # Set Leiden as default if available, otherwise fall back to Hierarchical
+        if _HAVE_LEIDEN:
+            self.clustering_type.setCurrentText("Leiden")
+        else:
+            self.clustering_type.setCurrentText("Hierarchical")
         self.clustering_type.currentTextChanged.connect(self._on_clustering_type_changed)
         options_layout.addWidget(self.clustering_type)
         
@@ -165,13 +235,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         options_layout.addWidget(self.hierarchical_method)
         
         # Leiden clustering options (initially hidden)
-        self.leiden_options_group = QtWidgets.QGroupBox("Leiden Clustering Options")
-        leiden_options_layout = QtWidgets.QVBoxLayout(self.leiden_options_group)
+        self.leiden_options_group = QtWidgets.QGroupBox("Leiden/Louvain Options")
+        leiden_options_layout = QtWidgets.QHBoxLayout(self.leiden_options_group)
         
         # Resolution vs Modularity choice
         self.leiden_mode_group = QtWidgets.QButtonGroup()
-        self.resolution_radio = QtWidgets.QRadioButton("Use resolution parameter")
-        self.modularity_radio = QtWidgets.QRadioButton("Use modularity optimization")
+        self.resolution_radio = QtWidgets.QRadioButton("Resolution")
+        self.modularity_radio = QtWidgets.QRadioButton("Modularity")
         self.resolution_radio.setChecked(True)
         self.leiden_mode_group.addButton(self.resolution_radio)
         self.leiden_mode_group.addButton(self.modularity_radio)
@@ -179,27 +249,34 @@ class CellClusteringDialog(QtWidgets.QDialog):
         leiden_options_layout.addWidget(self.modularity_radio)
         
         # N neighbors parameter for graph construction
-        n_neighbors_layout = QtWidgets.QHBoxLayout()
         self.n_neighbors_label = QtWidgets.QLabel("N neighbors:")
         self.n_neighbors_spinbox = QtWidgets.QSpinBox()
         self.n_neighbors_spinbox.setRange(5, 100)
         self.n_neighbors_spinbox.setValue(15)
         self.n_neighbors_spinbox.setToolTip("Number of neighbors for k-NN graph construction")
-        n_neighbors_layout.addWidget(self.n_neighbors_label)
-        n_neighbors_layout.addWidget(self.n_neighbors_spinbox)
-        leiden_options_layout.addLayout(n_neighbors_layout)
+        leiden_options_layout.addWidget(self.n_neighbors_label)
+        leiden_options_layout.addWidget(self.n_neighbors_spinbox)
         
         # Resolution parameter
-        resolution_layout = QtWidgets.QHBoxLayout()
         self.resolution_label = QtWidgets.QLabel("Resolution:")
         self.resolution_spinbox = QtWidgets.QDoubleSpinBox()
         self.resolution_spinbox.setRange(0.1, 5.0)
         self.resolution_spinbox.setSingleStep(0.1)
         self.resolution_spinbox.setValue(1.0)
         self.resolution_spinbox.setDecimals(1)
-        resolution_layout.addWidget(self.resolution_label)
-        resolution_layout.addWidget(self.resolution_spinbox)
-        leiden_options_layout.addLayout(resolution_layout)
+        leiden_options_layout.addWidget(self.resolution_label)
+        leiden_options_layout.addWidget(self.resolution_spinbox)
+        
+        # Distance metric selection
+        self.leiden_metric_label = QtWidgets.QLabel("Distance metric:")
+        self.leiden_metric_combo = QtWidgets.QComboBox()
+        self.leiden_metric_combo.addItems(["euclidean", "manhattan", "cosine"])
+        self.leiden_metric_combo.setCurrentText("euclidean")
+        self.leiden_metric_combo.setToolTip("Distance metric to use for k-NN graph construction")
+        leiden_options_layout.addWidget(self.leiden_metric_label)
+        leiden_options_layout.addWidget(self.leiden_metric_combo)
+        
+        leiden_options_layout.addStretch()
         
         # Connect radio button changes
         self.resolution_radio.toggled.connect(self._on_leiden_mode_changed)
@@ -296,13 +373,47 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.view_combo.currentTextChanged.connect(self._on_view_changed)
         viz_layout.addWidget(self.view_combo)
 
-        # Color-by control (UMAP only)
-        self.color_by_label = QtWidgets.QLabel("Color by:")
+        # Color-by control (UMAP/t-SNE only) - multi-select for faceted plotting
+        self.color_by_label = QtWidgets.QLabel("Color by (select multiple for faceted plots):")
         viz_layout.addWidget(self.color_by_label)
+        self.color_by_listwidget = QtWidgets.QListWidget()
+        self.color_by_listwidget.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        self.color_by_listwidget.setMaximumHeight(100)
+        self.color_by_listwidget.itemSelectionChanged.connect(self._on_color_by_changed)
+        viz_layout.addWidget(self.color_by_listwidget)
+        # Keep combo for backward compatibility but hide it
         self.color_by_combo = QtWidgets.QComboBox()
-        self.color_by_combo.addItem("Cluster")
-        self.color_by_combo.currentTextChanged.connect(self._on_color_by_changed)
-        viz_layout.addWidget(self.color_by_combo)
+        self.color_by_combo.setVisible(False)
+
+        # Point size control (UMAP/t-SNE only)
+        self.point_size_label = QtWidgets.QLabel("Point size:")
+        viz_layout.addWidget(self.point_size_label)
+        self.point_size_spinbox = QtWidgets.QSpinBox()
+        self.point_size_spinbox.setMinimum(1)
+        self.point_size_spinbox.setMaximum(200)
+        self.point_size_spinbox.setValue(18)
+        self.point_size_spinbox.setToolTip("Size of points in scatter plot")
+        self.point_size_spinbox.valueChanged.connect(self._on_point_style_changed)
+        viz_layout.addWidget(self.point_size_spinbox)
+
+        # Point alpha control (UMAP/t-SNE only)
+        self.point_alpha_label = QtWidgets.QLabel("Point alpha:")
+        viz_layout.addWidget(self.point_alpha_label)
+        self.point_alpha_spinbox = QtWidgets.QDoubleSpinBox()
+        self.point_alpha_spinbox.setMinimum(0.0)
+        self.point_alpha_spinbox.setMaximum(1.0)
+        self.point_alpha_spinbox.setSingleStep(0.1)
+        self.point_alpha_spinbox.setValue(0.8)
+        self.point_alpha_spinbox.setDecimals(2)
+        self.point_alpha_spinbox.setToolTip("Transparency of points (0.0 = transparent, 1.0 = opaque)")
+        self.point_alpha_spinbox.valueChanged.connect(self._on_point_style_changed)
+        viz_layout.addWidget(self.point_alpha_spinbox)
+
+        # Remake UMAP button (UMAP only)
+        self.remake_umap_btn = QtWidgets.QPushButton("Remake UMAP")
+        self.remake_umap_btn.setToolTip("Regenerate UMAP with new parameters (features, scaling, n_neighbors)")
+        self.remake_umap_btn.clicked.connect(self._remake_umap)
+        viz_layout.addWidget(self.remake_umap_btn)
 
         # Group-by for stacked bars (Stacked Bars only)
         self.group_by_label = QtWidgets.QLabel("Group by:")
@@ -317,9 +428,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if 'source_file' in self.feature_dataframe.columns and 'acquisition_id' in self.feature_dataframe.columns:
             # Create merged column if it doesn't exist
             if 'source_file_acquisition_id' not in self.feature_dataframe.columns:
-                self.feature_dataframe['source_file_acquisition_id'] = (
-                    self.feature_dataframe['source_file'].astype(str) + '_' + 
-                    self.feature_dataframe['acquisition_id'].astype(str)
+                # Use assign() to avoid DataFrame fragmentation warnings
+                self.feature_dataframe = self.feature_dataframe.assign(
+                    source_file_acquisition_id=(
+                        self.feature_dataframe['source_file'].astype(str) + '_' + 
+                        self.feature_dataframe['acquisition_id'].astype(str)
+                    )
                 )
             available_group_cols.insert(0, 'source_file_acquisition_id')
         if not available_group_cols:
@@ -371,6 +485,19 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.heatmap_scaling_combo.setCurrentText("Z-score")  # Default to Z-score
         self.heatmap_scaling_combo.currentTextChanged.connect(self._on_heatmap_scaling_changed)
         viz_layout.addWidget(self.heatmap_scaling_combo)
+
+        # Patient annotation controls (for heatmap only)
+        self.patient_annotation_checkbox = QtWidgets.QCheckBox("Show patient annotation")
+        self.patient_annotation_checkbox.setToolTip("Show patient/source file annotation bar above cell annotation in heatmap")
+        self.patient_annotation_checkbox.setChecked(False)
+        self.patient_annotation_checkbox.stateChanged.connect(self._on_patient_annotation_changed)
+        viz_layout.addWidget(self.patient_annotation_checkbox)
+        
+        self.patient_annotate_btn = QtWidgets.QPushButton("Customize Patient Labels...")
+        self.patient_annotate_btn.setToolTip("Customize labels for patient/source file annotation")
+        self.patient_annotate_btn.clicked.connect(self._open_patient_annotation_dialog)
+        self.patient_annotate_btn.setEnabled(False)
+        viz_layout.addWidget(self.patient_annotate_btn)
 
         # Top N markers selector (for differential expression only)
         self.top_n_label = QtWidgets.QLabel("Top N:")
@@ -452,6 +579,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.annotate_btn.clicked.connect(self._open_annotation_dialog)
         self.annotate_btn.setEnabled(False)
         phenotype_layout.addWidget(self.annotate_btn)
+        
+        # Patient annotation button (also in phenotype section for consistency)
+        self.patient_annotate_btn2 = QtWidgets.QPushButton("Customize Patient Labels...")
+        self.patient_annotate_btn2.setToolTip("Customize labels for patient/source file annotation")
+        self.patient_annotate_btn2.clicked.connect(self._open_patient_annotation_dialog)
+        self.patient_annotate_btn2.setEnabled(False)
+        phenotype_layout.addWidget(self.patient_annotate_btn2)
 
         self.explore_btn = QtWidgets.QPushButton("Explore Clusters")
         self.explore_btn.clicked.connect(self._explore_clusters)
@@ -479,12 +613,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         """Handle clustering type change to show/hide relevant controls."""
         clustering_type = self.clustering_type.currentText()
         is_leiden = clustering_type == "Leiden"
+        is_louvain = clustering_type == "Louvain"
         is_hierarchical = clustering_type == "Hierarchical"
         is_hdbscan = clustering_type == "HDBSCAN"
         is_kmeans = clustering_type == "K-means"
         
-        # Show/hide Leiden options group
-        self.leiden_options_group.setVisible(is_leiden)
+        # Show/hide Leiden options group (also used for Louvain)
+        self.leiden_options_group.setVisible(is_leiden or is_louvain)
         
         # Show/hide HDBSCAN options group
         self.hdbscan_options_group.setVisible(is_hdbscan)
@@ -507,6 +642,33 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.dendro_label.setVisible(is_hierarchical)
         self.dendro_mode.setVisible(is_hierarchical)
         self._update_viz_controls_visibility()
+    
+    def _on_feature_set_changed(self):
+        """Handle feature set selection change."""
+        if not hasattr(self, 'feature_set_combo'):
+            return
+        
+        selected = self.feature_set_combo.currentText()
+        if selected == "Batch-Corrected Features" and self.batch_corrected_dataframe is not None:
+            self.feature_dataframe = self.batch_corrected_dataframe.copy()
+        else:
+            self.feature_dataframe = self.original_feature_dataframe.copy()
+        
+        # Clear existing clustering results when switching feature sets
+        self.cluster_labels = None
+        self.clustered_data = None
+        self.clustered_data_unscaled = None
+        self.umap_embedding = None
+        self.tsne_embedding = None
+        
+        # Clear plots if they exist
+        if hasattr(self, 'figure') and hasattr(self, 'canvas'):
+            self.figure.clear()
+            # Add placeholder text
+            ax = self.figure.add_subplot(111)
+            ax.text(0.5, 0.5, "Feature set changed. Click 'Run Clustering' to generate heatmap", 
+                    ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            self.canvas.draw()
     
     def _on_leiden_mode_changed(self):
         """Handle Leiden clustering mode change (resolution vs modularity)."""
@@ -541,6 +703,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Determine the actual clustering method
             if clustering_type == "Leiden":
                 cluster_method = "leiden"
+            elif clustering_type == "Louvain":
+                cluster_method = "louvain"
             elif clustering_type == "HDBSCAN":
                 cluster_method = "hdbscan"
             else:  # Hierarchical
@@ -635,6 +799,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 else:
                     params["optimization_method"] = "modularity"
                 params["seed"] = self.seed_spinbox.value()
+                params["n_neighbors"] = self.n_neighbors_spinbox.value()
+                params["distance_metric"] = self.leiden_metric_combo.currentText()
+            elif cluster_method == "louvain":
+                params["seed"] = self.seed_spinbox.value()
+                params["n_neighbors"] = self.n_neighbors_spinbox.value()
+                params["distance_metric"] = self.leiden_metric_combo.currentText()
             elif cluster_method == "hdbscan":
                 params["min_cluster_size"] = self.min_cluster_size_spinbox.value()
                 params["min_samples"] = self.min_samples_spinbox.value()
@@ -679,6 +849,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.annotate_btn.setEnabled(True)
             self.save_plot_btn.setEnabled(True)
             self.save_output_btn.setEnabled(True)
+            # Enable patient annotation buttons if source_file data is available
+            if 'source_file' in self.feature_dataframe.columns:
+                if hasattr(self, 'patient_annotate_btn'):
+                    self.patient_annotate_btn.setEnabled(self.patient_annotation_checkbox.isChecked() if hasattr(self, 'patient_annotation_checkbox') else False)
+                if hasattr(self, 'patient_annotate_btn2'):
+                    self.patient_annotate_btn2.setEnabled(self.patient_annotation_checkbox.isChecked() if hasattr(self, 'patient_annotation_checkbox') else False)
             
             # Update statistical cluster combo if it exists
             if hasattr(self, 'stats_cluster_combo'):
@@ -831,6 +1007,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         if clustering_type == "Leiden":
             return self._perform_leiden_clustering(data)
+        elif clustering_type == "Louvain":
+            return self._perform_louvain_clustering(data)
         elif clustering_type == "HDBSCAN":
             return self._perform_hdbscan_clustering(data)
         elif clustering_type == "K-means":
@@ -891,11 +1069,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         from sklearn.neighbors import NearestNeighbors
         
-        # Get n_neighbors from UI
+        # Get n_neighbors and metric from UI
         n_neighbors = self.n_neighbors_spinbox.value()
+        metric = self.leiden_metric_combo.currentText()
         
         # Build k-NN graph
-        nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric='euclidean').fit(data.values)
+        nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric=metric).fit(data.values)
         distances, indices = nbrs.kneighbors(data.values)
         
         # Create graph from k-NN
@@ -947,6 +1126,74 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 weights='weight',
                 seed=seed,
             )
+        
+        # Get cluster labels
+        cluster_labels = np.array(partition.membership) + 1  # Start from 1
+        
+        # Sort data by cluster
+        data_with_clusters = data.copy()
+        data_with_clusters['cluster'] = cluster_labels
+        
+        # Sort by cluster
+        clustered_data = data_with_clusters.sort_values('cluster')
+        
+        return clustered_data, cluster_labels
+    
+    def _perform_louvain_clustering(self, data):
+        """Perform Louvain clustering using k-NN graph."""
+        if not _HAVE_LEIDEN:
+            raise ImportError("leidenalg and igraph are required for Louvain clustering")
+        if not _HAVE_SKLEARN:
+            raise ImportError("scikit-learn is required for k-NN graph construction")
+        
+        from sklearn.neighbors import NearestNeighbors
+        
+        # Get n_neighbors and metric from UI
+        n_neighbors = self.n_neighbors_spinbox.value()
+        metric = self.leiden_metric_combo.currentText()
+        
+        # Build k-NN graph
+        nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric=metric).fit(data.values)
+        distances, indices = nbrs.kneighbors(data.values)
+        
+        # Create graph from k-NN
+        n = data.shape[0]
+        edges = []
+        weights = []
+        
+        for i in range(n):
+            for j_idx, neighbor_idx in enumerate(indices[i]):
+                if neighbor_idx != i:  # Don't add self-loops
+                    edges.append((i, neighbor_idx))
+                    # Convert distance to similarity (inverse, normalized)
+                    weight = 1.0 / (1.0 + distances[i][j_idx])
+                    weights.append(weight)
+        
+        # Create igraph (undirected - convert to symmetric)
+        edge_set = set()
+        symmetric_edges = []
+        symmetric_weights = []
+        for (i, j), w in zip(edges, weights):
+            if (i, j) not in edge_set and (j, i) not in edge_set:
+                edge_set.add((i, j))
+                symmetric_edges.append((i, j))
+                symmetric_weights.append(w)
+        
+        g = ig.Graph(n)
+        g.add_edges(symmetric_edges)
+        g.es['weight'] = symmetric_weights
+        
+        # Get seed from UI
+        seed = self.seed_spinbox.value()
+        
+        # Perform Louvain clustering (using ModularityVertexPartition)
+        # Louvain is essentially modularity optimization
+        partition = leidenalg.find_partition(
+            g,
+            leidenalg.ModularityVertexPartition,
+            weights='weight',
+            seed=seed,
+        )
         
         # Get cluster labels
         cluster_labels = np.array(partition.membership) + 1  # Start from 1
@@ -1032,6 +1279,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Determine source and prepare data ordering and optional grouping
         source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
         data_to_plot = base_data.copy()
+        
+        # Ensure source_file column is available for patient annotation
+        if 'source_file' not in data_to_plot.columns and 'source_file' in self.feature_dataframe.columns:
+            # Merge source_file from feature_dataframe by index
+            source_file_series = self.feature_dataframe['source_file'].reindex(data_to_plot.index)
+            data_to_plot['source_file'] = source_file_series.values
+        
         group_col = 'cluster'
         legend_labels = None
         if source == 'Manual Gates' and 'manual_phenotype' in data_to_plot.columns:
@@ -1090,10 +1344,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Determine if dendrograms should be applied (but don't show them)
         clustering_type = self.clustering_type.currentText() if hasattr(self, 'clustering_type') else 'Hierarchical'
         is_leiden = clustering_type == "Leiden"
+        is_louvain = clustering_type == "Louvain"
         is_hdbscan = clustering_type == "HDBSCAN"
         
         # Apply clustering for reordering but don't show dendrograms
-        if is_leiden or is_hdbscan:
+        if is_leiden or is_louvain or is_hdbscan:
             row_cluster = False
             col_cluster = False
             linkage_method = None
@@ -1129,8 +1384,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # Create group color mapping
         unique_groups = sorted(data_to_plot[group_col].unique())
-        # Use a more vibrant color palette similar to Scanpy
-        cluster_colors_raw = plt.cm.Set3(np.linspace(0, 1, len(unique_groups)))
+        # Use a vivid color palette that can handle many clusters
+        cluster_colors_raw = _get_vivid_colors(len(unique_groups))
         # Convert to RGB (remove alpha channel and ensure proper format)
         cluster_color_map = {}
         for i, gid in enumerate(unique_groups):
@@ -1148,17 +1403,79 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Convert to proper RGB array for imshow
         cell_colors_rgb = [cluster_color_map[val] for val in group_values_reordered]
         
-        # Create layout - colorbar at top, annotation bar below, heatmap in middle, legend on right
-        gs = self.figure.add_gridspec(
-            nrows=3, ncols=2, 
-            height_ratios=[0.02, 0.06, 0.92],  # Colorbar, annotation bar, heatmap
-            width_ratios=[0.88, 0.12],  # Heatmap area, legend
-            hspace=0.03, wspace=0.02,  # Space between elements
-            left=0.15, right=0.98, top=0.88, bottom=0.12  # More top margin for colorbar label and ticks
-        )
+        # Check if patient annotation is enabled
+        show_patient_annotation = (hasattr(self, 'patient_annotation_checkbox') and 
+                                   self.patient_annotation_checkbox.isChecked() and
+                                   'source_file' in data_to_plot.columns)
         
-        # Annotation bar below colorbar
-        ax_annotation = self.figure.add_subplot(gs[1, 0])
+        # Prepare patient annotation data if enabled
+        patient_values_reordered = None
+        patient_color_map = {}
+        if show_patient_annotation:
+            # Get source file values and reorder to match column clustering
+            patient_values = data_to_plot['source_file'].values
+            patient_values_reordered = patient_values[col_indices]
+            
+            # Get unique source files
+            unique_patients = sorted([f for f in data_to_plot['source_file'].unique() if pd.notna(f)])
+            
+            # Create color mapping for patients
+            patient_colors_raw = _get_vivid_colors(len(unique_patients))
+            for i, patient_file in enumerate(unique_patients):
+                color = patient_colors_raw[i]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                patient_color_map[patient_file] = rgb
+            
+            # Create reordered patient colors for annotation bar
+            patient_colors_rgb = [patient_color_map.get(val, (0.8, 0.8, 0.8)) for val in patient_values_reordered]
+        
+        # Create layout - adjust based on whether patient annotation is shown
+        if show_patient_annotation:
+            # Colorbar, patient annotation, cell annotation, heatmap
+            gs = self.figure.add_gridspec(
+                nrows=4, ncols=2, 
+                height_ratios=[0.02, 0.04, 0.06, 0.88],  # Colorbar, patient annotation, cell annotation, heatmap
+                width_ratios=[0.88, 0.12],  # Heatmap area, legend
+                hspace=0.03, wspace=0.02,  # Space between elements
+                left=0.15, right=0.98, top=0.88, bottom=0.12  # More top margin for colorbar label and ticks
+            )
+            heatmap_row = 3
+            cell_annotation_row = 2
+            patient_annotation_row = 1
+        else:
+            # Colorbar, annotation bar, heatmap
+            gs = self.figure.add_gridspec(
+                nrows=3, ncols=2, 
+                height_ratios=[0.02, 0.06, 0.92],  # Colorbar, annotation bar, heatmap
+                width_ratios=[0.88, 0.12],  # Heatmap area, legend
+                hspace=0.03, wspace=0.02,  # Space between elements
+                left=0.15, right=0.98, top=0.88, bottom=0.12  # More top margin for colorbar label and ticks
+            )
+            heatmap_row = 2
+            cell_annotation_row = 1
+            patient_annotation_row = None
+        
+        # Patient annotation bar (if enabled)
+        if show_patient_annotation:
+            ax_patient_annotation = self.figure.add_subplot(gs[patient_annotation_row, 0])
+            patient_annotation_array = np.array(patient_colors_rgb).reshape(1, -1, 3)
+            ax_patient_annotation.imshow(patient_annotation_array, aspect='auto', interpolation='nearest', 
+                                         extent=[0, len(patient_colors_rgb), 0, 1])
+            ax_patient_annotation.set_xlim(0, len(patient_colors_rgb))
+            ax_patient_annotation.set_xticks([])
+            ax_patient_annotation.set_yticks([])
+            ax_patient_annotation.spines['top'].set_visible(False)
+            ax_patient_annotation.spines['right'].set_visible(False)
+            ax_patient_annotation.spines['bottom'].set_visible(False)
+            ax_patient_annotation.spines['left'].set_visible(False)
+        
+        # Cell annotation bar below colorbar (or below patient annotation if enabled)
+        ax_annotation = self.figure.add_subplot(gs[cell_annotation_row, 0])
         # Create a simple colored bar - convert to proper RGB array
         annotation_array = np.array(cell_colors_rgb).reshape(1, -1, 3)
         ax_annotation.imshow(annotation_array, aspect='auto', interpolation='nearest', extent=[0, len(cell_colors_rgb), 0, 1])
@@ -1171,7 +1488,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax_annotation.spines['left'].set_visible(False)
         
         # Main heatmap
-        ax_heatmap = self.figure.add_subplot(gs[2, 0])
+        ax_heatmap = self.figure.add_subplot(gs[heatmap_row, 0])
         
         # Get colormap
         colormap_name = self._get_colormap_name()
@@ -1220,24 +1537,66 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax_heatmap.spines['bottom'].set_visible(False)
         ax_heatmap.spines['left'].set_visible(False)
         
-        # Legend on the right
-        ax_legend = self.figure.add_subplot(gs[2, 1])
-        ax_legend.axis('off')  # Hide axes for legend area
-        
-        # Add legend for groups/clusters - vertical layout
-        # Use the same color mapping as annotation bar (sorted for consistency)
-        legend_elements = []
-        if source == 'Manual Gates':
-            for key in sorted(cluster_color_map.keys()):
-                color = cluster_color_map[key]
-                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key), edgecolor='black', linewidth=0.5))
+        # Legend on the right - adjust layout based on patient annotation
+        if show_patient_annotation:
+            # Create nested gridspec for two legends (patient on top, clusters below)
+            legend_gs = gs[heatmap_row, 1].subgridspec(2, 1, hspace=0.0, height_ratios=[0.4, 0.6])
+            
+            # Patient legend on top
+            ax_patient_legend = self.figure.add_subplot(legend_gs[0])
+            ax_patient_legend.axis('off')
+            patient_legend_elements = []
+            for patient_file in sorted(patient_color_map.keys()):
+                color = patient_color_map[patient_file]
+                # Use custom patient label (helper function handles custom labels and defaults)
+                label = self._get_patient_display_name(patient_file)
+                patient_legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=label, edgecolor='black', linewidth=0.5))
+            
+            if patient_legend_elements:
+                ax_patient_legend.legend(handles=patient_legend_elements, loc='upper left', frameon=True, fontsize=8, 
+                                        title='Patient/Source', title_fontsize=9)
+            
+            # Cluster legend below
+            ax_cluster_legend = self.figure.add_subplot(legend_gs[1])
+            ax_cluster_legend.axis('off')
+            legend_elements = []
+            if source == 'Manual Gates':
+                for key in sorted(cluster_color_map.keys()):
+                    color = cluster_color_map[key]
+                    legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key), edgecolor='black', linewidth=0.5))
+            else:
+                for key in sorted(cluster_color_map.keys()):
+                    color = cluster_color_map[key]
+                    legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key), edgecolor='black', linewidth=0.5))
+            
+            if legend_elements:
+                # Use multiple columns if there are more than 10 clusters
+                n_clusters = len(legend_elements)
+                ncol = max(1, (n_clusters + 9) // 10) if n_clusters > 10 else 1
+                ax_cluster_legend.legend(handles=legend_elements, loc='upper left', frameon=True, fontsize=8, 
+                                        title='Clusters' if source == 'Clusters' else 'Groups', title_fontsize=9, ncol=ncol)
         else:
-            for key in sorted(cluster_color_map.keys()):
-                color = cluster_color_map[key]
-                legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key), edgecolor='black', linewidth=0.5))
-        # Place legend vertically to the right of colorbar
-        ax_legend.legend(handles=legend_elements, loc='center left', frameon=True, fontsize=8, 
-                         title='Clusters' if source == 'Clusters' else 'Groups', title_fontsize=9)
+            # Single legend area
+            ax_legend = self.figure.add_subplot(gs[heatmap_row, 1])
+            ax_legend.axis('off')  # Hide axes for legend area
+            
+            # Add legend for groups/clusters - vertical layout
+            # Use the same color mapping as annotation bar (sorted for consistency)
+            legend_elements = []
+            if source == 'Manual Gates':
+                for key in sorted(cluster_color_map.keys()):
+                    color = cluster_color_map[key]
+                    legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=str(key), edgecolor='black', linewidth=0.5))
+            else:
+                for key in sorted(cluster_color_map.keys()):
+                    color = cluster_color_map[key]
+                    legend_elements.append(plt.Rectangle((0,0),1,1, facecolor=color, label=self._get_cluster_display_name(key), edgecolor='black', linewidth=0.5))
+            # Place legend vertically to the right of colorbar
+            # Use multiple columns if there are more than 10 clusters
+            n_clusters = len(legend_elements)
+            ncol = max(1, (n_clusters + 9) // 10) if n_clusters > 10 else 1
+            ax_legend.legend(handles=legend_elements, loc='center left', frameon=True, fontsize=8, 
+                             title='Clusters' if source == 'Clusters' else 'Groups', title_fontsize=9, ncol=ncol)
         
         self.canvas.draw()
     
@@ -1301,7 +1660,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             # Create group color mapping
             unique_groups = sorted(data_to_plot[group_col].unique())
-            cluster_colors = sns.color_palette("Set3", len(unique_groups))
+            # Use vivid colors instead of Set3
+            cluster_colors_raw = _get_vivid_colors(len(unique_groups))
+            # Convert to RGB tuples for seaborn (remove alpha channel)
+            cluster_colors = [tuple(c[:3]) for c in cluster_colors_raw]
             cluster_color_map = {gid: cluster_colors[i] for i, gid in enumerate(unique_groups)}
             
             # Create color series for color bar
@@ -1310,10 +1672,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Determine clustering settings based on method
             clustering_type = self.clustering_type.currentText()
             is_leiden = clustering_type == "Leiden"
+            is_louvain = clustering_type == "Louvain"
             is_hdbscan = clustering_type == "HDBSCAN"
             
-            if is_leiden or is_hdbscan:
-                # For Leiden and HDBSCAN clustering, disable dendrograms
+            if is_leiden or is_louvain or is_hdbscan:
+                # For Leiden, Louvain, and HDBSCAN clustering, disable dendrograms
                 row_cluster = False
                 col_cluster = False
                 linkage_method = None
@@ -1490,7 +1853,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         # Add group color bars along x-axis
         unique_groups = sorted(data_to_plot[group_col].unique())
-        cluster_colors = plt.cm.Set3(np.linspace(0, 1, len(unique_groups)))
+        cluster_colors = _get_vivid_colors(len(unique_groups))
         cluster_color_map = {gid: cluster_colors[i] for i, gid in enumerate(unique_groups)}
         
         # Create color bar for each cell
@@ -1588,7 +1951,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 "UMAP Feature Scaling",
                 "Select scaling method for features:",
                 scaling_options,
-                current=2,  # Default to MAD (best for UMAP)
+                current=1,  # Default to Z-score
                 editable=False
             )
             if not ok:
@@ -1655,6 +2018,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "UMAP Error", f"Error during UMAP analysis: {str(e)}")
     
+    def _remake_umap(self):
+        """Remake UMAP with new parameters. This allows users to easily regenerate UMAP."""
+        # Simply call _run_umap which will prompt for new parameters
+        self._run_umap()
+    
     def _run_tsne(self):
         """Run t-SNE dimensionality reduction."""
         if not _HAVE_TSNE:
@@ -1666,22 +2034,62 @@ class CellClusteringDialog(QtWidgets.QDialog):
             return
         
         try:
-            # Get feature columns (same logic as clustering)
-            feature_cols = self._select_feature_columns(self.feature_dataframe)
-            if not feature_cols:
-                QtWidgets.QMessageBox.warning(self, "No Features", "No numeric features available for t-SNE.")
+            # Get feature selection from user (same as UMAP)
+            available_cols = self._list_available_feature_columns(True)  # Include morphometric features
+            from openimc.ui.dialogs.feature_selector_dialog import FeatureSelectorDialog
+            selector = FeatureSelectorDialog(available_cols, self)
+            if selector.exec_() != QtWidgets.QDialog.Accepted:
+                return
+            selected_columns = selector.get_selected_columns()
+            
+            if not selected_columns:
+                QtWidgets.QMessageBox.warning(self, "No Features", "Please select at least one feature for t-SNE analysis.")
                 return
             
-            data = self.feature_dataframe[feature_cols].copy()
+            # Prepare data for t-SNE, align with clustered order if available
+            if self.clustered_data is not None:
+                ordered_index = self.clustered_data.index
+                data = self.feature_dataframe.loc[ordered_index, selected_columns].copy()
+            else:
+                data = self.feature_dataframe[selected_columns].copy()
             
-            # Apply scaling (same as clustering)
-            scaling_method = self.clustering_scaling_combo.currentText()
+            # Handle missing values and infinite values
+            data = data.replace([np.inf, -np.inf], np.nan)
+            data = data.fillna(data.median())
+            
+            if data.empty or data.shape[0] < 2:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No suitable data found for t-SNE analysis.")
+                return
+            
+            # Clear canvas before t-SNE
+            self.figure.clear()
+            self.canvas.draw()
+            
+            # Allow user to choose scaling method
+            scaling_options = ["None (no scaling)", "Z-score", "MAD (Median Absolute Deviation)"]
+            scaling_method, ok = QtWidgets.QInputDialog.getItem(
+                self,
+                "t-SNE Feature Scaling",
+                "Select scaling method for features:",
+                scaling_options,
+                current=1,  # Default to Z-score
+                editable=False
+            )
+            if not ok:
+                return
+            
+            # Map selection to method string
             scaling_map = {
+                "None (no scaling)": "none",
                 "Z-score": "zscore",
                 "MAD (Median Absolute Deviation)": "mad"
             }
             selected_scaling = scaling_map[scaling_method]
+            
+            # Apply scaling
             data_scaled = self._apply_scaling(data, selected_scaling)
+            
+            # Handle any NaN values that might have been introduced
             data_scaled = data_scaled.fillna(0)
             
             if data_scaled.empty or data_scaled.shape[0] < 2:
@@ -1705,13 +2113,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 return
             
             # Perform t-SNE
-            self.tsne_embedding = TSNE(n_components=2, perplexity=perplexity, random_state=seed, n_iter=1000).fit_transform(data_scaled.values)
+            self.tsne_embedding = TSNE(n_components=2, perplexity=perplexity, random_state=seed, max_iter=1000).fit_transform(data_scaled.values)
             
-            # Store index for alignment
-            self.tsne_index = data_scaled.index
-            # Store raw data for feature-based coloring
-            self.tsne_raw_data = data_scaled
-            self.tsne_selected_columns = feature_cols
+            # Persist for coloring
+            self.tsne_index = data.index.to_list()
+            self.tsne_selected_columns = list(selected_columns)
+            self.tsne_raw_data = data.copy()
             
             # Create plot
             self._create_tsne_plot()
@@ -1722,17 +2129,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "t-SNE Error", f"Error during t-SNE analysis: {str(e)}")
     
-    def _create_tsne_plot(self):
-        """Create t-SNE scatter plot."""
-        if self.tsne_embedding is None:
-            return
-        
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        self.figure.tight_layout(pad=1.0)
-        
-        # Determine coloring
-        color_by = self.color_by_combo.currentText() if hasattr(self, 'color_by_combo') else 'Cluster'
+    def _plot_tsne_single(self, ax, color_by, point_size, point_alpha, title=None):
+        """Plot a single t-SNE subplot with specified coloring."""
         if color_by == 'Cluster' and self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
             # Align cluster labels to t-SNE order
             if hasattr(self, 'tsne_index') and self.tsne_index is not None:
@@ -1741,7 +2139,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             else:
                 cluster_labels = self.clustered_data['cluster'].values
             unique_clusters = sorted(np.unique(cluster_labels))
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
+            colors = _get_vivid_colors(len(unique_clusters))
             cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
             handles = []
             labels = []
@@ -1749,30 +2147,42 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 mask = cluster_labels == cluster_id
                 sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                 c=[cluster_color_map[cluster_id]],
-                                alpha=0.8, s=18, edgecolors='none')
+                                alpha=point_alpha, s=point_size, edgecolors='none')
                 handles.append(sc)
                 labels.append(self._get_cluster_display_name(cluster_id))
-            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8)
+            # Use multiple columns if there are more than 10 clusters
+            n_clusters = len(handles)
+            ncol = max(1, (n_clusters + 9) // 10) if n_clusters > 10 else 1
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, ncol=ncol)
         elif color_by == 'Source File' and 'source_file' in self.feature_dataframe.columns:
-            # Color by source file to visualize batch effects
+            # Color by source file to visualize batch effects (using custom patient labels)
             if hasattr(self, 'tsne_index') and self.tsne_index is not None:
                 source_file_series = self.feature_dataframe.loc[self.tsne_index, 'source_file']
                 source_files = source_file_series.values
             else:
                 source_files = self.feature_dataframe['source_file'].values
             unique_files = sorted([f for f in np.unique(source_files) if pd.notna(f)])
-            colors = plt.cm.tab20(np.linspace(0, 1, len(unique_files)))
-            file_color_map = {file_name: colors[i] for i, file_name in enumerate(unique_files)}
-            handles = []
-            labels = []
-            for file_name in unique_files:
-                mask = source_files == file_name
-                sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
-                                c=[file_color_map[file_name]],
-                                alpha=0.8, s=18, edgecolors='none')
-                handles.append(sc)
-                labels.append(str(file_name))
-            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Source File')
+            if len(unique_files) > 0:
+                colors = plt.cm.tab20(np.linspace(0, 1, len(unique_files)))
+                file_color_map = {file_name: colors[i] for i, file_name in enumerate(unique_files)}
+                handles = []
+                labels = []
+                for file_name in unique_files:
+                    mask = source_files == file_name
+                    if np.any(mask):  # Only add if there are points for this file
+                        sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
+                                        c=[file_color_map[file_name]],
+                                        alpha=point_alpha, s=point_size, edgecolors='none', label=self._get_patient_display_name(file_name))
+                        handles.append(sc)
+                        # Use custom patient label if available
+                        labels.append(self._get_patient_display_name(file_name))
+                # Place legend inside axes to avoid clipping - ensure it's visible
+                if handles and labels:
+                    legend = ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Patient/Source')
+                    legend.set_visible(True)
+            else:
+                # Fallback if no source files
+                ax.scatter(self.tsne_embedding[:, 0], self.tsne_embedding[:, 1], c='blue', alpha=point_alpha, s=point_size, edgecolors='none')
         elif color_by == 'Phenotype' and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
             # Color by cluster phenotype
             if hasattr(self, 'tsne_index') and self.tsne_index is not None:
@@ -1781,7 +2191,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             else:
                 phenotypes = self.clustered_data['cluster_phenotype'].fillna('Unassigned').values
             unique_phenotypes = sorted([p for p in np.unique(phenotypes) if pd.notna(p)])
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_phenotypes)))
+            colors = _get_vivid_colors(len(unique_phenotypes))
             phenotype_color_map = {p: colors[i] for i, p in enumerate(unique_phenotypes)}
             handles = []
             labels = []
@@ -1789,7 +2199,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 mask = phenotypes == phenotype
                 sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                 c=[phenotype_color_map[phenotype]],
-                                alpha=0.8, s=18, edgecolors='none')
+                                alpha=point_alpha, s=point_size, edgecolors='none')
                 handles.append(sc)
                 labels.append(str(phenotype))
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Phenotype')
@@ -1801,7 +2211,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             else:
                 manual_phenotypes = self.feature_dataframe['manual_phenotype'].fillna('Unassigned').values
             unique_phenotypes = sorted([p for p in np.unique(manual_phenotypes) if pd.notna(p)])
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_phenotypes)))
+            colors = _get_vivid_colors(len(unique_phenotypes))
             phenotype_color_map = {p: colors[i] for i, p in enumerate(unique_phenotypes)}
             handles = []
             labels = []
@@ -1809,7 +2219,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 mask = manual_phenotypes == phenotype
                 sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                 c=[phenotype_color_map[phenotype]],
-                                alpha=0.8, s=18, edgecolors='none')
+                                alpha=point_alpha, s=point_size, edgecolors='none')
                 handles.append(sc)
                 labels.append(str(phenotype))
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Manual Phenotype')
@@ -1817,17 +2227,66 @@ class CellClusteringDialog(QtWidgets.QDialog):
             # Continuous coloring by selected feature (aligned to t-SNE order)
             vals = self.tsne_raw_data[color_by].values
             sc = ax.scatter(self.tsne_embedding[:, 0], self.tsne_embedding[:, 1], c=vals,
-                            cmap='viridis', alpha=0.85, s=16, edgecolors='none')
+                            cmap='viridis', alpha=point_alpha, s=point_size, edgecolors='none')
             cbar = self.figure.colorbar(sc, ax=ax)
             cbar.set_label(color_by)
         else:
             # Fallback single color
-            ax.scatter(self.tsne_embedding[:, 0], self.tsne_embedding[:, 1], c='blue', alpha=0.7, s=16, edgecolors='none')
+            ax.scatter(self.tsne_embedding[:, 0], self.tsne_embedding[:, 1], c='blue', alpha=point_alpha, s=point_size, edgecolors='none')
         
         ax.set_xlabel('t-SNE 1', fontsize=10)
         ax.set_ylabel('t-SNE 2', fontsize=10)
-        ax.set_title('t-SNE Visualization', fontsize=12)
+        if title is None:
+            title = f't-SNE: {color_by}'
+        ax.set_title(title, fontsize=12)
         ax.grid(True, alpha=0.3)
+
+    def _create_tsne_plot(self):
+        """Create t-SNE scatter plot(s) with faceted plotting support."""
+        if self.tsne_embedding is None:
+            return
+        
+        self.figure.clear()
+        
+        # Get selected color-by options
+        if hasattr(self, 'color_by_listwidget'):
+            selected_items = [item.text() for item in self.color_by_listwidget.selectedItems()]
+        else:
+            # Fallback to combo box if list widget doesn't exist
+            selected_items = [self.color_by_combo.currentText()] if hasattr(self, 'color_by_combo') else ['Cluster']
+        
+        # Ensure at least one selection
+        if not selected_items:
+            selected_items = ['Cluster']
+        
+        # Limit to max 6 plots (3 cols x 2 rows)
+        selected_items = selected_items[:6]
+        
+        # Get point size and alpha from controls
+        point_size = self.point_size_spinbox.value() if hasattr(self, 'point_size_spinbox') else 18
+        point_alpha = self.point_alpha_spinbox.value() if hasattr(self, 'point_alpha_spinbox') else 0.8
+        
+        n_plots = len(selected_items)
+        
+        if n_plots == 1:
+            # Single plot - use full figure
+            ax = self.figure.add_subplot(111)
+            self._plot_tsne_single(ax, selected_items[0], point_size, point_alpha)
+            self.figure.tight_layout(pad=1.0)
+        else:
+            # Multiple plots - create subplots
+            # Calculate grid: max 3 columns, max 2 rows
+            n_cols = min(3, n_plots)
+            n_rows = min(2, (n_plots + n_cols - 1) // n_cols)  # Ceiling division
+            
+            for idx, color_by in enumerate(selected_items):
+                row = idx // n_cols
+                col = idx % n_cols
+                ax = self.figure.add_subplot(n_rows, n_cols, idx + 1)
+                self._plot_tsne_single(ax, color_by, point_size, point_alpha)
+            
+            self.figure.tight_layout(pad=1.0)
+        
         self.canvas.draw()
     
     def _show_heatmap(self):
@@ -1878,7 +2337,21 @@ class CellClusteringDialog(QtWidgets.QDialog):
             pass
         if hasattr(self, 'color_by_label'):
             self.color_by_label.setVisible(view in ['UMAP', 't-SNE'])
-        self.color_by_combo.setVisible(view in ['UMAP', 't-SNE'])
+        if hasattr(self, 'color_by_listwidget'):
+            self.color_by_listwidget.setVisible(view in ['UMAP', 't-SNE'])
+        self.color_by_combo.setVisible(False)  # Keep hidden for backward compatibility
+        # Point size and alpha visible only for UMAP and t-SNE
+        if hasattr(self, 'point_size_label'):
+            self.point_size_label.setVisible(view in ['UMAP', 't-SNE'])
+        if hasattr(self, 'point_size_spinbox'):
+            self.point_size_spinbox.setVisible(view in ['UMAP', 't-SNE'])
+        if hasattr(self, 'point_alpha_label'):
+            self.point_alpha_label.setVisible(view in ['UMAP', 't-SNE'])
+        if hasattr(self, 'point_alpha_spinbox'):
+            self.point_alpha_spinbox.setVisible(view in ['UMAP', 't-SNE'])
+        # Remake UMAP button visible only for UMAP
+        if hasattr(self, 'remake_umap_btn'):
+            self.remake_umap_btn.setVisible(view == 'UMAP')
         # Group-by visible only for Stacked Bars
         if hasattr(self, 'group_by_label'):
             self.group_by_label.setVisible(view == 'Stacked Bars')
@@ -1925,6 +2398,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.heatmap_scaling_combo.setVisible(is_heatmap)
         if hasattr(self, 'heatmap_scaling_label'):
             self.heatmap_scaling_label.setVisible(is_heatmap)
+        if hasattr(self, 'patient_annotation_checkbox'):
+            self.patient_annotation_checkbox.setVisible(is_heatmap)
+        if hasattr(self, 'patient_annotate_btn'):
+            self.patient_annotate_btn.setVisible(is_heatmap)
     
     def _on_colormap_changed(self, _text: str):
         """Handle colormap selection change."""
@@ -1975,12 +2452,35 @@ class CellClusteringDialog(QtWidgets.QDialog):
         view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
         if view == 'Heatmap':
             self._show_heatmap()
+    
+    def _on_patient_annotation_changed(self, state: int):
+        """Handle patient annotation checkbox state change."""
+        # Enable/disable the customize button (only if source_file data is available)
+        has_source_file = 'source_file' in self.feature_dataframe.columns
+        if hasattr(self, 'patient_annotate_btn'):
+            self.patient_annotate_btn.setEnabled(state == 2 and has_source_file)  # 2 = checked
+        if hasattr(self, 'patient_annotate_btn2'):
+            self.patient_annotate_btn2.setEnabled(state == 2 and has_source_file)
+        # Refresh heatmap if it's the current view
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+        if view == 'Heatmap':
+            self._show_heatmap()
 
     def _get_cluster_display_name(self, cluster_id):
         """Return display label for a cluster id, using annotation if available."""
         if isinstance(self.cluster_annotation_map, dict) and cluster_id in self.cluster_annotation_map and self.cluster_annotation_map[cluster_id]:
             return self.cluster_annotation_map[cluster_id]
         return f"Cluster {cluster_id}"
+    
+    def _get_patient_display_name(self, source_file):
+        """Return display label for a source file/patient, using custom annotation if available."""
+        if pd.isna(source_file):
+            return "Unknown"
+        if isinstance(self.patient_annotation_map, dict) and source_file in self.patient_annotation_map and self.patient_annotation_map[source_file]:
+            return self.patient_annotation_map[source_file]
+        # Use basename of file as default
+        import os
+        return os.path.basename(str(source_file))
 
     def _get_manual_groups_series(self):
         """Compute grouping series for manual gates. Single named phenotype -> name vs Other; otherwise names with Unassigned for blanks."""
@@ -2049,18 +2549,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.heatmap_filter_selection = set([i.text() for i in listw.selectedItems()])
             self._show_heatmap()
     
-    def _create_umap_plot(self):
-        """Create UMAP scatter plot."""
-        if self.umap_embedding is None:
-            return
-        
-        self.figure.clear()
-        # Use tight layout to maximize plot area
-        ax = self.figure.add_subplot(111)
-        self.figure.tight_layout(pad=1.0)
-        
-        # Determine coloring
-        color_by = self.color_by_combo.currentText() if hasattr(self, 'color_by_combo') else 'Cluster'
+    def _plot_umap_single(self, ax, color_by, point_size, point_alpha, title=None):
+        """Plot a single UMAP subplot with specified coloring."""
         if color_by == 'Cluster' and self.clustered_data is not None and 'cluster' in self.clustered_data.columns:
             # Align cluster labels to UMAP order
             if hasattr(self, 'umap_index') and self.umap_index is not None:
@@ -2069,7 +2559,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             else:
                 cluster_labels = self.clustered_data['cluster'].values
             unique_clusters = sorted(np.unique(cluster_labels))
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
+            colors = _get_vivid_colors(len(unique_clusters))
             cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
             handles = []
             labels = []
@@ -2077,82 +2567,208 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 mask = cluster_labels == cluster_id
                 sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
                                 c=[cluster_color_map[cluster_id]],
-                                alpha=0.8, s=18, edgecolors='none')
+                                alpha=point_alpha, s=point_size, edgecolors='none')
                 handles.append(sc)
                 labels.append(self._get_cluster_display_name(cluster_id))
             # Place legend inside axes to avoid clipping
-            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8)
+            # Use multiple columns if there are more than 10 clusters
+            n_clusters = len(handles)
+            ncol = max(1, (n_clusters + 9) // 10) if n_clusters > 10 else 1
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, ncol=ncol)
         elif color_by == 'Source File' and 'source_file' in self.feature_dataframe.columns:
-            # Color by source file to visualize batch effects
+            # Color by source file to visualize batch effects (using custom patient labels)
             if hasattr(self, 'umap_index') and self.umap_index is not None:
                 source_file_series = self.feature_dataframe.loc[self.umap_index, 'source_file']
                 source_files = source_file_series.values
             else:
                 source_files = self.feature_dataframe['source_file'].values
             unique_files = sorted([f for f in np.unique(source_files) if pd.notna(f)])
-            colors = plt.cm.tab20(np.linspace(0, 1, len(unique_files)))
-            file_color_map = {file_name: colors[i] for i, file_name in enumerate(unique_files)}
+            if len(unique_files) > 0:
+                colors = plt.cm.tab20(np.linspace(0, 1, len(unique_files)))
+                file_color_map = {file_name: colors[i] for i, file_name in enumerate(unique_files)}
+                handles = []
+                labels = []
+                for file_name in unique_files:
+                    mask = source_files == file_name
+                    if np.any(mask):  # Only add if there are points for this file
+                        sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
+                                        c=[file_color_map[file_name]],
+                                        alpha=point_alpha, s=point_size, edgecolors='none', label=self._get_patient_display_name(file_name))
+                        handles.append(sc)
+                        # Use custom patient label if available
+                        labels.append(self._get_patient_display_name(file_name))
+                # Place legend inside axes to avoid clipping - ensure it's visible
+                if handles and labels:
+                    legend = ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Patient/Source')
+                    legend.set_visible(True)
+            else:
+                # Fallback if no source files
+                ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], c='blue', alpha=point_alpha, s=point_size, edgecolors='none')
+        elif color_by == 'Phenotype' and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
+            # Color by cluster phenotype
+            if hasattr(self, 'umap_index') and self.umap_index is not None:
+                phenotype_series = self.clustered_data['cluster_phenotype'].reindex(self.umap_index)
+                phenotypes = phenotype_series.fillna('Unassigned').values
+            else:
+                phenotypes = self.clustered_data['cluster_phenotype'].fillna('Unassigned').values
+            unique_phenotypes = sorted([p for p in np.unique(phenotypes) if pd.notna(p)])
+            colors = _get_vivid_colors(len(unique_phenotypes))
+            phenotype_color_map = {p: colors[i] for i, p in enumerate(unique_phenotypes)}
             handles = []
             labels = []
-            for file_name in unique_files:
-                mask = source_files == file_name
+            for phenotype in unique_phenotypes:
+                mask = phenotypes == phenotype
                 sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
-                                c=[file_color_map[file_name]],
-                                alpha=0.8, s=18, edgecolors='none')
+                                c=[phenotype_color_map[phenotype]],
+                                alpha=point_alpha, s=point_size, edgecolors='none')
                 handles.append(sc)
-                labels.append(str(file_name))
-            # Place legend inside axes to avoid clipping
-            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Source File')
+                labels.append(str(phenotype))
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Phenotype')
+        elif color_by == 'Manual Phenotype' and 'manual_phenotype' in self.feature_dataframe.columns:
+            # Color by manual phenotype
+            if hasattr(self, 'umap_index') and self.umap_index is not None:
+                manual_phenotype_series = self.feature_dataframe.loc[self.umap_index, 'manual_phenotype']
+                manual_phenotypes = manual_phenotype_series.fillna('Unassigned').values
+            else:
+                manual_phenotypes = self.feature_dataframe['manual_phenotype'].fillna('Unassigned').values
+            unique_phenotypes = sorted([p for p in np.unique(manual_phenotypes) if pd.notna(p)])
+            colors = _get_vivid_colors(len(unique_phenotypes))
+            phenotype_color_map = {p: colors[i] for i, p in enumerate(unique_phenotypes)}
+            handles = []
+            labels = []
+            for phenotype in unique_phenotypes:
+                mask = manual_phenotypes == phenotype
+                sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
+                                c=[phenotype_color_map[phenotype]],
+                                alpha=point_alpha, s=point_size, edgecolors='none')
+                handles.append(sc)
+                labels.append(str(phenotype))
+            ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Manual Phenotype')
         elif hasattr(self, 'umap_raw_data') and color_by in getattr(self, 'umap_selected_columns', []):
             # Continuous coloring by selected feature (aligned to UMAP order)
             vals = self.umap_raw_data[color_by].values
             sc = ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], c=vals,
-                            cmap='viridis', alpha=0.85, s=16, edgecolors='none')
+                            cmap='viridis', alpha=point_alpha, s=point_size, edgecolors='none')
             cbar = self.figure.colorbar(sc, ax=ax)
             cbar.set_label(color_by)
         else:
             # Fallback single color
-            ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], c='blue', alpha=0.7, s=16, edgecolors='none')
+            ax.scatter(self.umap_embedding[:, 0], self.umap_embedding[:, 1], c='blue', alpha=point_alpha, s=point_size, edgecolors='none')
         
         ax.set_xlabel('UMAP 1')
         ax.set_ylabel('UMAP 2')
-        ax.set_title('UMAP Dimensionality Reduction')
+        if title is None:
+            title = f'UMAP: {color_by}'
+        ax.set_title(title)
         ax.grid(True, alpha=0.3)
+
+    def _create_umap_plot(self):
+        """Create UMAP scatter plot(s) with faceted plotting support."""
+        if self.umap_embedding is None:
+            return
+        
+        self.figure.clear()
+        
+        # Get selected color-by options
+        if hasattr(self, 'color_by_listwidget'):
+            selected_items = [item.text() for item in self.color_by_listwidget.selectedItems()]
+        else:
+            # Fallback to combo box if list widget doesn't exist
+            selected_items = [self.color_by_combo.currentText()] if hasattr(self, 'color_by_combo') else ['Cluster']
+        
+        # Ensure at least one selection
+        if not selected_items:
+            selected_items = ['Cluster']
+        
+        # Limit to max 6 plots (3 cols x 2 rows)
+        selected_items = selected_items[:6]
+        
+        # Get point size and alpha from controls
+        point_size = self.point_size_spinbox.value() if hasattr(self, 'point_size_spinbox') else 18
+        point_alpha = self.point_alpha_spinbox.value() if hasattr(self, 'point_alpha_spinbox') else 0.8
+        
+        n_plots = len(selected_items)
+        
+        if n_plots == 1:
+            # Single plot - use full figure
+            ax = self.figure.add_subplot(111)
+            self._plot_umap_single(ax, selected_items[0], point_size, point_alpha)
+            self.figure.tight_layout(pad=1.0)
+        else:
+            # Multiple plots - create subplots
+            # Calculate grid: max 3 columns, max 2 rows
+            n_cols = min(3, n_plots)
+            n_rows = min(2, (n_plots + n_cols - 1) // n_cols)  # Ceiling division
+            
+            for idx, color_by in enumerate(selected_items):
+                row = idx // n_cols
+                col = idx % n_cols
+                ax = self.figure.add_subplot(n_rows, n_cols, idx + 1)
+                self._plot_umap_single(ax, color_by, point_size, point_alpha)
+            
+            self.figure.tight_layout(pad=1.0)
         
         self.canvas.draw()
 
     def _populate_color_by_options(self):
-        """Populate the color-by combo with Cluster + used features."""
-        if not hasattr(self, 'color_by_combo'):
+        """Populate the color-by list widget with Cluster + used features."""
+        if not hasattr(self, 'color_by_listwidget'):
             return
-        current = self.color_by_combo.currentText() if self.color_by_combo.count() > 0 else 'Cluster'
-        self.color_by_combo.blockSignals(True)
-        self.color_by_combo.clear()
-        self.color_by_combo.addItem('Cluster')
+        # Get currently selected items
+        selected_items = [item.text() for item in self.color_by_listwidget.selectedItems()]
+        if not selected_items:
+            selected_items = ['Cluster']  # Default selection
+        
+        self.color_by_listwidget.blockSignals(True)
+        self.color_by_listwidget.clear()
+        
+        # Add all available options
+        options = ['Cluster']
         # Add source_file if available
         if 'source_file' in self.feature_dataframe.columns:
-            if self.color_by_combo.findText('Source File') < 0:
-                self.color_by_combo.addItem('Source File')
+            options.append('Source File')
         # Add feature columns from UMAP or t-SNE
         for col in getattr(self, 'umap_selected_columns', []) or []:
-            self.color_by_combo.addItem(col)
+            if col not in options:
+                options.append(col)
         for col in getattr(self, 'tsne_selected_columns', []) or []:
-            if self.color_by_combo.findText(col) < 0:
-                self.color_by_combo.addItem(col)
+            if col not in options:
+                options.append(col)
         # Add phenotype if available
         if hasattr(self, 'clustered_data') and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
-            if self.color_by_combo.findText('Phenotype') < 0:
-                self.color_by_combo.addItem('Phenotype')
+            if 'Phenotype' not in options:
+                options.append('Phenotype')
         # Add manual phenotype if available
         if 'manual_phenotype' in self.feature_dataframe.columns:
-            if self.color_by_combo.findText('Manual Phenotype') < 0:
-                self.color_by_combo.addItem('Manual Phenotype')
-        idx = self.color_by_combo.findText(current)
-        if idx >= 0:
-            self.color_by_combo.setCurrentIndex(idx)
-        self.color_by_combo.blockSignals(False)
+            if 'Manual Phenotype' not in options:
+                options.append('Manual Phenotype')
+        
+        # Add items to list widget
+        for option in options:
+            item = QtWidgets.QListWidgetItem(option)
+            self.color_by_listwidget.addItem(item)
+            if option in selected_items:
+                item.setSelected(True)
+        
+        # Ensure at least "Cluster" is selected if nothing was selected
+        if not self.color_by_listwidget.selectedItems():
+            for i in range(self.color_by_listwidget.count()):
+                item = self.color_by_listwidget.item(i)
+                if item.text() == 'Cluster':
+                    item.setSelected(True)
+                    break
+        
+        self.color_by_listwidget.blockSignals(False)
 
-    def _on_color_by_changed(self, _text: str):
+    def _on_color_by_changed(self, _text: str = None):
+        view = self.view_combo.currentText() if hasattr(self, 'view_combo') else ''
+        if view == 'UMAP' and getattr(self, 'umap_embedding', None) is not None:
+            self._create_umap_plot()
+        elif view == 't-SNE' and getattr(self, 'tsne_embedding', None) is not None:
+            self._create_tsne_plot()
+
+    def _on_point_style_changed(self):
+        """Update plot when point size or alpha changes."""
         view = self.view_combo.currentText() if hasattr(self, 'view_combo') else ''
         if view == 'UMAP' and getattr(self, 'umap_embedding', None) is not None:
             self._create_umap_plot()
@@ -2195,7 +2811,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
 
             # Prepare colors consistent with other views
             unique_clusters = sorted(clusters.unique())
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_clusters)))
+            colors = _get_vivid_colors(len(unique_clusters))
             cluster_color_map = {cluster_id: colors[i] for i, cluster_id in enumerate(unique_clusters)}
 
             # Plot
@@ -2674,10 +3290,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             df_plot = pd.DataFrame(plot_data)
             
-            # Get cluster colors using Set3 colormap (same as UMAP)
+            # Get cluster colors using vivid colormap (same as UMAP)
             unique_cluster_ids = sorted(self.clustered_data['cluster'].unique())
             unique_cluster_names = [self._get_cluster_display_name(cid) for cid in unique_cluster_ids]
-            colors = plt.cm.Set3(np.linspace(0, 1, len(unique_cluster_ids)))
+            colors = _get_vivid_colors(len(unique_cluster_ids))
             cluster_color_map = {cid: colors[i] for i, cid in enumerate(unique_cluster_ids)}
             cluster_name_color_map = {name: colors[i] for i, name in enumerate(unique_cluster_names)}
             
@@ -3524,6 +4140,78 @@ class CellClusteringDialog(QtWidgets.QDialog):
             )
             
             QtWidgets.QMessageBox.information(self, "Annotations Applied", "Cluster annotations have been applied.")
+
+    def _open_patient_annotation_dialog(self):
+        """Open a dialog to customize patient/source file labels."""
+        # Check if source_file column exists
+        if 'source_file' not in self.feature_dataframe.columns:
+            QtWidgets.QMessageBox.warning(self, "No Source File Data", 
+                                          "Source file information is not available in the data.")
+            return
+        
+        # Get unique source files
+        unique_files = sorted([f for f in self.feature_dataframe['source_file'].unique() if pd.notna(f)])
+        if not unique_files:
+            QtWidgets.QMessageBox.warning(self, "No Source Files", 
+                                          "No source file information found in the data.")
+            return
+        
+        # Build and show dialog
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Customize Patient/Source File Labels")
+        v = QtWidgets.QVBoxLayout(dlg)
+        
+        # Add instruction label
+        instruction = QtWidgets.QLabel("Customize labels for each source file (patient). Leave blank to use original filename.")
+        instruction.setWordWrap(True)
+        v.addWidget(instruction)
+        
+        form = QtWidgets.QFormLayout()
+        editors = {}
+        for source_file in unique_files:
+            le = QtWidgets.QLineEdit()
+            # Use custom label if available, otherwise use filename
+            if source_file in self.patient_annotation_map:
+                le.setText(self.patient_annotation_map[source_file])
+            else:
+                # Use basename of file as default display
+                default_label = os.path.basename(str(source_file))
+                le.setText(default_label)
+            form.addRow(f"Source file:\n{os.path.basename(str(source_file))}", le)
+            editors[source_file] = le
+        v.addLayout(form)
+        
+        btns = QtWidgets.QHBoxLayout()
+        ok = QtWidgets.QPushButton("Apply")
+        cancel = QtWidgets.QPushButton("Cancel")
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        btns.addStretch()
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        v.addLayout(btns)
+
+        # Make the dialog wider for better usability
+        dlg.resize(600, dlg.sizeHint().height())
+
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Save mapping from editors
+            self.patient_annotation_map = {
+                source_file: editors[source_file].text().strip() 
+                for source_file in unique_files 
+                if editors[source_file].text().strip()
+            }
+            # Refresh current view if patient labels are used
+            view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+            if view == 'Heatmap' and hasattr(self, 'patient_annotation_checkbox') and self.patient_annotation_checkbox.isChecked():
+                self._show_heatmap()
+            elif view == 'UMAP' and self.umap_embedding is not None:
+                # Refresh UMAP plot to update patient labels in legend
+                self._create_umap_plot()
+            elif view == 't-SNE' and self.tsne_embedding is not None:
+                # Refresh t-SNE plot to update patient labels in legend
+                self._create_tsne_plot()
+            QtWidgets.QMessageBox.information(self, "Labels Applied", "Patient labels have been applied.")
 
     def _apply_cluster_annotations(self):
         """Apply current annotation map to clustered_data and feature_dataframe as 'cluster_phenotype'."""

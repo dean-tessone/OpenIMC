@@ -649,6 +649,9 @@ class SegmentationDialog(QtWidgets.QDialog):
         bbox_layout.addWidget(bbox_info)
         bbox_layout.addStretch()
         cellsam_layout.addLayout(bbox_layout)
+        bbox_note = QtWidgets.QLabel("Note: Setting bbox threshold too low will lead to oversegmentation.")
+        bbox_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; font-style: italic; }")
+        cellsam_layout.addWidget(bbox_note)
         
         # use_wsi
         wsi_layout = QtWidgets.QVBoxLayout()

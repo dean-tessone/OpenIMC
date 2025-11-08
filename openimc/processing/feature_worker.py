@@ -342,15 +342,19 @@ def extract_features_for_acquisition(
 
         # Add acquisition id and cell id
         morph_df.rename(columns={"label": "cell_id"}, inplace=True)
-        morph_df.insert(0, "acquisition_id", acq_id)
-        morph_df.insert(1, "acquisition_label", acq_label)
         # Add source file name (just the filename, not full path)
         if source_file:
             import os
             source_filename = os.path.basename(source_file)
         else:
             source_filename = None
-        morph_df.insert(2, "source_file", source_filename)
+        # Use pd.concat instead of multiple insert() calls to avoid DataFrame fragmentation
+        metadata_df = pd.DataFrame({
+            "acquisition_id": [acq_id] * len(morph_df),
+            "acquisition_label": [acq_label] * len(morph_df),
+            "source_file": [source_filename] * len(morph_df)
+        })
+        morph_df = pd.concat([metadata_df, morph_df], axis=1)
 
         print(f"[feature_worker] Finished extraction acq_id={acq_id}, rows={len(morph_df)}")
         return morph_df

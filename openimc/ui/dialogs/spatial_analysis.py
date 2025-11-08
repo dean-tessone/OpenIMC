@@ -52,13 +52,57 @@ except ImportError:
     _HAVE_IGRAPH = False
 
 
+def _get_vivid_colors(n):
+    """
+    Generate n vivid, distinct colors suitable for cluster visualization.
+    Uses tab20, tab20b, tab20c for first 60 colors, then hsv for additional colors.
+    
+    Args:
+        n: Number of colors needed
+        
+    Returns:
+        Array of RGBA colors (n, 4)
+    """
+    colors = []
+    
+    # Use tab20, tab20b, tab20c for first 60 colors (vivid and distinct)
+    if n <= 20:
+        colors = plt.cm.tab20(np.linspace(0, 1, n))
+    elif n <= 40:
+        colors = np.vstack([
+            plt.cm.tab20(np.linspace(0, 1, 20)),
+            plt.cm.tab20b(np.linspace(0, 1, n - 20))
+        ])
+    elif n <= 60:
+        colors = np.vstack([
+            plt.cm.tab20(np.linspace(0, 1, 20)),
+            plt.cm.tab20b(np.linspace(0, 1, 20)),
+            plt.cm.tab20c(np.linspace(0, 1, n - 40))
+        ])
+    else:
+        # For more than 60 colors, use tab20 series + hsv for the rest
+        colors = np.vstack([
+            plt.cm.tab20(np.linspace(0, 1, 20)),
+            plt.cm.tab20b(np.linspace(0, 1, 20)),
+            plt.cm.tab20c(np.linspace(0, 1, 20))
+        ])
+        # Use hsv colormap for additional colors, avoiding very dark/light values
+        remaining = n - 60
+        hsv_colors = plt.cm.hsv(np.linspace(0.1, 0.9, remaining))
+        colors = np.vstack([colors, hsv_colors])
+    
+    return colors
+
+
 class SpatialAnalysisDialog(QtWidgets.QDialog):
-    def __init__(self, feature_dataframe: pd.DataFrame, parent=None):
+    def __init__(self, feature_dataframe: pd.DataFrame, batch_corrected_dataframe=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Spatial Analysis")
         self.setMinimumSize(900, 650)
 
-        self.feature_dataframe = feature_dataframe
+        self.original_feature_dataframe = feature_dataframe  # Store original
+        self.batch_corrected_dataframe = batch_corrected_dataframe  # Store batch-corrected
+        self.feature_dataframe = feature_dataframe  # Active dataframe (can be switched)
         self.edge_df: Optional[pd.DataFrame] = None
         self.adj_matrices: Dict[str, sp.csr_matrix] = {}  # Per-ROI adjacency matrices
         self.cell_id_to_gid: Dict[Tuple[str, int], int] = {}  # (roi_id, cell_id) -> global_id
@@ -70,6 +114,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.distance_df: Optional[pd.DataFrame] = None
         self.ripley_df: Optional[pd.DataFrame] = None
         self.rng_seed: int = 42  # Default seed for reproducibility
+        
+        # Cache for spatial visualization to avoid recomputing edges
+        self.spatial_viz_cache: Dict[str, Any] = {}  # roi_id -> {edges, cell_coords, roi_df}
         
         # Track which analyses have been run
         self.neighborhood_analysis_run = False
@@ -83,9 +130,54 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.cluster_annotation_map = {}
 
         self._create_ui()
-
+    
+    def _on_feature_set_changed(self):
+        """Handle feature set selection change."""
+        if not hasattr(self, 'feature_set_combo'):
+            return
+        
+        selected = self.feature_set_combo.currentText()
+        if selected == "Batch-Corrected Features" and self.batch_corrected_dataframe is not None:
+            self.feature_dataframe = self.batch_corrected_dataframe.copy()
+        else:
+            self.feature_dataframe = self.original_feature_dataframe.copy()
+        
+        # Clear cached analyses when switching feature sets
+        self.edge_df = None
+        self.adj_matrices = {}
+        self.cell_id_to_gid = {}
+        self.gid_to_cell_id = {}
+        self.neighborhood_df = None
+        self.cluster_summary_df = None
+        self.enrichment_df = None
+        self.distance_df = None
+        self.ripley_df = None
+        self.spatial_viz_cache = {}
+        
+        # Reset analysis flags
+        self.neighborhood_analysis_run = False
+        self.enrichment_analysis_run = False
+        self.distance_analysis_run = False
+        self.ripley_analysis_run = False
+        self.spatial_viz_run = False
+        self.community_analysis_run = False
+    
     def _create_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
+
+        # Feature set selector (if batch-corrected data is available)
+        if self.batch_corrected_dataframe is not None and not self.batch_corrected_dataframe.empty:
+            feature_set_layout = QtWidgets.QHBoxLayout()
+            feature_set_layout.addWidget(QtWidgets.QLabel("Feature Set:"))
+            self.feature_set_combo = QtWidgets.QComboBox()
+            self.feature_set_combo.addItem("Original Features")
+            self.feature_set_combo.addItem("Batch-Corrected Features")
+            self.feature_set_combo.setCurrentText("Original Features")
+            self.feature_set_combo.setToolTip("Choose between original or batch-corrected feature sets")
+            self.feature_set_combo.currentTextChanged.connect(self._on_feature_set_changed)
+            feature_set_layout.addWidget(self.feature_set_combo)
+            feature_set_layout.addStretch()
+            layout.addLayout(feature_set_layout)
 
         # Parameters group
         params_group = QtWidgets.QGroupBox("Spatial Graph Construction")
@@ -241,12 +333,39 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         # Spatial visualization controls
         spatial_viz_controls = QtWidgets.QHBoxLayout()
-        spatial_viz_controls.addWidget(QtWidgets.QLabel("ROI:"))
+        self.roi_label = QtWidgets.QLabel("ROI:")
+        spatial_viz_controls.addWidget(self.roi_label)
         self.roi_combo = QtWidgets.QComboBox()
         spatial_viz_controls.addWidget(self.roi_combo)
+        
+        # Add multi-select option
+        self.faceted_plot_check = QtWidgets.QCheckBox("Faceted plot (all/selected ROIs)")
+        self.faceted_plot_check.setToolTip("Create a faceted plot showing multiple ROIs side by side")
+        spatial_viz_controls.addWidget(self.faceted_plot_check)
+        
+        # ROI list widget for multi-selection (hidden by default)
+        self.roi_list_widget = QtWidgets.QListWidget()
+        self.roi_list_widget.setMaximumHeight(100)
+        self.roi_list_widget.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        self.roi_list_widget.setVisible(False)
+        
         spatial_viz_controls.addWidget(QtWidgets.QLabel("Color by:"))
         self.spatial_color_combo = QtWidgets.QComboBox()
+        self.spatial_color_combo.setEditable(True)
+        self.spatial_color_combo.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.spatial_color_combo.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+        self.spatial_color_combo.setToolTip("Search and select feature for color encoding")
         spatial_viz_controls.addWidget(self.spatial_color_combo)
+        
+        spatial_viz_controls.addWidget(QtWidgets.QLabel("Size by:"))
+        self.spatial_size_combo = QtWidgets.QComboBox()
+        self.spatial_size_combo.setEditable(True)
+        self.spatial_size_combo.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.spatial_size_combo.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+        self.spatial_size_combo.addItem("None")
+        self.spatial_size_combo.setToolTip("Search and select feature for size encoding (optional)")
+        spatial_viz_controls.addWidget(self.spatial_size_combo)
+        
         self.spatial_viz_run_btn = QtWidgets.QPushButton("Generate Spatial Plot")
         self.spatial_viz_save_btn = QtWidgets.QPushButton("Save Plot")
         self.spatial_viz_save_btn.setEnabled(False)
@@ -254,6 +373,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         spatial_viz_controls.addWidget(self.spatial_viz_save_btn)
         spatial_viz_controls.addStretch()
         spatial_viz_layout.addLayout(spatial_viz_controls)
+        
+        # Add ROI list widget to layout
+        spatial_viz_layout.addWidget(self.roi_list_widget)
         
         self.spatial_viz_canvas = FigureCanvas(Figure(figsize=(10, 8)))
         spatial_viz_layout.addWidget(self.spatial_viz_canvas)
@@ -310,6 +432,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.ripley_save_btn.clicked.connect(self._save_ripley_plot)
         self.spatial_viz_run_btn.clicked.connect(self._run_spatial_visualization)
         self.spatial_viz_save_btn.clicked.connect(self._save_spatial_viz_plot)
+        self.faceted_plot_check.toggled.connect(self._on_faceted_plot_toggled)
+        # Connect color/size changes to update plot without regenerating
+        self.spatial_color_combo.currentTextChanged.connect(self._on_spatial_viz_option_changed)
+        self.spatial_size_combo.currentTextChanged.connect(self._on_spatial_viz_option_changed)
         self.community_run_btn.clicked.connect(self._run_community_analysis)
         self.community_save_btn.clicked.connect(self._save_community_plot)
         self.export_btn.clicked.connect(self._export_results)
@@ -324,6 +450,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Populate ROI combo box and color options
         self._populate_roi_combo()
         self._populate_spatial_color_options()
+        self._populate_spatial_size_options()
         self._populate_community_roi_combo()
         self._populate_exclude_clusters_list()
         
@@ -411,16 +538,19 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
     def _get_cluster_display_name(self, cluster_id):
         """Return display label for a cluster id, using annotation if available."""
-        if isinstance(self.cluster_annotation_map, dict) and cluster_id in self.cluster_annotation_map and self.cluster_annotation_map[cluster_id]:
-            return self.cluster_annotation_map[cluster_id]
-        
-        # Try to get from parent dialog if available
+        # Try to get from parent dialog first (has display names)
         try:
             parent = self.parent()
             if parent is not None and hasattr(parent, '_get_cluster_display_name'):
                 return parent._get_cluster_display_name(cluster_id)
         except Exception:
             pass
+        
+        # Fall back to annotation map, converting underscores to spaces for display
+        if isinstance(self.cluster_annotation_map, dict) and cluster_id in self.cluster_annotation_map and self.cluster_annotation_map[cluster_id]:
+            name = self.cluster_annotation_map[cluster_id]
+            # Convert underscores to spaces for display (in case we have backend names)
+            return name.replace('_', ' ')
             
         return f"Cluster {int(cluster_id)}"
 
@@ -963,15 +1093,23 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Ripley Analysis Error", f"Error: {str(e)}")
 
     def _populate_roi_combo(self):
-        """Populate the ROI combo box with available ROIs."""
+        """Populate the ROI combo box and list widget with available ROIs."""
         if self.feature_dataframe is not None and not self.feature_dataframe.empty:
             unique_rois = sorted(self.feature_dataframe['acquisition_id'].unique())
             self.roi_combo.clear()
             self.roi_combo.addItems([str(roi) for roi in unique_rois])
+            
+            # Also populate the list widget for multi-selection
+            self.roi_list_widget.clear()
+            for roi in unique_rois:
+                item = QtWidgets.QListWidgetItem(str(roi))
+                item.setCheckState(QtCore.Qt.Unchecked)
+                self.roi_list_widget.addItem(item)
+            
             print(f"[DEBUG] Populated ROI combo with {len(unique_rois)} ROIs")
 
     def _populate_spatial_color_options(self):
-        """Populate the spatial color combo box with available features."""
+        """Populate the spatial color combo box with available features (searchable)."""
         if self.feature_dataframe is not None and not self.feature_dataframe.empty:
             self.spatial_color_combo.clear()
             
@@ -999,10 +1137,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             for feature in sorted(morphometric_features):
                 self.spatial_color_combo.addItem(f"Morphology: {feature}")
             
-            # Add marker expression features
+            # Add ALL marker expression features (not just hardcoded ones)
             marker_features = []
             for col in self.feature_dataframe.columns:
-                if '_mean' in col and any(keyword in col.lower() for keyword in ['cd', 'epcam', 'sma', 'pr', 'her2', 'fap', 'ncam', 'vimentin', 'cadherin', 'ki', 'er', 'cd31', 'cd66b', 'cd3', 'cd44', 'cd45', 'ck8', 'ck18', 'cd4', 'dna', 'icsk']):
+                if '_mean' in col.lower():
                     marker_features.append(col)
             
             for feature in sorted(marker_features):
@@ -1010,6 +1148,33 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 self.spatial_color_combo.addItem(f"Marker: {marker_name}")
             
             print(f"[DEBUG] Populated spatial color options with {self.spatial_color_combo.count()} options")
+
+    def _populate_spatial_size_options(self):
+        """Populate the spatial size combo box with available features (searchable)."""
+        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
+            self.spatial_size_combo.clear()
+            self.spatial_size_combo.addItem("None")
+            
+            # Add morphometric features (good for size encoding)
+            morphometric_features = []
+            for col in self.feature_dataframe.columns:
+                if any(keyword in col.lower() for keyword in ['area', 'perimeter', 'diameter', 'eccentricity', 'solidity', 'extent', 'aspect_ratio', 'circularity']):
+                    morphometric_features.append(col)
+            
+            for feature in sorted(morphometric_features):
+                self.spatial_size_combo.addItem(f"Morphology: {feature}")
+            
+            # Add marker expression features (can also be used for size)
+            marker_features = []
+            for col in self.feature_dataframe.columns:
+                if '_mean' in col.lower():
+                    marker_features.append(col)
+            
+            for feature in sorted(marker_features):
+                marker_name = feature.replace('_mean', '').replace('_', ' ')
+                self.spatial_size_combo.addItem(f"Marker: {marker_name}")
+            
+            print(f"[DEBUG] Populated spatial size options with {self.spatial_size_combo.count()} options")
 
     def _populate_community_roi_combo(self):
         """Populate the community ROI combo box with available ROIs."""
@@ -1042,22 +1207,49 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 
                 print(f"[DEBUG] Populated exclude clusters list with {self.exclude_clusters_list.count()} cluster types")
 
+    def _on_faceted_plot_toggled(self, checked):
+        """Handle faceted plot checkbox toggle."""
+        self.roi_list_widget.setVisible(checked)
+        self.roi_combo.setVisible(not checked)
+        self.roi_label.setVisible(not checked)
+        if checked:
+            # Select all ROIs by default
+            for i in range(self.roi_list_widget.count()):
+                item = self.roi_list_widget.item(i)
+                item.setCheckState(QtCore.Qt.Checked)
+
     def _run_spatial_visualization(self):
-        """Generate spatial visualization for the selected ROI."""
+        """Generate spatial visualization for the selected ROI(s)."""
         print("[DEBUG] Starting spatial visualization...")
         
         if not self.neighborhood_analysis_run:
             QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
             return
-            
-        if self.roi_combo.currentText() == "":
-            QtWidgets.QMessageBox.warning(self, "No ROI Selected", "Please select an ROI to visualize.")
-            return
-            
+        
         try:
-            selected_roi = self.roi_combo.currentText()
-            print(f"[DEBUG] Generating spatial visualization for ROI: {selected_roi}")
-            self._create_spatial_visualization(selected_roi)
+            if self.faceted_plot_check.isChecked():
+                # Get selected ROIs from list widget
+                selected_rois = []
+                for i in range(self.roi_list_widget.count()):
+                    item = self.roi_list_widget.item(i)
+                    if item.checkState() == QtCore.Qt.Checked:
+                        selected_rois.append(item.text())
+                
+                if not selected_rois:
+                    QtWidgets.QMessageBox.warning(self, "No ROIs Selected", "Please select at least one ROI for faceted plot.")
+                    return
+                
+                print(f"[DEBUG] Generating faceted spatial visualization for {len(selected_rois)} ROIs")
+                self._create_faceted_spatial_visualization(selected_rois)
+            else:
+                # Single ROI mode
+                if self.roi_combo.currentText() == "":
+                    QtWidgets.QMessageBox.warning(self, "No ROI Selected", "Please select an ROI to visualize.")
+                    return
+                
+                selected_roi = self.roi_combo.currentText()
+                print(f"[DEBUG] Generating spatial visualization for ROI: {selected_roi}")
+                self._create_spatial_visualization(selected_roi)
             
             self.spatial_viz_run = True
             self._update_tab_states()
@@ -1071,45 +1263,154 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Spatial Visualization Error", f"Error: {str(e)}")
 
-    def _create_spatial_visualization(self, roi_id):
+    def _on_spatial_viz_option_changed(self):
+        """Handle color/size option changes - update plot without regenerating edges."""
+        if not self.spatial_viz_run:
+            return  # Don't update if plot hasn't been generated yet
+        
+        if self.faceted_plot_check.isChecked():
+            return  # Don't auto-update faceted plots
+        
+        current_roi = self.roi_combo.currentText()
+        if current_roi and current_roi in self.spatial_viz_cache:
+            # Update only the scatter plot, not edges
+            self._update_spatial_scatter_plot(current_roi)
+
+    def _create_spatial_visualization(self, roi_id, force_regenerate=False):
         """Create spatial visualization showing cells and edges for a specific ROI."""
         if self.feature_dataframe is None or self.edge_df is None:
             return
+        
+        # Determine if we should use cache BEFORE populating it
+        use_cache = not force_regenerate and roi_id in self.spatial_viz_cache
             
-        # Get data for the selected ROI
-        roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
-        roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
-        
-        if roi_df.empty:
-            print(f"[DEBUG] No data found for ROI {roi_id}")
-            return
+        # Check cache first (unless forcing regeneration)
+        if use_cache:
+            cache = self.spatial_viz_cache[roi_id]
+            roi_df = cache['roi_df']
+            roi_edges = cache['roi_edges']
+            cell_coords = cache['cell_coords']
+        else:
+            # Get data for the selected ROI
+            roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+            roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
             
-        # Get color option
-        color_option = self.spatial_color_combo.currentText()
-        print(f"[DEBUG] Color option selected: {color_option}")
-        
-        # Clear the canvas
-        self.spatial_viz_canvas.figure.clear()
-        ax = self.spatial_viz_canvas.figure.add_subplot(111)
-        
-        # Plot edges first (so they appear behind the nodes)
-        if not roi_edges.empty:
-            print(f"[DEBUG] Plotting {len(roi_edges)} edges for ROI {roi_id}")
+            if roi_df.empty:
+                print(f"[DEBUG] No data found for ROI {roi_id}")
+                return
             
             # Create a mapping from cell_id to coordinates
             cell_coords = {}
             for _, row in roi_df.iterrows():
                 cell_coords[int(row['cell_id'])] = (row['centroid_x'], row['centroid_y'])
             
-            # Plot edges
-            for _, edge in roi_edges.iterrows():
-                cell_a = int(edge['cell_id_A'])
-                cell_b = int(edge['cell_id_B'])
+            # Cache the data
+            self.spatial_viz_cache[roi_id] = {
+                'roi_df': roi_df,
+                'roi_edges': roi_edges,
+                'cell_coords': cell_coords
+            }
+        
+        # Get color and size options
+        color_option = self.spatial_color_combo.currentText()
+        size_option = self.spatial_size_combo.currentText()
+        print(f"[DEBUG] Color option: {color_option}, Size option: {size_option}")
+        
+        # Clear the canvas only if forcing regeneration or not using cache
+        if not use_cache:
+            self.spatial_viz_canvas.figure.clear()
+            ax = self.spatial_viz_canvas.figure.add_subplot(111)
+            
+            # Plot edges first (so they appear behind the nodes) - only if regenerating
+            if not roi_edges.empty:
+                print(f"[DEBUG] Plotting {len(roi_edges)} edges for ROI {roi_id}")
                 
-                if cell_a in cell_coords and cell_b in cell_coords:
-                    x_coords = [cell_coords[cell_a][0], cell_coords[cell_b][0]]
-                    y_coords = [cell_coords[cell_a][1], cell_coords[cell_b][1]]
-                    ax.plot(x_coords, y_coords, 'grey', alpha=0.3, linewidth=0.5, zorder=1)
+                # Plot edges
+                for _, edge in roi_edges.iterrows():
+                    cell_a = int(edge['cell_id_A'])
+                    cell_b = int(edge['cell_id_B'])
+                    
+                    if cell_a in cell_coords and cell_b in cell_coords:
+                        x_coords = [cell_coords[cell_a][0], cell_coords[cell_b][0]]
+                        y_coords = [cell_coords[cell_a][1], cell_coords[cell_b][1]]
+                        ax.plot(x_coords, y_coords, 'grey', alpha=0.3, linewidth=0.5, zorder=1)
+        else:
+            # Get existing axes
+            ax = self.spatial_viz_canvas.figure.axes[0] if self.spatial_viz_canvas.figure.axes else None
+            if ax is None:
+                return
+        
+        # Update scatter plot (this will be called for both new and cached plots)
+        self._update_spatial_scatter_plot(roi_id, ax=ax)
+        
+        # Customize the plot (only if not using cache)
+        if not use_cache:
+            ax.set_xlabel('X Position (pixels)')
+            ax.set_ylabel('Y Position (pixels)')
+            ax.set_title(f'Spatial Visualization - ROI {roi_id}')
+            ax.set_aspect('equal')
+            ax.invert_yaxis()
+            ax.grid(True, alpha=0.3)
+            self.spatial_viz_canvas.figure.tight_layout()
+        
+        self.spatial_viz_canvas.draw()
+        print(f"[DEBUG] Spatial visualization created for ROI {roi_id} with {len(roi_df)} cells and {len(roi_edges)} edges")
+
+    def _update_spatial_scatter_plot(self, roi_id, ax=None):
+        """Update only the scatter plot (cells) without regenerating edges."""
+        if roi_id not in self.spatial_viz_cache:
+            return
+        
+        cache = self.spatial_viz_cache[roi_id]
+        roi_df = cache['roi_df']
+        cell_coords = cache['cell_coords']
+        
+        if ax is None:
+            ax = self.spatial_viz_canvas.figure.axes[0] if self.spatial_viz_canvas.figure.axes else None
+            if ax is None:
+                return
+        
+        # Clear existing scatter plots and colorbars (but keep edges)
+        for artist in ax.collections[:]:
+            if isinstance(artist, plt.PathCollection):  # scatter plots
+                artist.remove()
+        for cbar in self.spatial_viz_canvas.figure.axes[1:]:  # colorbars
+            cbar.remove()
+        # Clear legend
+        ax.legend_ = None
+        
+        # Get color and size options
+        color_option = self.spatial_color_combo.currentText()
+        size_option = self.spatial_size_combo.currentText()
+        
+        # Get size values if specified
+        size_values = None
+        size_feature_name = None
+        if size_option and size_option != "None":
+            if size_option.startswith("Morphology:"):
+                size_feature_name = size_option.replace("Morphology: ", "")
+            elif size_option.startswith("Marker:"):
+                marker_name = size_option.replace("Marker: ", "").replace(" ", "_")
+                size_feature_name = f"{marker_name}_mean"
+            
+            if size_feature_name and size_feature_name in roi_df.columns:
+                size_values = roi_df[size_feature_name].values
+                # Normalize sizes to reasonable range (20-200)
+                valid_sizes = size_values[~np.isnan(size_values)]
+                if len(valid_sizes) > 0:
+                    min_size, max_size = valid_sizes.min(), valid_sizes.max()
+                    if max_size > min_size:
+                        size_values = 20 + 180 * (size_values - min_size) / (max_size - min_size)
+                    else:
+                        size_values = np.full_like(size_values, 50)
+                else:
+                    size_values = None
+        else:
+            size_values = 20  # Default size
+        
+        # Get all coordinates
+        x_coords = roi_df['centroid_x'].values
+        y_coords = roi_df['centroid_y'].values
         
         # Determine coloring method
         if color_option.startswith("Cluster"):
@@ -1136,21 +1437,28 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             unique_clusters = sorted(roi_df[cluster_col].unique())
             n_clusters = len(unique_clusters)
             
-            # Use a distinct color palette
-            colors = plt.cm.Set3(np.linspace(0, 1, max(n_clusters, 3)))
+            # Use a vivid color palette that can handle many clusters
+            colors = _get_vivid_colors(max(n_clusters, 3))
             cluster_color_map = {cluster: colors[i % len(colors)] for i, cluster in enumerate(unique_clusters)}
             
-            # Plot cells (nodes) colored by cluster
+            # Plot cells (nodes) colored by cluster with optional size encoding
             for cluster in unique_clusters:
-                cluster_cells = roi_df[roi_df[cluster_col] == cluster]
+                cluster_mask = roi_df[cluster_col] == cluster
+                cluster_cells = roi_df[cluster_mask]
                 if not cluster_cells.empty:
-                    x_coords = cluster_cells['centroid_x'].values
-                    y_coords = cluster_cells['centroid_y'].values
+                    cluster_x = cluster_cells['centroid_x'].values
+                    cluster_y = cluster_cells['centroid_y'].values
+                    
+                    # Get sizes for this cluster
+                    if isinstance(size_values, np.ndarray):
+                        cluster_sizes = size_values[cluster_mask]
+                    else:
+                        cluster_sizes = size_values
                     
                     # Plot cells as points
-                    ax.scatter(x_coords, y_coords, 
+                    ax.scatter(cluster_x, cluster_y, 
                               c=[cluster_color_map[cluster]], 
-                              s=20, alpha=0.8, edgecolors='black', linewidth=0.5,
+                              s=cluster_sizes, alpha=0.8, edgecolors='black', linewidth=0.5,
                               label=self._get_cluster_display_name(cluster),
                               zorder=2)
             
@@ -1174,14 +1482,20 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 # Remove NaN values
                 valid_mask = ~np.isnan(feature_values)
                 if np.any(valid_mask):
-                    x_coords = roi_df.loc[valid_mask, 'centroid_x'].values
-                    y_coords = roi_df.loc[valid_mask, 'centroid_y'].values
-                    values = feature_values[valid_mask]
+                    valid_x = roi_df.loc[valid_mask, 'centroid_x'].values
+                    valid_y = roi_df.loc[valid_mask, 'centroid_y'].values
+                    valid_values = feature_values[valid_mask]
+                    
+                    # Get sizes for valid points
+                    if isinstance(size_values, np.ndarray):
+                        valid_sizes = size_values[valid_mask]
+                    else:
+                        valid_sizes = size_values
                     
                     # Create scatter plot with colorbar
-                    scatter = ax.scatter(x_coords, y_coords, 
-                                       c=values, 
-                                       s=20, alpha=0.8, edgecolors='black', linewidth=0.5,
+                    scatter = ax.scatter(valid_x, valid_y, 
+                                       c=valid_values, 
+                                       s=valid_sizes, alpha=0.8, edgecolors='black', linewidth=0.5,
                                        cmap='viridis', zorder=2)
                     
                     # Add colorbar
@@ -1211,6 +1525,151 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.spatial_viz_canvas.draw()
         
         print(f"[DEBUG] Spatial visualization created for ROI {roi_id} with {len(roi_df)} cells and {len(roi_edges)} edges")
+
+    def _create_faceted_spatial_visualization(self, roi_ids):
+        """Create faceted spatial visualization showing multiple ROIs side by side."""
+        if self.feature_dataframe is None or self.edge_df is None:
+            return
+        
+        if not roi_ids:
+            return
+        
+        # Get color option
+        color_option = self.spatial_color_combo.currentText()
+        print(f"[DEBUG] Color option selected: {color_option}")
+        
+        # Clear the canvas
+        self.spatial_viz_canvas.figure.clear()
+        
+        # Calculate grid dimensions
+        n_rois = len(roi_ids)
+        n_cols = min(4, n_rois)  # Max 4 columns
+        n_rows = int(np.ceil(n_rois / n_cols))
+        
+        # Determine coloring method and get color map if needed
+        cluster_col = None
+        cluster_color_map = None
+        if color_option.startswith("Cluster"):
+            # Extract cluster column name
+            if "(cluster)" in color_option:
+                cluster_col = "cluster"
+            elif "(cluster_phenotype)" in color_option:
+                cluster_col = "cluster_phenotype"
+            elif "(cluster_id)" in color_option:
+                cluster_col = "cluster_id"
+            else:
+                for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+                    if col in self.feature_dataframe.columns:
+                        cluster_col = col
+                        break
+            
+            if cluster_col:
+                # Get all unique clusters across all ROIs
+                all_clusters = sorted(self.feature_dataframe[cluster_col].dropna().unique())
+                n_clusters = len(all_clusters)
+                colors = _get_vivid_colors(max(n_clusters, 3))
+                cluster_color_map = {cluster: colors[i % len(colors)] for i, cluster in enumerate(all_clusters)}
+        
+        # Create subplots
+        axes = []
+        for idx, roi_id in enumerate(roi_ids):
+            row = idx // n_cols
+            col = idx % n_cols
+            ax = self.spatial_viz_canvas.figure.add_subplot(n_rows, n_cols, idx + 1)
+            axes.append(ax)
+            
+            # Get data for this ROI
+            roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+            roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
+            
+            if roi_df.empty:
+                ax.text(0.5, 0.5, f'No data for ROI {roi_id}', 
+                       ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(f'ROI {roi_id}')
+                continue
+            
+            # Plot edges first
+            if not roi_edges.empty:
+                cell_coords = {}
+                for _, row_data in roi_df.iterrows():
+                    cell_coords[int(row_data['cell_id'])] = (row_data['centroid_x'], row_data['centroid_y'])
+                
+                for _, edge in roi_edges.iterrows():
+                    cell_a = int(edge['cell_id_A'])
+                    cell_b = int(edge['cell_id_B'])
+                    
+                    if cell_a in cell_coords and cell_b in cell_coords:
+                        x_coords = [cell_coords[cell_a][0], cell_coords[cell_b][0]]
+                        y_coords = [cell_coords[cell_a][1], cell_coords[cell_b][1]]
+                        ax.plot(x_coords, y_coords, 'grey', alpha=0.3, linewidth=0.3, zorder=1)
+            
+            # Plot cells
+            if cluster_col and cluster_col in roi_df.columns and cluster_color_map:
+                # Color by cluster
+                unique_clusters = sorted(roi_df[cluster_col].dropna().unique())
+                for cluster in unique_clusters:
+                    cluster_cells = roi_df[roi_df[cluster_col] == cluster]
+                    if not cluster_cells.empty:
+                        x_coords = cluster_cells['centroid_x'].values
+                        y_coords = cluster_cells['centroid_y'].values
+                        ax.scatter(x_coords, y_coords, 
+                                  c=[cluster_color_map[cluster]], 
+                                  s=10, alpha=0.8, edgecolors='black', linewidth=0.3,
+                                  zorder=2)
+            else:
+                # Color by continuous feature
+                feature_name = None
+                if color_option.startswith("Morphology:"):
+                    feature_name = color_option.replace("Morphology: ", "")
+                elif color_option.startswith("Marker:"):
+                    marker_name = color_option.replace("Marker: ", "").replace(" ", "_")
+                    feature_name = f"{marker_name}_mean"
+                
+                if feature_name and feature_name in roi_df.columns:
+                    feature_values = roi_df[feature_name].values
+                    valid_mask = ~np.isnan(feature_values)
+                    if np.any(valid_mask):
+                        x_coords = roi_df.loc[valid_mask, 'centroid_x'].values
+                        y_coords = roi_df.loc[valid_mask, 'centroid_y'].values
+                        values = feature_values[valid_mask]
+                        scatter = ax.scatter(x_coords, y_coords, 
+                                           c=values, 
+                                           s=10, alpha=0.8, edgecolors='black', linewidth=0.3,
+                                           cmap='viridis', zorder=2)
+            
+            # Customize subplot
+            ax.set_title(f'ROI {roi_id}', fontsize=10)
+            ax.set_aspect('equal')
+            ax.invert_yaxis()
+            ax.grid(True, alpha=0.3)
+            
+            # Only show axis labels on edge subplots
+            if row == n_rows - 1:
+                ax.set_xlabel('X (pixels)', fontsize=8)
+            if col == 0:
+                ax.set_ylabel('Y (pixels)', fontsize=8)
+        
+        # Add shared legend if using clusters
+        if cluster_col and cluster_color_map:
+            # Get all unique clusters across all ROIs for legend
+            all_clusters = sorted(self.feature_dataframe[cluster_col].dropna().unique())
+            handles = []
+            labels = []
+            for cluster in all_clusters:
+                handles.append(plt.Rectangle((0,0),1,1, facecolor=cluster_color_map[cluster], 
+                                           edgecolor='black', linewidth=0.5))
+                labels.append(self._get_cluster_display_name(cluster))
+            
+            # Add legend to the figure (not individual subplots)
+            self.spatial_viz_canvas.figure.legend(handles, labels, 
+                                                 loc='upper right', bbox_to_anchor=(0.98, 0.98),
+                                                 fontsize=8, ncol=min(3, len(labels)))
+        
+        # Adjust layout
+        self.spatial_viz_canvas.figure.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
+        self.spatial_viz_canvas.draw()
+        
+        print(f"[DEBUG] Faceted spatial visualization created for {len(roi_ids)} ROIs")
 
     def _run_community_analysis(self):
         """Run spatial community detection analysis."""
@@ -1394,8 +1853,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         # Plot cells colored by community
         if len(communities) > 0:
-            # Create color map for communities
-            colors = plt.cm.Set3(np.linspace(0, 1, max(len(communities), 3)))
+            # Create color map for communities using vivid colors
+            colors = _get_vivid_colors(max(len(communities), 3))
             
             for i, community in enumerate(communities):
                 community_cells = roi_df[roi_df['spatial_community'] == i]
@@ -1909,9 +2368,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             # Heatmap
             im = ax1.imshow(composition_matrix, cmap='viridis', aspect='auto')
             ax1.set_xticks(range(n_clusters))
-            ax1.set_xticklabels(neighbor_labels, rotation=45)
+            # Calculate font size based on number of labels and label length
+            max_label_len = max([len(str(l)) for l in neighbor_labels] + [1])
+            fontsize = max(6, min(10, 12 - max_label_len // 5))
+            ax1.set_xticklabels(neighbor_labels, rotation=45, ha='right', fontsize=fontsize)
             ax1.set_yticks(range(len(unique_clusters)))
-            ax1.set_yticklabels(cluster_labels)
+            ax1.set_yticklabels(cluster_labels, fontsize=fontsize)
             ax1.set_xlabel('Neighbor Cluster')
             ax1.set_ylabel('Cell Cluster')
             ax1.set_title('Average Neighborhood Composition')
@@ -1935,7 +2397,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             ax2.set_xlabel('Neighbor Cluster')
             ax2.set_ylabel('Fraction')
             ax2.set_title('Distribution of Neighbor Fractions')
-            ax2.tick_params(axis='x', rotation=45)
+            # Calculate font size based on number of labels and label length
+            max_label_len = max([len(str(l)) for l in plot_labels] + [1])
+            fontsize = max(6, min(10, 12 - max_label_len // 5))
+            ax2.tick_params(axis='x', rotation=45, labelsize=fontsize)
         
         fig.tight_layout()
         self.neighborhood_canvas.draw()
@@ -2101,10 +2566,14 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Plot 1: Z-score heatmap with significance markers
         im1 = ax1.imshow(enrichment_matrix, cmap='RdBu_r', aspect='auto', 
                         vmin=-3, vmax=3)
+        cluster_labels = [self._get_cluster_display_name(c) for c in all_clusters]
+        # Calculate font size based on number of labels and label length
+        max_label_len = max([len(str(l)) for l in cluster_labels] + [1])
+        fontsize = max(6, min(10, 12 - max_label_len // 5))
         ax1.set_xticks(range(n_clusters))
-        ax1.set_xticklabels([self._get_cluster_display_name(c) for c in all_clusters], rotation=45)
+        ax1.set_xticklabels(cluster_labels, rotation=45, ha='right', fontsize=fontsize)
         ax1.set_yticks(range(n_clusters))
-        ax1.set_yticklabels([self._get_cluster_display_name(c) for c in all_clusters])
+        ax1.set_yticklabels(cluster_labels, fontsize=fontsize)
         ax1.set_xlabel('Cluster B')
         ax1.set_ylabel('Cluster A')
         ax1.set_title('Pairwise Interaction Enrichment (Z-scores)')
@@ -2298,7 +2767,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 max_pairs = min(len(violin_data), 16)  # Show up to 16 pairs
                 ax2.violinplot(violin_data[:max_pairs], positions=range(max_pairs))
                 ax2.set_xticks(range(max_pairs))
-                ax2.set_xticklabels(violin_labels[:max_pairs], rotation=45)
+                # Calculate font size based on number of labels and label length
+                max_label_len = max([len(str(l)) for l in violin_labels[:max_pairs]] + [1])
+                fontsize = max(6, min(10, 12 - max_label_len // 5))
+                ax2.set_xticklabels(violin_labels[:max_pairs], rotation=45, ha='right', fontsize=fontsize)
                 ax2.set_ylabel('Distance (µm)')
                 ax2.set_title(f'Distance Distributions by Cluster Pair (showing {max_pairs}/{len(violin_data)})')
                 ax2.grid(True, alpha=0.3)
@@ -2338,7 +2810,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             ax4.errorbar(x_pos, summary_df['Mean'], yerr=summary_df['Std'], 
                         fmt='none', color='black', capsize=5)
             ax4.set_xticks(x_pos)
-            ax4.set_xticklabels(summary_df['ROI'], rotation=45)
+            # Calculate font size based on number of labels and label length
+            roi_labels = summary_df['ROI'].tolist()
+            max_label_len = max([len(str(l)) for l in roi_labels] + [1])
+            fontsize = max(6, min(10, 12 - max_label_len // 5))
+            ax4.set_xticklabels(roi_labels, rotation=45, ha='right', fontsize=fontsize)
             ax4.set_ylabel('Distance (µm)')
             ax4.set_title('Mean Distances by ROI')
             ax4.legend()

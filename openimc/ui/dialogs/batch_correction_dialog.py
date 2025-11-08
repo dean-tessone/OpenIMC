@@ -7,6 +7,7 @@ to correct for batch effects in feature data from multiple files.
 
 from typing import Optional, Dict, List
 import os
+from datetime import datetime
 import pandas as pd
 import numpy as np
 from PyQt5 import QtWidgets
@@ -26,10 +27,11 @@ except ImportError:
     _HAVE_COMBAT = False
 
 try:
-    from harmonypy import harmonize
+    from harmonypy import run_harmony
     _HAVE_HARMONY = True
 except ImportError:
     _HAVE_HARMONY = False
+
 
 
 class BatchCorrectionDialog(QtWidgets.QDialog):
@@ -39,7 +41,7 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Batch Correction")
         self.setModal(True)
-        self.resize(700, 500)
+        self.resize(900, 700)
         
         self.feature_dataframe = feature_dataframe
         self.corrected_dataframe: Optional[pd.DataFrame] = None
@@ -72,7 +74,8 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         info_label = QtWidgets.QLabel(
             "Batch correction removes technical variation (batch effects) between different files or batches.\n"
             "This is useful when combining features from multiple .mcd files or uploaded feature files.\n\n"
-            "You can load additional feature files extracted by this app, or use the currently loaded features."
+            "You can load additional feature files extracted by this app, or use the currently loaded features.\n\n"
+            "Note: All features will be preserved in their original state in the CSV if they are not batch corrected."
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
@@ -96,8 +99,9 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         self.load_files_radio.toggled.connect(self._on_source_changed)
         source_layout.addWidget(self.load_files_radio)
         
-        # File list for loaded files
-        file_list_layout = QtWidgets.QVBoxLayout()
+        # File list for loaded files (hidden by default)
+        self.file_list_widget = QtWidgets.QWidget()
+        file_list_layout = QtWidgets.QVBoxLayout(self.file_list_widget)
         file_list_layout.setContentsMargins(20, 4, 0, 4)
         
         file_list_label = QtWidgets.QLabel("Loaded feature files:")
@@ -121,7 +125,8 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         file_buttons_layout.addStretch()
         file_list_layout.addLayout(file_buttons_layout)
         
-        source_layout.addLayout(file_list_layout)
+        self.file_list_widget.setVisible(False)  # Hidden by default
+        source_layout.addWidget(self.file_list_widget)
         
         content_layout.addWidget(source_group)
         
@@ -135,16 +140,17 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         method_layout.addWidget(method_label)
         
         self.method_combo = QtWidgets.QComboBox()
-        if _HAVE_COMBAT:
-            self.method_combo.addItem("Combat")
+        # Add methods in priority order: Harmony, Combat
         if _HAVE_HARMONY:
             self.method_combo.addItem("Harmony")
-        
-        # Set default to Combat if available, otherwise Harmony
         if _HAVE_COMBAT:
-            self.method_combo.setCurrentText("Combat")
-        elif _HAVE_HARMONY:
+            self.method_combo.addItem("Combat")
+        
+        # Set default to Harmony if available, otherwise Combat
+        if _HAVE_HARMONY:
             self.method_combo.setCurrentText("Harmony")
+        elif _HAVE_COMBAT:
+            self.method_combo.setCurrentText("Combat")
         
         if self.method_combo.count() == 0:
             self.method_combo.addItem("No methods available")
@@ -158,6 +164,29 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
             method_layout.addWidget(no_methods_label)
         
         method_layout.addWidget(self.method_combo)
+        self.method_combo.currentTextChanged.connect(self._on_method_changed)
+        
+        # PCA variance threshold for Harmony (hidden by default, shown only for Harmony)
+        self.pca_variance_layout = QtWidgets.QHBoxLayout()
+        self.pca_variance_layout.addWidget(QtWidgets.QLabel("PCA variance to retain:"))
+        self.pca_variance_spin = QtWidgets.QDoubleSpinBox()
+        self.pca_variance_spin.setRange(0.1, 1.0)
+        self.pca_variance_spin.setSingleStep(0.05)
+        self.pca_variance_spin.setValue(0.9)
+        self.pca_variance_spin.setDecimals(2)
+        self.pca_variance_spin.setToolTip(
+            "Proportion of variance to retain in PCA before applying Harmony.\n"
+            "Higher values retain more information but may be slower. Default: 90%"
+        )
+        self.pca_variance_spin.valueChanged.connect(self._update_pca_variance_suffix)
+        # Set initial suffix
+        self._update_pca_variance_suffix(0.9)
+        self.pca_variance_layout.addWidget(self.pca_variance_spin)
+        self.pca_variance_layout.addStretch()
+        self.pca_variance_widget = QtWidgets.QWidget()
+        self.pca_variance_widget.setLayout(self.pca_variance_layout)
+        self.pca_variance_widget.setVisible(False)  # Hidden by default
+        method_layout.addWidget(self.pca_variance_widget)
         
         # Batch variable selection
         batch_var_layout = QtWidgets.QHBoxLayout()
@@ -191,15 +220,34 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         feature_info.setStyleSheet("QLabel { color: #666; font-size: 8pt; }")
         feature_layout.addWidget(feature_info)
         
+        # Feature filter section
+        filter_layout = QtWidgets.QHBoxLayout()
+        filter_layout.addWidget(QtWidgets.QLabel("Filter features:"))
+        
+        self.filter_mean_chk = QtWidgets.QCheckBox("_mean")
+        self.filter_mean_chk.setChecked(True)
+        self.filter_mean_chk.toggled.connect(self._on_filter_changed)
+        filter_layout.addWidget(self.filter_mean_chk)
+        
+        self.filter_median_chk = QtWidgets.QCheckBox("_median")
+        self.filter_median_chk.setChecked(True)
+        self.filter_median_chk.toggled.connect(self._on_filter_changed)
+        filter_layout.addWidget(self.filter_median_chk)
+        
+        self.filter_other_chk = QtWidgets.QCheckBox("Other features")
+        self.filter_other_chk.setChecked(False)
+        self.filter_other_chk.toggled.connect(self._on_filter_changed)
+        filter_layout.addWidget(self.filter_other_chk)
+        
+        filter_layout.addStretch()
+        feature_layout.addLayout(filter_layout)
+        
         self.feature_list = QtWidgets.QListWidget()
         self.feature_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
         self.feature_list.setMaximumHeight(150)
         feature_layout.addWidget(self.feature_list)
         
         feature_buttons_layout = QtWidgets.QHBoxLayout()
-        self.select_intensity_btn = QtWidgets.QPushButton("Select Intensity Only")
-        self.select_intensity_btn.clicked.connect(self._select_intensity_features)
-        feature_buttons_layout.addWidget(self.select_intensity_btn)
         
         self.select_all_features_btn = QtWidgets.QPushButton("Select All")
         self.select_all_features_btn.clicked.connect(self._select_all_features)
@@ -261,6 +309,8 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
     def _on_source_changed(self):
         """Handle data source radio button change."""
         use_current = self.use_current_radio.isChecked()
+        # Show/hide file list widget based on selection
+        self.file_list_widget.setVisible(not use_current)
         self.file_list.setEnabled(not use_current)
         self.add_file_btn.setEnabled(not use_current)
         self.remove_file_btn.setEnabled(not use_current)
@@ -270,6 +320,16 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         else:
             # Clear feature list until files are loaded
             self.feature_list.clear()
+    
+    def _on_method_changed(self, method_name: str):
+        """Handle batch correction method change."""
+        # Show PCA variance control only for Harmony
+        self.pca_variance_widget.setVisible(method_name == "Harmony")
+    
+    def _update_pca_variance_suffix(self, value: float):
+        """Update the suffix display for PCA variance spinbox."""
+        percentage = int(value * 100)
+        self.pca_variance_spin.setSuffix(f" ({percentage}%)")
     
     def _add_feature_file(self):
         """Add a feature file to the list."""
@@ -316,14 +376,23 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
             self.file_list.takeItem(index)
             self._populate_features()
     
+    def _on_filter_changed(self):
+        """Handle filter checkbox changes - repopulate feature list."""
+        self._populate_features()
+    
     def _populate_features(self):
-        """Populate the feature list based on current data source."""
+        """Populate the feature list based on current data source and filter settings."""
         self.feature_list.clear()
         
         # Get combined dataframe
         combined_df = self._get_combined_dataframe()
         if combined_df is None or combined_df.empty:
             return
+        
+        # Get filter settings
+        show_mean = self.filter_mean_chk.isChecked() if hasattr(self, 'filter_mean_chk') else True
+        show_median = self.filter_median_chk.isChecked() if hasattr(self, 'filter_median_chk') else True
+        show_other = self.filter_other_chk.isChecked() if hasattr(self, 'filter_other_chk') else False
         
         # Identify feature columns (exclude metadata columns)
         exclude_cols = {
@@ -345,35 +414,64 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         # Intensity features identified by suffixes
         intensity_suffixes = ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos']
         
-        intensity_features = []
+        mean_features = []
+        median_features = []
+        other_intensity_features = []
         morphology_features = []
         other_features = []
         
         for col in sorted(feature_cols):
             if col in morpho_names:
                 morphology_features.append(col)
+            elif col.endswith('_mean'):
+                mean_features.append(col)
+            elif col.endswith('_median'):
+                median_features.append(col)
             elif any(col.endswith(suffix) for suffix in intensity_suffixes):
-                intensity_features.append(col)
+                other_intensity_features.append(col)
             else:
                 other_features.append(col)
         
-        # Add intensity features first (selected by default)
-        for col in intensity_features:
-            item = QtWidgets.QListWidgetItem(col)
-            item.setSelected(True)  # Default: select intensity features
-            self.feature_list.addItem(item)
+        # Add features based on filter settings
+        # Mean features
+        if show_mean:
+            for col in mean_features:
+                item = QtWidgets.QListWidgetItem(col)
+                self.feature_list.addItem(item)
+                item.setSelected(True)  # Auto-select mean features
         
-        # Add morphology features (not selected by default)
-        for col in morphology_features:
-            item = QtWidgets.QListWidgetItem(col)
-            item.setSelected(False)  # Default: don't select morphology features
-            self.feature_list.addItem(item)
+        # Median features
+        if show_median:
+            for col in median_features:
+                item = QtWidgets.QListWidgetItem(col)
+                self.feature_list.addItem(item)
+                item.setSelected(True)  # Auto-select median features
         
-        # Add other features (not selected by default)
-        for col in other_features:
-            item = QtWidgets.QListWidgetItem(col)
-            item.setSelected(False)  # Default: don't select other features
-            self.feature_list.addItem(item)
+        # Other intensity features (if showing other)
+        if show_other:
+            for col in other_intensity_features:
+                item = QtWidgets.QListWidgetItem(col)
+                self.feature_list.addItem(item)
+                item.setSelected(True)  # Default: select intensity features
+            
+            # Add morphology features (not selected by default)
+            for col in morphology_features:
+                item = QtWidgets.QListWidgetItem(col)
+                self.feature_list.addItem(item)
+                item.setSelected(False)  # Default: don't select morphology features
+            
+            # Add other features (not selected by default)
+            for col in other_features:
+                item = QtWidgets.QListWidgetItem(col)
+                self.feature_list.addItem(item)
+                item.setSelected(False)  # Default: don't select other features
+        
+        # Explicitly select all mean and median features to ensure they are selected
+        for i in range(self.feature_list.count()):
+            item = self.feature_list.item(i)
+            col_name = item.text()
+            if col_name.endswith('_mean') or col_name.endswith('_median'):
+                item.setSelected(True)
     
     def _get_combined_dataframe(self) -> Optional[pd.DataFrame]:
         """Get the combined dataframe from current source or loaded files."""
@@ -407,15 +505,6 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         combined = pd.concat(dfs, ignore_index=True)
         return combined
     
-    def _select_intensity_features(self):
-        """Select only intensity features."""
-        intensity_suffixes = ['_mean', '_median', '_std', '_mad', '_p10', '_p90', '_integrated', '_frac_pos']
-        for i in range(self.feature_list.count()):
-            item = self.feature_list.item(i)
-            col = item.text()
-            # Select if it's an intensity feature
-            item.setSelected(any(col.endswith(suffix) for suffix in intensity_suffixes))
-    
     def _select_all_features(self):
         """Select all features in the list."""
         for i in range(self.feature_list.count()):
@@ -426,12 +515,47 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         for i in range(self.feature_list.count()):
             self.feature_list.item(i).setSelected(False)
     
+    def _auto_generate_output_path(self):
+        """Auto-generate output file path based on input data."""
+        if not self.save_output_chk.isChecked():
+            return
+        
+        # Get method name
+        method = self.method_combo.currentText().lower() if self.method_combo.count() > 0 else "batch"
+        
+        # Get base directory from first loaded file or use current directory
+        base_dir = ""
+        if self.loaded_files:
+            base_dir = os.path.dirname(self.loaded_files[0])
+        elif hasattr(self, 'parent') and self.parent() and hasattr(self.parent(), 'current_file_path'):
+            # Try to get directory from parent's current file
+            try:
+                base_dir = os.path.dirname(self.parent().current_file_path)
+            except:
+                pass
+        
+        if not base_dir:
+            base_dir = os.getcwd()
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"features_batch_corrected_{method}_{timestamp}.csv"
+        file_path = os.path.join(base_dir, filename)
+        
+        self.output_path_edit.setText(file_path)
+    
     def _select_output_path(self):
         """Select output file path."""
+        # Start with auto-generated path if available
+        initial_path = self.output_path_edit.text() if self.output_path_edit.text() else ""
+        if not initial_path:
+            self._auto_generate_output_path()
+            initial_path = self.output_path_edit.text()
+        
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save Corrected Features",
-            "",
+            initial_path,
             "CSV Files (*.csv);;All Files (*)"
         )
         
@@ -443,9 +567,19 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
     def _update_ui_state(self):
         """Update UI state based on available methods and data."""
         # Enable/disable save output controls
-        self.save_output_chk.toggled.connect(
-            lambda checked: self.output_path_edit.setEnabled(checked) or self.output_path_btn.setEnabled(checked)
-        )
+        def _on_save_output_toggled(checked):
+            self.output_path_edit.setEnabled(checked)
+            self.output_path_btn.setEnabled(checked)
+            if checked and not self.output_path_edit.text():
+                # Auto-generate filename if not set
+                self._auto_generate_output_path()
+        
+        self.save_output_chk.toggled.connect(_on_save_output_toggled)
+        
+        # Set initial PCA variance widget visibility based on selected method
+        if hasattr(self, 'method_combo'):
+            current_method = self.method_combo.currentText()
+            self._on_method_changed(current_method)
         
         # Populate features if we have current data
         if self.feature_dataframe is not None and not self.feature_dataframe.empty:
@@ -454,6 +588,10 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
     def get_corrected_dataframe(self) -> Optional[pd.DataFrame]:
         """Get the batch-corrected dataframe."""
         return self.corrected_dataframe
+    
+    def get_combined_dataframe(self) -> Optional[pd.DataFrame]:
+        """Get the combined dataframe (original or from loaded files) before correction."""
+        return self._get_combined_dataframe()
     
     def get_output_path(self) -> Optional[str]:
         """Get the output file path if saving."""
@@ -526,10 +664,13 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
             elif method == "Harmony":
                 if not _HAVE_HARMONY:
                     raise ImportError("Harmony is not installed. Install with: pip install harmonypy")
+                # Get PCA variance threshold (default 0.9 for 90%)
+                pca_variance = self.pca_variance_spin.value() if hasattr(self, 'pca_variance_spin') else 0.9
                 self.corrected_dataframe = apply_harmony_correction(
                     combined_df,
                     batch_var,
-                    selected_features
+                    selected_features,
+                    pca_variance=pca_variance
                 )
             else:
                 raise ValueError(f"Unknown method: {method}")

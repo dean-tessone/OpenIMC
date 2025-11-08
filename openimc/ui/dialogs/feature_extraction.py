@@ -35,7 +35,7 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         self.segmentation_masks = segmentation_masks
         self.setWindowTitle("Feature Extraction")
         self.setModal(True)
-        self.resize(700, 500)
+        self.resize(1100, 800)
         
         self._create_ui()
         self._populate_acquisitions()
@@ -538,15 +538,24 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
             if acq.id in self.segmentation_masks:
                 # Get channels from parent (MainWindow)
                 parent = self.parent()
-                if hasattr(parent, 'loader') and hasattr(parent, 'current_acq_id'):
-                    # Temporarily set current acquisition to get channels
-                    original_acq_id = parent.current_acq_id
-                    parent.current_acq_id = acq.id
+                if hasattr(parent, '_get_loader_for_acquisition') and hasattr(parent, '_get_original_acq_id'):
+                    # Get the correct loader for this acquisition
+                    loader = parent._get_loader_for_acquisition(acq.id)
+                    if loader is not None:
+                        # Get original acquisition ID (needed for multi-file support)
+                        original_acq_id = parent._get_original_acq_id(acq.id)
+                        try:
+                            channels = loader.get_channels(original_acq_id)
+                            break
+                        except Exception:
+                            pass
+                # Fallback to old method for backward compatibility
+                elif hasattr(parent, 'loader') and parent.loader is not None:
                     try:
                         channels = parent.loader.get_channels(acq.id)
                         break
-                    finally:
-                        parent.current_acq_id = original_acq_id
+                    except Exception:
+                        pass
         
         self.denoise_channel_combo.blockSignals(True)
         self.denoise_channel_combo.clear()
@@ -717,14 +726,24 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         for acq in self.acquisitions:
             if acq.id in self.segmentation_masks:
                 parent = self.parent()
-                if hasattr(parent, 'loader') and hasattr(parent, 'current_acq_id'):
-                    original_acq_id = parent.current_acq_id
-                    parent.current_acq_id = acq.id
+                if hasattr(parent, '_get_loader_for_acquisition') and hasattr(parent, '_get_original_acq_id'):
+                    # Get the correct loader for this acquisition
+                    loader = parent._get_loader_for_acquisition(acq.id)
+                    if loader is not None:
+                        # Get original acquisition ID (needed for multi-file support)
+                        original_acq_id = parent._get_original_acq_id(acq.id)
+                        try:
+                            channels = loader.get_channels(original_acq_id)
+                            break
+                        except Exception:
+                            pass
+                # Fallback to old method for backward compatibility
+                elif hasattr(parent, 'loader') and parent.loader is not None:
                     try:
                         channels = parent.loader.get_channels(acq.id)
                         break
-                    finally:
-                        parent.current_acq_id = original_acq_id
+                    except Exception:
+                        pass
         
         dlg = SpilloverCorrectionDialog(self, channels=channels)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
@@ -776,15 +795,24 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
             if acq.id in self.segmentation_masks:
                 # Get channels from parent (MainWindow)
                 parent = self.parent()
-                if hasattr(parent, 'loader') and hasattr(parent, 'current_acq_id'):
-                    # Temporarily set current acquisition to get channels
-                    original_acq_id = parent.current_acq_id
-                    parent.current_acq_id = acq.id
+                if hasattr(parent, '_get_loader_for_acquisition') and hasattr(parent, '_get_original_acq_id'):
+                    # Get the correct loader for this acquisition
+                    loader = parent._get_loader_for_acquisition(acq.id)
+                    if loader is not None:
+                        # Get original acquisition ID (needed for multi-file support)
+                        original_acq_id = parent._get_original_acq_id(acq.id)
+                        try:
+                            channels = loader.get_channels(original_acq_id)
+                            break
+                        except Exception:
+                            pass
+                # Fallback to old method for backward compatibility
+                elif hasattr(parent, 'loader') and parent.loader is not None:
                     try:
                         channels = parent.loader.get_channels(acq.id)
                         break
-                    finally:
-                        parent.current_acq_id = original_acq_id
+                    except Exception:
+                        pass
         
         self.channel_exclusion_list.clear()
         for ch in channels:
@@ -813,7 +841,20 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
         
         # Get parent window to access loader
         parent = self.parent()
-        if not hasattr(parent, 'loader'):
+        loader = None
+        original_acq_id_for_loader = None
+        
+        # Try to get loader using multi-file support method
+        if hasattr(parent, '_get_loader_for_acquisition') and hasattr(parent, '_get_original_acq_id'):
+            loader = parent._get_loader_for_acquisition(first_acq_id)
+            if loader is not None:
+                original_acq_id_for_loader = parent._get_original_acq_id(first_acq_id)
+        # Fallback to old method for backward compatibility
+        elif hasattr(parent, 'loader') and parent.loader is not None:
+            loader = parent.loader
+            original_acq_id_for_loader = first_acq_id
+        
+        if loader is None:
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Loader",
@@ -822,19 +863,12 @@ class FeatureExtractionDialog(QtWidgets.QDialog):
             return
         
         try:
-            # Temporarily set current acquisition
-            original_acq_id = parent.current_acq_id
-            parent.current_acq_id = first_acq_id
-            
             # Get channels and image data
-            channels = parent.loader.get_channels(first_acq_id)
+            channels = loader.get_channels(original_acq_id_for_loader)
             mask = self.segmentation_masks[first_acq_id]
             
             # Get image stack (use first acquisition for variance calculation)
-            img_stack = parent.loader.get_all_channels(first_acq_id)
-            
-            # Restore original acquisition
-            parent.current_acq_id = original_acq_id
+            img_stack = loader.get_all_channels(original_acq_id_for_loader)
             
             # Calculate variance across ROIs for each channel
             import numpy as np
