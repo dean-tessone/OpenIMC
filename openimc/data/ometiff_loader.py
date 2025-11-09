@@ -17,9 +17,18 @@ except Exception:
 class OMETIFFLoader:
     """Loader for OME-TIFF files in a directory, treating each file as an acquisition."""
 
-    def __init__(self):
+    def __init__(self, channel_format: str = 'CHW'):
+        """Initialize the OME-TIFF loader.
+        
+        Args:
+            channel_format: Format of channels in the image. Either 'CHW' (channels first) 
+                          or 'HWC' (channels last). Default is 'CHW' (matches export format).
+        """
         if not _HAVE_TIFFFILE:
             raise RuntimeError("tifffile is not installed. Run: pip install tifffile")
+        if channel_format not in ('CHW', 'HWC'):
+            raise ValueError(f"channel_format must be 'CHW' or 'HWC', got '{channel_format}'")
+        self.channel_format = channel_format
         self.folder_path: Optional[str] = None
         self._acq_map: Dict[str, str] = {}  # Maps acq_id to file path
         self._acq_channels: Dict[str, List[str]] = {}
@@ -275,7 +284,10 @@ class OMETIFFLoader:
         return img
 
     def get_all_channels(self, acq_id: str) -> np.ndarray:
-        """Get all channels for a specific acquisition as a 3D array (H, W, C)."""
+        """Get all channels for a specific acquisition as a 3D array (H, W, C).
+        
+        The output is always normalized to (H, W, C) format regardless of input format.
+        """
         if acq_id not in self._acq_map:
             raise ValueError(f"Acquisition '{acq_id}' not found.")
         
@@ -287,37 +299,37 @@ class OMETIFFLoader:
         except Exception as e:
             raise RuntimeError(f"Failed to read image from {tiff_path}: {e}")
         
-        # Normalize to (H, W, C) format
+        # Normalize to (H, W, C) format based on the specified channel_format
         if img.ndim == 2:
             # Single channel, add channel dimension
             img = img[..., np.newaxis]
         elif img.ndim == 3:
             # Could be (C, H, W) or (H, W, C)
-            # Assume (H, W, C) if last dim is smaller, otherwise transpose
-            if img.shape[0] < img.shape[2]:
-                # Likely (C, H, W), transpose to (H, W, C)
+            if self.channel_format == 'CHW':
+                # Input is (C, H, W), transpose to (H, W, C)
                 img = np.transpose(img, (1, 2, 0))
+            # else: already (H, W, C), no transpose needed
         elif img.ndim == 4:
             # Could be (T, C, H, W), (T, H, W, C), (Z, C, H, W), etc.
             # For time series, take first time point
             # For z-stack, take first z slice
             if img.shape[0] == 1:
                 img = img[0]
-                if img.ndim == 3 and img.shape[0] < img.shape[2]:
+                if img.ndim == 3 and self.channel_format == 'CHW':
                     img = np.transpose(img, (1, 2, 0))
             elif img.shape[1] == 1:
                 img = img[:, 0]
-                if img.ndim == 3 and img.shape[0] < img.shape[2]:
+                if img.ndim == 3 and self.channel_format == 'CHW':
                     img = np.transpose(img, (1, 2, 0))
             else:
-                # Take first slice and assume (C, H, W) or (H, W, C)
+                # Take first slice
                 img = img[0]
-                if img.ndim == 3 and img.shape[0] < img.shape[2]:
+                if img.ndim == 3 and self.channel_format == 'CHW':
                     img = np.transpose(img, (1, 2, 0))
         elif img.ndim == 5:
-            # (T, Z, C, H, W) or similar
+            # (T, Z, C, H, W) or (T, Z, H, W, C)
             img = img[0, 0]  # Take first time point and z slice
-            if img.ndim == 3 and img.shape[0] < img.shape[2]:
+            if img.ndim == 3 and self.channel_format == 'CHW':
                 img = np.transpose(img, (1, 2, 0))
         else:
             raise ValueError(f"Unsupported image dimensionality: {img.ndim}D")

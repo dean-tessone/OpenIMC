@@ -37,8 +37,13 @@ except ImportError:
     _HAVE_CELLSAM = False
 
 
-def load_data(input_path: str):
-    """Load data from MCD file or OME-TIFF directory."""
+def load_data(input_path: str, channel_format: str = 'CHW'):
+    """Load data from MCD file or OME-TIFF directory.
+    
+    Args:
+        input_path: Path to MCD file or OME-TIFF directory
+        channel_format: Format for OME-TIFF files ('CHW' or 'HWC'), default is 'CHW'
+    """
     input_path = Path(input_path)
     
     if input_path.is_file() and input_path.suffix.lower() in ['.mcd', '.mcdx']:
@@ -48,7 +53,7 @@ def load_data(input_path: str):
         return loader, 'mcd'
     elif input_path.is_dir():
         # Load OME-TIFF directory
-        loader = OMETIFFLoader()
+        loader = OMETIFFLoader(channel_format=channel_format)
         loader.open(str(input_path))
         return loader, 'ometiff'
     else:
@@ -79,7 +84,7 @@ def preprocess_command(args):
     Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
     """
     print(f"Loading data from: {args.input}")
-    loader, loader_type = load_data(args.input)
+    loader, loader_type = load_data(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
     try:
         acquisitions = loader.list_acquisitions()
@@ -122,8 +127,8 @@ def preprocess_command(args):
                 
                 processed_channels.append(processed)
             
-            # Stack channels
-            processed_stack = np.stack(processed_channels, axis=-1)
+            # Stack channels in CHW format (C, H, W) to match GUI export
+            processed_stack = np.stack(processed_channels, axis=0)
             
             # Save as OME-TIFF
             output_filename = f"{acq.name}.ome.tif"
@@ -133,7 +138,6 @@ def preprocess_command(args):
             
             # Create OME metadata
             metadata = {
-                'axes': 'YXS' if processed_stack.ndim == 3 else 'YX',
                 'Channel': {'Name': channels}
             }
             
@@ -142,7 +146,8 @@ def preprocess_command(args):
                 str(output_path),
                 processed_stack,
                 metadata=metadata,
-                ome=True
+                ome=True,
+                photometric='minisblack'
             )
         
         print(f"\n✓ Preprocessing complete! Output saved to: {output_dir}")
@@ -154,7 +159,7 @@ def preprocess_command(args):
 def segment_command(args):
     """Segment cells using DeepCell CellSAM, Cellpose, or watershed method."""
     print(f"Loading data from: {args.input}")
-    loader, loader_type = load_data(args.input)
+    loader, loader_type = load_data(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
     # Helper function to ensure 0-1 range (used by all segmentation methods)
     def ensure_0_1_range(img):
@@ -475,7 +480,7 @@ def segment_command(args):
 def extract_features_command(args):
     """Extract features from segmented cells."""
     print(f"Loading data from: {args.input}")
-    loader, loader_type = load_data(args.input)
+    loader, loader_type = load_data(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
     try:
         acquisitions = loader.list_acquisitions()
@@ -1179,12 +1184,14 @@ Examples:
     preprocess_parser.add_argument('--arcsinh', action='store_true', help='(Deprecated) Arcsinh normalization is not applied to exported images. Use during feature extraction instead.')
     preprocess_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='(Deprecated) Arcsinh cofactor (default: 10.0). Not used for export.')
     preprocess_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')
+    preprocess_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
     preprocess_parser.set_defaults(func=preprocess_command)
     
     # Segment command
     segment_parser = subparsers.add_parser('segment', help='Segment cells (DeepCell CellSAM, Cellpose, or watershed)')
     segment_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
     segment_parser.add_argument('output', help='Output directory for segmentation masks')
+    segment_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
     segment_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (uses first if not specified)')
     segment_parser.add_argument('--method', choices=['cellsam', 'cellpose', 'watershed'], default='cellsam', help='Segmentation method (default: cellsam)')
     segment_parser.add_argument('--nuclear-channels', type=str, required=True, help='Comma-separated list of nuclear channel names')
@@ -1216,6 +1223,7 @@ Examples:
     extract_parser = subparsers.add_parser('extract-features', help='Extract features from segmented cells')
     extract_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
     extract_parser.add_argument('output', help='Output CSV file path')
+    extract_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
     extract_parser.add_argument('--mask', type=str, required=True, help='Path to segmentation mask directory or single mask file (.tif, .tiff, or .npy). If directory, masks are matched to acquisitions by filename.')
     extract_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (uses first if not specified)')
     extract_parser.add_argument('--morphological', action='store_true', help='Extract morphological features')

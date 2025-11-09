@@ -398,7 +398,7 @@ def load_and_extract_features(
             img_stack = loader.get_all_channels(acq_id)
             loader.close()
         elif loader_type == "ometiff":
-            loader = OMETIFFLoader()
+            loader = OMETIFFLoader(channel_format='CHW')  # Default to CHW (matches export format)
             loader.open(file_path)
             img_stack = loader.get_all_channels(acq_id)
             # OMETIFFLoader doesn't need explicit close, but we can clear cache

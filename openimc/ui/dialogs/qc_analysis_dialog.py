@@ -54,7 +54,7 @@ def _qc_process_acquisition_worker(task_data):
                 loader = MCDLoader()
                 loader.open(loader_path)
             else:
-                loader = OMETIFFLoader()
+                loader = OMETIFFLoader(channel_format='CHW')  # Default to CHW (matches export format)
                 loader.open(loader_path)
         
         if not loader:

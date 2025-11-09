@@ -109,6 +109,9 @@ from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.qc_analysis_dialog import QCAnalysisDialog
 from openimc.ui.dialogs.spillover_matrix_dialog import GenerateSpilloverMatrixDialog
 from openimc.ui.dialogs.batch_correction_dialog import BatchCorrectionDialog
+from openimc.ui.dialogs.ometiff_format_dialog import OMETIFFFormatDialog
+from openimc.ui.dialogs.deconvolution_dialog import DeconvolutionDialog
+from openimc.processing.deconvolution_worker import deconvolve_acquisition
 from openimc.utils.logger import get_logger
 
 
@@ -161,7 +164,7 @@ def _load_and_preprocess_acquisition_worker(task_data):
     This function is isolated at module level to be picklable for multiprocessing.
     """
     (original_acq_id, unique_acq_id, acq_name, file_path, loader_type, preprocessing_config, 
-     denoise_source, custom_denoise_settings, source_file) = task_data
+     denoise_source, custom_denoise_settings, source_file, channel_format) = task_data
     
     try:
         # Import inside function to ensure isolation
@@ -176,7 +179,7 @@ def _load_and_preprocess_acquisition_worker(task_data):
             loader = MCDLoader()
             loader.open(file_path)
         elif loader_type == "ometiff":
-            loader = OMETIFFLoader()
+            loader = OMETIFFLoader(channel_format=channel_format or 'CHW')
             loader.open(file_path)
         
         if not loader:
@@ -416,6 +419,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # State
         self.loader: Optional[Union[MCDLoader, OMETIFFLoader]] = None
         self.current_path: Optional[str] = None
+        self.ometiff_channel_format: str = 'CHW'  # Store channel format for OME-TIFF files
         # Multi-file support: track multiple MCD files and their loaders
         self.mcd_loaders: Dict[str, MCDLoader] = {}  # Maps file path to MCDLoader
         self.acq_to_file: Dict[str, str] = {}  # Maps acquisition ID to source file path
@@ -430,6 +434,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Store last selected channels for auto-selection
         self.last_selected_channels: List[str] = []
+        # Store channel list from previous acquisition to detect mismatches
+        self.previous_acq_channels: List[str] = []
         
         # Simple zoom preservation for specific operations
         self.saved_zoom_limits = None
@@ -939,6 +945,8 @@ class MainWindow(QtWidgets.QMainWindow):
         act_spatial.triggered.connect(self._open_spatial_dialog)
         act_qc = analysis_menu.addAction("QC Analysis…")
         act_qc.triggered.connect(self._open_qc_dialog)
+        act_deconvolution = analysis_menu.addAction("High Resolution Deconvolution…")
+        act_deconvolution.triggered.connect(self._open_deconvolution_dialog)
 
         # Signals
         self.open_btn.clicked.connect(self._open_dialog)
@@ -1180,6 +1188,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mcd_loaders.clear()
         self.acq_to_file.clear()
         self.unique_acq_to_original.clear()
+        
+        # Reset channel tracking when loading a new file
+        self.previous_acq_channels = []
+        self.last_selected_channels = []
     
     def _get_loader_for_acquisition(self, acq_id: str) -> Optional[Union[MCDLoader, OMETIFFLoader]]:
         """Get the appropriate loader for a given acquisition ID."""
@@ -1235,8 +1247,16 @@ class MainWindow(QtWidgets.QMainWindow):
             loader_type = "MCD"
         else:
             # Load OME-TIFF directory
+            # Ask user about channel format
+            format_dialog = OMETIFFFormatDialog(self)
+            if format_dialog.exec_() != QtWidgets.QDialog.Accepted:
+                # User cancelled, don't load
+                return
+            channel_format = format_dialog.get_format()
+            self.ometiff_channel_format = channel_format  # Store for use in worker functions
+            
             try:
-                self.loader = OMETIFFLoader()
+                self.loader = OMETIFFLoader(channel_format=channel_format)
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Dependency error", str(e))
                 return
@@ -1324,13 +1344,29 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Channels error", str(e))
             return
         
+        # Check if channels match the previous acquisition
+        # If channels differ, reset the selection
+        channels_match = False
+        if self.previous_acq_channels:
+            # Compare channel lists (order-independent comparison)
+            if set(chans) == set(self.previous_acq_channels):
+                channels_match = True
+            else:
+                # Channels don't match, reset selection
+                self.last_selected_channels = []
+        
+        # Update the previous acquisition's channel list for next comparison
+        self.previous_acq_channels = chans.copy()
+        
         # Pre-select channels that were selected in the previous acquisition
+        # (only if channels match, otherwise last_selected_channels is empty)
         selected_channels = []
         for ch in chans:
             item = QtWidgets.QListWidgetItem(ch)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
             
             # Check if this channel was selected in the previous acquisition
+            # (only preserved if channels matched)
             if ch in self.last_selected_channels:
                 item.setCheckState(Qt.Checked)
                 selected_channels.append(ch)
@@ -5236,6 +5272,8 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Get original acquisition ID if this is a unique ID
             original_acq_id = self._get_original_acq_id(acq.id)
+            # Get channel format for OME-TIFF files
+            channel_format = self.ometiff_channel_format if loader_type == "ometiff" else None
             mp_args.append((
                 original_acq_id,  # Use original ID for loader
                 acq.id,  # Pass unique ID for tracking
@@ -5245,7 +5283,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 preprocessing_config,
                 denoise_source_worker,
                 custom_denoise_settings,
-                source_file
+                source_file,
+                channel_format
             ))
         
         if not mp_args:
@@ -6454,6 +6493,297 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         dlg = QCAnalysisDialog(self)
         dlg.exec_()
+    
+    def _open_deconvolution_dialog(self):
+        """Open the high resolution deconvolution dialog."""
+        if self.loader is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Data Loaded",
+                "Please load an MCD file first before running deconvolution."
+            )
+            return
+        
+        # Check if we have an MCD loader
+        if not isinstance(self.loader, MCDLoader):
+            # Check if any of the loaders are MCD
+            has_mcd = False
+            if hasattr(self, 'mcd_loaders') and self.mcd_loaders:
+                has_mcd = True
+            elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
+                has_mcd = True
+            
+            if not has_mcd:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "MCD File Required",
+                    "Deconvolution requires an MCD file. Please load an MCD file first."
+                )
+                return
+        
+        if not self.acquisitions:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Acquisitions",
+                "No acquisitions found. Please load an MCD file with acquisitions."
+            )
+            return
+        
+        # Open deconvolution dialog
+        dlg = DeconvolutionDialog(self.acquisitions, self.current_acq_id, self)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        
+        acq_type = dlg.get_acq_type()
+        output_dir = dlg.get_output_directory()
+        x0 = dlg.get_x0()
+        iterations = dlg.get_iterations()
+        output_format = dlg.get_output_format()
+        
+        # Create and show progress dialog
+        progress_dlg = ProgressDialog("High Resolution Deconvolution", self)
+        progress_dlg.show()
+        
+        try:
+            if acq_type == "single":
+                success = self._deconvolve_single_acquisition(
+                    output_dir, progress_dlg, x0, iterations, output_format
+                )
+            else:
+                success = self._deconvolve_whole_slide(
+                    output_dir, progress_dlg, x0, iterations, output_format
+                )
+            
+            progress_dlg.close()
+            
+            if success and not progress_dlg.is_cancelled():
+                # Ask user if they want to switch to the deconvolved images
+                reply = QtWidgets.QMessageBox.question(
+                    self,
+                    "Deconvolution Complete",
+                    f"Successfully deconvolved images saved to:\n{output_dir}\n\n"
+                    "Would you like to load the deconvolved images now?",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.Yes
+                )
+                
+                if reply == QtWidgets.QMessageBox.Yes:
+                    # Switch to the deconvolved OME-TIFF folder
+                    self._load_deconvolved_images(output_dir)
+            elif progress_dlg.is_cancelled():
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Deconvolution Cancelled",
+                    "Deconvolution was cancelled by user."
+                )
+        except Exception as e:
+            progress_dlg.close()
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Deconvolution Failed",
+                f"Deconvolution failed with error:\n{str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
+    
+    def _deconvolve_single_acquisition(self, output_dir: str, progress_dlg: ProgressDialog,
+                                       x0: float, iterations: int, output_format: str) -> bool:
+        """Deconvolve the currently selected acquisition."""
+        if not self.current_acq_id:
+            raise ValueError("No acquisition selected")
+        
+        acq_info = self._get_acquisition_info(self.current_acq_id)
+        if acq_info is None:
+            raise ValueError(f"Acquisition {self.current_acq_id} not found")
+        
+        # Get the MCD file path
+        mcd_path = None
+        if acq_info.source_file:
+            mcd_path = acq_info.source_file
+        elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
+            mcd_path = self.current_path
+        else:
+            # Try to find the MCD file from the loader
+            loader = self._get_loader_for_acquisition(self.current_acq_id)
+            if isinstance(loader, MCDLoader) and hasattr(loader, 'mcd') and loader.mcd:
+                # Try to get path from the MCD file object
+                if hasattr(loader.mcd, 'path'):
+                    mcd_path = loader.mcd.path
+                elif hasattr(loader.mcd, 'filename'):
+                    mcd_path = loader.mcd.filename
+        
+        if not mcd_path or not os.path.isfile(mcd_path):
+            raise ValueError(f"Could not determine MCD file path for acquisition {self.current_acq_id}")
+        
+        # Get original acquisition ID
+        original_acq_id = self._get_original_acq_id(self.current_acq_id)
+        
+        # Get channel names
+        loader = self._get_loader_for_acquisition(self.current_acq_id)
+        if loader is None:
+            raise ValueError(f"No loader found for acquisition {self.current_acq_id}")
+        channel_names = loader.get_channels(original_acq_id)
+        
+        progress_dlg.set_maximum(100)
+        progress_dlg.update_progress(0, f"Deconvolving {acq_info.name}", "Starting deconvolution...")
+        
+        try:
+            # Deconvolve the acquisition
+            progress_dlg.update_progress(10, f"Deconvolving {acq_info.name}", "Loading image data...")
+            
+            output_path = deconvolve_acquisition(
+                mcd_path=mcd_path,
+                acq_id=original_acq_id,
+                output_dir=output_dir,
+                x0=x0,
+                iterations=iterations,
+                output_format=output_format,
+                channel_names=channel_names
+            )
+            
+            progress_dlg.update_progress(100, "Complete", f"Saved to {os.path.basename(output_path)}")
+            return True
+            
+        except Exception as e:
+            error_msg = f"Failed: {str(e)}"
+            progress_dlg.update_progress(0, "Error", error_msg)
+            import traceback
+            print(f"Deconvolution error: {traceback.format_exc()}")
+            raise
+    
+    def _deconvolve_whole_slide(self, output_dir: str, progress_dlg: ProgressDialog,
+                                x0: float, iterations: int, output_format: str) -> bool:
+        """Deconvolve all acquisitions."""
+        if not self.acquisitions:
+            raise ValueError("No acquisitions found")
+        
+        # Group acquisitions by source file
+        acq_by_file = {}
+        for acq in self.acquisitions:
+            mcd_path = None
+            if acq.source_file:
+                mcd_path = acq.source_file
+            elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
+                mcd_path = self.current_path
+            
+            if mcd_path:
+                if mcd_path not in acq_by_file:
+                    acq_by_file[mcd_path] = []
+                acq_by_file[mcd_path].append(acq)
+        
+        if not acq_by_file:
+            raise ValueError("Could not determine MCD file paths for acquisitions")
+        
+        total_acqs = len(self.acquisitions)
+        progress_dlg.set_maximum(total_acqs * 100)
+        
+        processed = 0
+        for mcd_path, acqs in acq_by_file.items():
+            for acq in acqs:
+                if progress_dlg.is_cancelled():
+                    return False
+                
+                progress_dlg.update_progress(
+                    processed * 100,
+                    f"Deconvolving {acq.name}",
+                    f"Processing acquisition {processed + 1} of {total_acqs}"
+                )
+                
+                try:
+                    # Get channel names
+                    loader = self._get_loader_for_acquisition(acq.id)
+                    if loader:
+                        channel_names = loader.get_channels(acq.id)
+                    else:
+                        channel_names = acq.channels
+                    
+                    # Deconvolve the acquisition
+                    deconvolve_acquisition(
+                        mcd_path=mcd_path,
+                        acq_id=acq.id,
+                        output_dir=output_dir,
+                        x0=x0,
+                        iterations=iterations,
+                        output_format=output_format,
+                        channel_names=channel_names
+                    )
+                    
+                    processed += 1
+                    progress_dlg.update_progress(
+                        processed * 100,
+                        f"Deconvolved {acq.name}",
+                        f"Completed {processed} of {total_acqs} acquisitions"
+                    )
+                except Exception as e:
+                    progress_dlg.update_progress(
+                        processed * 100,
+                        f"Error processing {acq.name}",
+                        f"Error: {str(e)}"
+                    )
+                    # Continue with next acquisition
+                    processed += 1
+        
+        progress_dlg.update_progress(
+            total_acqs * 100,
+            "Complete",
+            f"Successfully deconvolved {processed} acquisition(s)"
+        )
+        return True
+    
+    def _load_deconvolved_images(self, output_dir: str):
+        """Load the deconvolved OME-TIFF images and switch the loader."""
+        try:
+            # Close existing loaders
+            self._close_all_loaders()
+            
+            # Ask user about channel format (default to CHW for exported images)
+            format_dialog = OMETIFFFormatDialog(self)
+            format_dialog.set_format('CHW')  # Set default to CHW
+            if format_dialog.exec_() != QtWidgets.QDialog.Accepted:
+                return
+            
+            channel_format = format_dialog.get_format()
+            self.ometiff_channel_format = channel_format
+            
+            # Create OME-TIFF loader
+            self.loader = OMETIFFLoader(channel_format=channel_format)
+            self.loader.open(output_dir)
+            
+            # Update current path
+            self.current_path = output_dir
+            
+            # Get acquisitions
+            self.acquisitions = self.loader.list_acquisitions(source_file=output_dir)
+            self.acq_combo.clear()
+            for ai in self.acquisitions:
+                label = ai.name + (f" ({ai.well})" if ai.well else "")
+                self.acq_combo.addItem(label, ai.id)
+            
+            # Update window title
+            dirname = os.path.basename(output_dir) or output_dir
+            self.setWindowTitle(f"IMC File Viewer - {dirname} (Deconvolved OME-TIFF)")
+            
+            # Select first acquisition if available
+            if self.acquisitions:
+                self.acq_combo.setCurrentIndex(0)
+                self.current_acq_id = self.acquisitions[0].id
+                self._on_acq_changed(0)  # Pass the index parameter
+            
+            QtWidgets.QMessageBox.information(
+                self,
+                "Images Loaded",
+                f"Successfully loaded deconvolved images from:\n{output_dir}\n\n"
+                "All downstream viewing, segmentation, feature extraction, and analysis "
+                "will now use the deconvolved images."
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Load Failed",
+                f"Failed to load deconvolved images:\n{str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
     
     def _open_spillover_matrix_dialog(self):
         """Open the generate spillover matrix dialog."""

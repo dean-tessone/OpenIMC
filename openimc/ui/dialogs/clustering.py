@@ -4,6 +4,7 @@ import pandas as pd
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from PyQt5 import QtWidgets
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -376,6 +377,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Color-by control (UMAP/t-SNE only) - multi-select for faceted plotting
         self.color_by_label = QtWidgets.QLabel("Color by (select multiple for faceted plots):")
         viz_layout.addWidget(self.color_by_label)
+        # Search/filter box for color-by options
+        self.color_by_search = QtWidgets.QLineEdit()
+        self.color_by_search.setPlaceholderText("Search/filter options...")
+        self.color_by_search.textChanged.connect(self._filter_color_by_options)
+        viz_layout.addWidget(self.color_by_search)
         self.color_by_listwidget = QtWidgets.QListWidget()
         self.color_by_listwidget.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
         self.color_by_listwidget.setMaximumHeight(100)
@@ -2148,7 +2154,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                 c=[cluster_color_map[cluster_id]],
                                 alpha=point_alpha, s=point_size, edgecolors='none')
-                handles.append(sc)
+                # Create custom legend handle with fixed size (18)
+                color = cluster_color_map[cluster_id]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                               markeredgecolor='none', markersize=6, alpha=point_alpha)
+                handles.append(handle)
                 labels.append(self._get_cluster_display_name(cluster_id))
             # Use multiple columns if there are more than 10 clusters
             n_clusters = len(handles)
@@ -2172,8 +2188,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     if np.any(mask):  # Only add if there are points for this file
                         sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                         c=[file_color_map[file_name]],
-                                        alpha=point_alpha, s=point_size, edgecolors='none', label=self._get_patient_display_name(file_name))
-                        handles.append(sc)
+                                        alpha=point_alpha, s=point_size, edgecolors='none')
+                        # Create custom legend handle with fixed size
+                        color = file_color_map[file_name]
+                        if len(color) == 4:
+                            rgb = tuple(color[:3])
+                        elif len(color) == 3:
+                            rgb = tuple(color)
+                        else:
+                            rgb = (color[0], color[1], color[2])
+                        handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                                       markeredgecolor='none', markersize=6, alpha=point_alpha)
+                        handles.append(handle)
                         # Use custom patient label if available
                         labels.append(self._get_patient_display_name(file_name))
                 # Place legend inside axes to avoid clipping - ensure it's visible
@@ -2200,7 +2226,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                 c=[phenotype_color_map[phenotype]],
                                 alpha=point_alpha, s=point_size, edgecolors='none')
-                handles.append(sc)
+                # Create custom legend handle with fixed size
+                color = phenotype_color_map[phenotype]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                               markeredgecolor='none', markersize=6, alpha=point_alpha)
+                handles.append(handle)
                 labels.append(str(phenotype))
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Phenotype')
         elif color_by == 'Manual Phenotype' and 'manual_phenotype' in self.feature_dataframe.columns:
@@ -2220,7 +2256,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 sc = ax.scatter(self.tsne_embedding[mask, 0], self.tsne_embedding[mask, 1],
                                 c=[phenotype_color_map[phenotype]],
                                 alpha=point_alpha, s=point_size, edgecolors='none')
-                handles.append(sc)
+                # Create custom legend handle with fixed size
+                color = phenotype_color_map[phenotype]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                               markeredgecolor='none', markersize=6, alpha=point_alpha)
+                handles.append(handle)
                 labels.append(str(phenotype))
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Manual Phenotype')
         elif hasattr(self, 'tsne_raw_data') and color_by in getattr(self, 'tsne_selected_columns', []):
@@ -2259,8 +2305,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if not selected_items:
             selected_items = ['Cluster']
         
-        # Limit to max 6 plots (3 cols x 2 rows)
-        selected_items = selected_items[:6]
+        # Limit to max 3 plots (3 columns in single row)
+        selected_items = selected_items[:3]
         
         # Get point size and alpha from controls
         point_size = self.point_size_spinbox.value() if hasattr(self, 'point_size_spinbox') else 18
@@ -2274,14 +2320,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self._plot_tsne_single(ax, selected_items[0], point_size, point_alpha)
             self.figure.tight_layout(pad=1.0)
         else:
-            # Multiple plots - create subplots
-            # Calculate grid: max 3 columns, max 2 rows
-            n_cols = min(3, n_plots)
-            n_rows = min(2, (n_plots + n_cols - 1) // n_cols)  # Ceiling division
+            # Multiple plots - create subplots in a single row with max 3 columns
+            n_cols = n_plots
+            n_rows = 1
             
             for idx, color_by in enumerate(selected_items):
-                row = idx // n_cols
-                col = idx % n_cols
                 ax = self.figure.add_subplot(n_rows, n_cols, idx + 1)
                 self._plot_tsne_single(ax, color_by, point_size, point_alpha)
             
@@ -2337,6 +2380,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             pass
         if hasattr(self, 'color_by_label'):
             self.color_by_label.setVisible(view in ['UMAP', 't-SNE'])
+        if hasattr(self, 'color_by_search'):
+            self.color_by_search.setVisible(view in ['UMAP', 't-SNE'])
         if hasattr(self, 'color_by_listwidget'):
             self.color_by_listwidget.setVisible(view in ['UMAP', 't-SNE'])
         self.color_by_combo.setVisible(False)  # Keep hidden for backward compatibility
@@ -2568,7 +2613,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
                                 c=[cluster_color_map[cluster_id]],
                                 alpha=point_alpha, s=point_size, edgecolors='none')
-                handles.append(sc)
+                # Create custom legend handle with fixed size (18)
+                color = cluster_color_map[cluster_id]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                               markeredgecolor='none', markersize=6, alpha=point_alpha)
+                handles.append(handle)
                 labels.append(self._get_cluster_display_name(cluster_id))
             # Place legend inside axes to avoid clipping
             # Use multiple columns if there are more than 10 clusters
@@ -2593,8 +2648,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     if np.any(mask):  # Only add if there are points for this file
                         sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
                                         c=[file_color_map[file_name]],
-                                        alpha=point_alpha, s=point_size, edgecolors='none', label=self._get_patient_display_name(file_name))
-                        handles.append(sc)
+                                        alpha=point_alpha, s=point_size, edgecolors='none')
+                        # Create custom legend handle with fixed size
+                        color = file_color_map[file_name]
+                        if len(color) == 4:
+                            rgb = tuple(color[:3])
+                        elif len(color) == 3:
+                            rgb = tuple(color)
+                        else:
+                            rgb = (color[0], color[1], color[2])
+                        handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                                       markeredgecolor='none', markersize=6, alpha=point_alpha)
+                        handles.append(handle)
                         # Use custom patient label if available
                         labels.append(self._get_patient_display_name(file_name))
                 # Place legend inside axes to avoid clipping - ensure it's visible
@@ -2621,7 +2686,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
                                 c=[phenotype_color_map[phenotype]],
                                 alpha=point_alpha, s=point_size, edgecolors='none')
-                handles.append(sc)
+                # Create custom legend handle with fixed size
+                color = phenotype_color_map[phenotype]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                               markeredgecolor='none', markersize=6, alpha=point_alpha)
+                handles.append(handle)
                 labels.append(str(phenotype))
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Phenotype')
         elif color_by == 'Manual Phenotype' and 'manual_phenotype' in self.feature_dataframe.columns:
@@ -2641,7 +2716,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 sc = ax.scatter(self.umap_embedding[mask, 0], self.umap_embedding[mask, 1],
                                 c=[phenotype_color_map[phenotype]],
                                 alpha=point_alpha, s=point_size, edgecolors='none')
-                handles.append(sc)
+                # Create custom legend handle with fixed size
+                color = phenotype_color_map[phenotype]
+                if len(color) == 4:
+                    rgb = tuple(color[:3])
+                elif len(color) == 3:
+                    rgb = tuple(color)
+                else:
+                    rgb = (color[0], color[1], color[2])
+                handle = Line2D([0], [0], marker='o', color='none', markerfacecolor=rgb,
+                               markeredgecolor='none', markersize=6, alpha=point_alpha)
+                handles.append(handle)
                 labels.append(str(phenotype))
             ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Manual Phenotype')
         elif hasattr(self, 'umap_raw_data') and color_by in getattr(self, 'umap_selected_columns', []):
@@ -2680,8 +2765,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if not selected_items:
             selected_items = ['Cluster']
         
-        # Limit to max 6 plots (3 cols x 2 rows)
-        selected_items = selected_items[:6]
+        # Limit to max 3 plots (3 columns in single row)
+        selected_items = selected_items[:3]
         
         # Get point size and alpha from controls
         point_size = self.point_size_spinbox.value() if hasattr(self, 'point_size_spinbox') else 18
@@ -2695,14 +2780,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self._plot_umap_single(ax, selected_items[0], point_size, point_alpha)
             self.figure.tight_layout(pad=1.0)
         else:
-            # Multiple plots - create subplots
-            # Calculate grid: max 3 columns, max 2 rows
-            n_cols = min(3, n_plots)
-            n_rows = min(2, (n_plots + n_cols - 1) // n_cols)  # Ceiling division
+            # Multiple plots - create subplots in a single row with max 3 columns
+            n_cols = n_plots
+            n_rows = 1
             
             for idx, color_by in enumerate(selected_items):
-                row = idx // n_cols
-                col = idx % n_cols
                 ax = self.figure.add_subplot(n_rows, n_cols, idx + 1)
                 self._plot_umap_single(ax, color_by, point_size, point_alpha)
             
@@ -2760,6 +2842,18 @@ class CellClusteringDialog(QtWidgets.QDialog):
         
         self.color_by_listwidget.blockSignals(False)
 
+    def _filter_color_by_options(self, search_text: str):
+        """Filter the color-by list widget items based on search text."""
+        if not hasattr(self, 'color_by_listwidget'):
+            return
+        
+        search_text = search_text.lower()
+        for i in range(self.color_by_listwidget.count()):
+            item = self.color_by_listwidget.item(i)
+            item_text = item.text().lower()
+            # Show item if search text is empty or matches item text
+            item.setHidden(search_text and search_text not in item_text)
+    
     def _on_color_by_changed(self, _text: str = None):
         view = self.view_combo.currentText() if hasattr(self, 'view_combo') else ''
         if view == 'UMAP' and getattr(self, 'umap_embedding', None) is not None:
