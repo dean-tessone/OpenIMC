@@ -1095,6 +1095,10 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.setWindowTitle(f"IMC File Viewer - {len(paths)} MCD files")
         
+        # Clear canvas completely before loading new files to ensure proper redraw
+        self.canvas.fig.clear()
+        self.canvas.draw()
+        
         # Update acquisition combo box with file names
         self.acq_combo.clear()
         for ai in self.acquisitions:
@@ -1282,6 +1286,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # Fallback to default title if something goes wrong
             self.setWindowTitle(f"IMC File Viewer ({loader_type})")
         
+        # Clear canvas completely before loading new file to ensure proper redraw
+        self.canvas.fig.clear()
+        self.canvas.draw()
+        
         # Get acquisitions with source file info
         self.acquisitions = self.loader.list_acquisitions(source_file=path if is_file else None)
         self.acq_combo.clear()
@@ -1311,6 +1319,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_acq_changed(self, idx: int):
         acq_id = self.acq_combo.itemData(idx)
         if acq_id:
+            # Clear canvas completely before switching to ensure proper redraw
+            self.canvas.fig.clear()
+            self.canvas.draw()
+            
             # Store current scaling state before changing acquisition
             preserve_scaling = self.custom_scaling_chk.isChecked()
             current_scaling_method = self.current_scaling_method
