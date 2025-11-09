@@ -111,6 +111,7 @@ from openimc.ui.dialogs.spillover_matrix_dialog import GenerateSpilloverMatrixDi
 from openimc.ui.dialogs.batch_correction_dialog import BatchCorrectionDialog
 from openimc.ui.dialogs.ometiff_format_dialog import OMETIFFFormatDialog
 from openimc.ui.dialogs.deconvolution_dialog import DeconvolutionDialog
+from openimc.ui.dialogs.pixel_correlation_dialog import PixelCorrelationDialog
 from openimc.processing.deconvolution_worker import deconvolve_acquisition
 from openimc.utils.logger import get_logger
 
@@ -945,6 +946,8 @@ class MainWindow(QtWidgets.QMainWindow):
         act_spatial.triggered.connect(self._open_spatial_dialog)
         act_qc = analysis_menu.addAction("QC Analysis…")
         act_qc.triggered.connect(self._open_qc_dialog)
+        act_pixel_correlation = analysis_menu.addAction("Pixel-Level Correlation…")
+        act_pixel_correlation.triggered.connect(self._open_pixel_correlation_dialog)
         act_deconvolution = analysis_menu.addAction("High Resolution Deconvolution…")
         act_deconvolution.triggered.connect(self._open_deconvolution_dialog)
 
@@ -3524,7 +3527,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             
             # Load raw image
-            img = loader.get_image(self.current_acq_id, channel)
+            img = loader.get_image(original_acq_id, channel)
             raw_channel_data.append(img)
             channel_names.append(channel)
         
@@ -3603,13 +3606,20 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         stack = np.stack(channel_data, axis=0)
         
-        # Create filename from acquisition name
-        safe_name = self._sanitize_filename(acq_info.name)
-        if acq_info.well:
-            safe_well = self._sanitize_filename(acq_info.well)
-            filename = f"{safe_name}_{safe_well}.ome.tiff"
+        # Create filename from source_file and acquisition ID
+        # Get original acquisition ID (not the unique ID with __file_ prefix)
+        original_acq_id_for_filename = self._get_original_acq_id(self.current_acq_id)
+        
+        # Extract source file basename (without extension)
+        if acq_info.source_file:
+            source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
+            safe_source = self._sanitize_filename(source_basename)
+            safe_acq_id = self._sanitize_filename(original_acq_id_for_filename)
+            filename = f"{safe_source}_{safe_acq_id}.tif"
         else:
-            filename = f"{safe_name}.ome.tiff"
+            # Fallback if no source_file available
+            safe_acq_id = self._sanitize_filename(original_acq_id_for_filename)
+            filename = f"{safe_acq_id}.tif"
         
         output_path = os.path.join(output_dir, filename)
         
@@ -3703,7 +3713,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if loader is None:
                 print(f"Warning: No loader found for acquisition {acq_info.name}")
                 continue
-            all_channels = loader.get_channels(acq_info.id)
+            # Get original acquisition ID if this is a unique ID
+            original_acq_id = self._get_original_acq_id(acq_info.id)
+            all_channels = loader.get_channels(original_acq_id)
             if not all_channels:
                 print(f"Warning: No channels found for acquisition {acq_info.name}")
                 continue
@@ -3717,7 +3729,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     return False
                     
                 # Load raw image
-                img = loader.get_image(acq_info.id, channel)
+                img = loader.get_image(original_acq_id, channel)
                 raw_channel_data.append(img)
                 channel_names.append(channel)
             
@@ -3784,13 +3796,20 @@ class MainWindow(QtWidgets.QMainWindow):
             # Stack channels (C, H, W) for OME-TIFF
             stack = np.stack(channel_data, axis=0)
             
-            # Create filename from acquisition name
-            safe_name = self._sanitize_filename(acq_info.name)
-            if acq_info.well:
-                safe_well = self._sanitize_filename(acq_info.well)
-                filename = f"{safe_name}_{safe_well}.ome.tiff"
+            # Create filename from source_file and acquisition ID
+            # Get original acquisition ID (not the unique ID with __file_ prefix)
+            original_acq_id_for_filename = self._get_original_acq_id(acq_info.id)
+            
+            # Extract source file basename (without extension)
+            if acq_info.source_file:
+                source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
+                safe_source = self._sanitize_filename(source_basename)
+                safe_acq_id = self._sanitize_filename(original_acq_id_for_filename)
+                filename = f"{safe_source}_{safe_acq_id}.ome.tiff"
             else:
-                filename = f"{safe_name}.ome.tiff"
+                # Fallback if no source_file available
+                safe_acq_id = self._sanitize_filename(original_acq_id_for_filename)
+                filename = f"{safe_acq_id}.ome.tiff"
             
             output_path = os.path.join(output_dir, filename)
             
@@ -6506,38 +6525,52 @@ class MainWindow(QtWidgets.QMainWindow):
         dlg = QCAnalysisDialog(self)
         dlg.exec_()
     
-    def _open_deconvolution_dialog(self):
-        """Open the high resolution deconvolution dialog."""
-        if self.loader is None:
+    def _open_pixel_correlation_dialog(self):
+        """Open the pixel-level correlation analysis dialog."""
+        # Check if data is loaded (either single file loader or multiple MCD files)
+        has_data = (self.loader is not None) or (len(self.mcd_loaders) > 0) or (len(self.acquisitions) > 0)
+        
+        if not has_data:
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Data Loaded",
-                "Please load an MCD file first before running deconvolution."
+                "Please load data first before running pixel-level correlation analysis."
             )
             return
+        dlg = PixelCorrelationDialog(self)
+        dlg.exec_()
+    
+    def _open_deconvolution_dialog(self):
+        """Open the high resolution deconvolution dialog."""
+        # Check if we have data loaded (MCD or OME-TIFF)
+        has_data = False
         
-        # Check if we have an MCD loader
-        if not isinstance(self.loader, MCDLoader):
-            # Check if any of the loaders are MCD
-            has_mcd = False
-            if hasattr(self, 'mcd_loaders') and self.mcd_loaders:
-                has_mcd = True
-            elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
-                has_mcd = True
-            
-            if not has_mcd:
-                QtWidgets.QMessageBox.warning(
-                    self,
-                    "MCD File Required",
-                    "Deconvolution requires an MCD file. Please load an MCD file first."
-                )
-                return
+        # Check for single loader (MCD or OME-TIFF)
+        if isinstance(self.loader, (MCDLoader, OMETIFFLoader)):
+            has_data = True
+        # Check for multiple MCD files
+        elif hasattr(self, 'mcd_loaders') and self.mcd_loaders:
+            has_data = True
+        # Check if current path is an MCD file or directory
+        elif self.current_path:
+            if os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
+                has_data = True
+            elif os.path.isdir(self.current_path):
+                has_data = True
+        
+        if not has_data:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Data Loaded",
+                "Deconvolution requires MCD files or OME-TIFF directories. Please load data first."
+            )
+            return
         
         if not self.acquisitions:
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Acquisitions",
-                "No acquisitions found. Please load an MCD file with acquisitions."
+                "No acquisitions found. Please load data with acquisitions."
             )
             return
         
@@ -6608,33 +6641,77 @@ class MainWindow(QtWidgets.QMainWindow):
         if acq_info is None:
             raise ValueError(f"Acquisition {self.current_acq_id} not found")
         
-        # Get the MCD file path
-        mcd_path = None
-        if acq_info.source_file:
-            mcd_path = acq_info.source_file
-        elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
-            mcd_path = self.current_path
-        else:
-            # Try to find the MCD file from the loader
-            loader = self._get_loader_for_acquisition(self.current_acq_id)
-            if isinstance(loader, MCDLoader) and hasattr(loader, 'mcd') and loader.mcd:
-                # Try to get path from the MCD file object
-                if hasattr(loader.mcd, 'path'):
-                    mcd_path = loader.mcd.path
-                elif hasattr(loader.mcd, 'filename'):
-                    mcd_path = loader.mcd.filename
-        
-        if not mcd_path or not os.path.isfile(mcd_path):
-            raise ValueError(f"Could not determine MCD file path for acquisition {self.current_acq_id}")
-        
-        # Get original acquisition ID
-        original_acq_id = self._get_original_acq_id(self.current_acq_id)
-        
-        # Get channel names
+        # Get the loader and determine type
         loader = self._get_loader_for_acquisition(self.current_acq_id)
         if loader is None:
             raise ValueError(f"No loader found for acquisition {self.current_acq_id}")
+        
+        # Get original acquisition ID (for multiple files, this maps unique ID to original)
+        original_acq_id = self._get_original_acq_id(self.current_acq_id)
+        
+        # Get channel names
         channel_names = loader.get_channels(original_acq_id)
+        
+        # Determine data path and loader type
+        data_path = None
+        loader_type = None
+        source_file_path = None
+        
+        if isinstance(loader, MCDLoader):
+            loader_type = "mcd"
+            # Get the MCD file path - check acq_to_file mapping first (for multiple files)
+            if self.current_acq_id in self.acq_to_file:
+                data_path = self.acq_to_file[self.current_acq_id]
+            elif acq_info.source_file:
+                data_path = acq_info.source_file
+            elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
+                data_path = self.current_path
+            else:
+                # Try to get path from the MCD file object
+                if hasattr(loader, 'mcd') and loader.mcd:
+                    if hasattr(loader.mcd, 'path'):
+                        data_path = loader.mcd.path
+                    elif hasattr(loader.mcd, 'filename'):
+                        data_path = loader.mcd.filename
+            
+            if not data_path or not os.path.isfile(data_path):
+                raise ValueError(f"Could not determine MCD file path for acquisition {self.current_acq_id}")
+            source_file_path = data_path
+            
+        elif isinstance(loader, OMETIFFLoader):
+            loader_type = "ometiff"
+            # For OME-TIFF, get the file path from the loader's _acq_map
+            if hasattr(loader, '_acq_map') and original_acq_id in loader._acq_map:
+                data_path = loader._acq_map[original_acq_id]
+            elif acq_info.source_file:
+                data_path = acq_info.source_file
+            elif self.current_path and os.path.isdir(self.current_path):
+                # Try to find the file in the directory
+                import glob
+                tiff_files = glob.glob(os.path.join(self.current_path, "*.ome.tif"))
+                tiff_files.extend(glob.glob(os.path.join(self.current_path, "*.ome.tiff")))
+                tiff_files.extend(glob.glob(os.path.join(self.current_path, "*.tif")))
+                tiff_files.extend(glob.glob(os.path.join(self.current_path, "*.tiff")))
+                # Try to match by acquisition name or ID
+                for tiff_file in tiff_files:
+                    if acq_info.name in os.path.basename(tiff_file):
+                        data_path = tiff_file
+                        break
+                if not data_path and tiff_files:
+                    # Fallback to first file if we can't match
+                    data_path = tiff_files[0]
+            
+            if not data_path or not os.path.isfile(data_path):
+                raise ValueError(f"Could not determine OME-TIFF file path for acquisition {self.current_acq_id}")
+            
+            # For OME-TIFF, source_file_path is the directory containing the files
+            if self.current_path and os.path.isdir(self.current_path):
+                source_file_path = self.current_path
+            else:
+                source_file_path = os.path.dirname(data_path)
+        
+        if not data_path or loader_type is None:
+            raise ValueError(f"Could not determine data path or loader type for acquisition {self.current_acq_id}")
         
         progress_dlg.set_maximum(100)
         progress_dlg.update_progress(0, f"Deconvolving {acq_info.name}", "Starting deconvolution...")
@@ -6644,13 +6721,17 @@ class MainWindow(QtWidgets.QMainWindow):
             progress_dlg.update_progress(10, f"Deconvolving {acq_info.name}", "Loading image data...")
             
             output_path = deconvolve_acquisition(
-                mcd_path=mcd_path,
+                data_path=data_path,
                 acq_id=original_acq_id,
                 output_dir=output_dir,
                 x0=x0,
                 iterations=iterations,
                 output_format=output_format,
-                channel_names=channel_names
+                channel_names=channel_names,
+                source_file_path=source_file_path,  # Pass source file/dir for filename generation
+                unique_acq_id=self.current_acq_id,  # Pass unique ID for filename
+                loader_type=loader_type,
+                channel_format=self.ometiff_channel_format if isinstance(loader, OMETIFFLoader) else 'CHW'
             )
             
             progress_dlg.update_progress(100, "Complete", f"Saved to {os.path.basename(output_path)}")
@@ -6669,71 +6750,115 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.acquisitions:
             raise ValueError("No acquisitions found")
         
-        # Group acquisitions by source file
-        acq_by_file = {}
-        for acq in self.acquisitions:
-            mcd_path = None
-            if acq.source_file:
-                mcd_path = acq.source_file
-            elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
-                mcd_path = self.current_path
-            
-            if mcd_path:
-                if mcd_path not in acq_by_file:
-                    acq_by_file[mcd_path] = []
-                acq_by_file[mcd_path].append(acq)
-        
-        if not acq_by_file:
-            raise ValueError("Could not determine MCD file paths for acquisitions")
-        
         total_acqs = len(self.acquisitions)
         progress_dlg.set_maximum(total_acqs * 100)
         
         processed = 0
-        for mcd_path, acqs in acq_by_file.items():
-            for acq in acqs:
-                if progress_dlg.is_cancelled():
-                    return False
+        for acq in self.acquisitions:
+            if progress_dlg.is_cancelled():
+                return False
+            
+            progress_dlg.update_progress(
+                processed * 100,
+                f"Deconvolving {acq.name}",
+                f"Processing acquisition {processed + 1} of {total_acqs}"
+            )
+            
+            try:
+                # Get the loader and determine type
+                loader = self._get_loader_for_acquisition(acq.id)
+                if loader is None:
+                    raise ValueError(f"No loader found for acquisition {acq.id}")
                 
-                progress_dlg.update_progress(
-                    processed * 100,
-                    f"Deconvolving {acq.name}",
-                    f"Processing acquisition {processed + 1} of {total_acqs}"
+                # Get original acquisition ID (for multiple files)
+                original_acq_id = self._get_original_acq_id(acq.id)
+                
+                # Get channel names
+                channel_names = loader.get_channels(original_acq_id) if loader else acq.channels
+                
+                # Determine data path and loader type
+                data_path = None
+                loader_type = None
+                source_file_path = None
+                
+                if isinstance(loader, MCDLoader):
+                    loader_type = "mcd"
+                    # Get the MCD file path
+                    if acq.id in self.acq_to_file:
+                        data_path = self.acq_to_file[acq.id]
+                    elif acq.source_file:
+                        data_path = acq.source_file
+                    elif self.current_path and os.path.isfile(self.current_path) and self.current_path.lower().endswith('.mcd'):
+                        data_path = self.current_path
+                    
+                    if not data_path or not os.path.isfile(data_path):
+                        raise ValueError(f"Could not determine MCD file path for acquisition {acq.id}")
+                    source_file_path = data_path
+                    
+                elif isinstance(loader, OMETIFFLoader):
+                    loader_type = "ometiff"
+                    # For OME-TIFF, get the file path from the loader's _acq_map
+                    if hasattr(loader, '_acq_map') and original_acq_id in loader._acq_map:
+                        data_path = loader._acq_map[original_acq_id]
+                    elif acq.source_file:
+                        data_path = acq.source_file
+                    elif self.current_path and os.path.isdir(self.current_path):
+                        # Try to find the file in the directory
+                        import glob
+                        tiff_files = glob.glob(os.path.join(self.current_path, "*.ome.tif"))
+                        tiff_files.extend(glob.glob(os.path.join(self.current_path, "*.ome.tiff")))
+                        tiff_files.extend(glob.glob(os.path.join(self.current_path, "*.tif")))
+                        tiff_files.extend(glob.glob(os.path.join(self.current_path, "*.tiff")))
+                        # Try to match by acquisition name or ID
+                        for tiff_file in tiff_files:
+                            if acq.name in os.path.basename(tiff_file):
+                                data_path = tiff_file
+                                break
+                        if not data_path and tiff_files:
+                            # Fallback to first file if we can't match
+                            data_path = tiff_files[0]
+                    
+                    if not data_path or not os.path.isfile(data_path):
+                        raise ValueError(f"Could not determine OME-TIFF file path for acquisition {acq.id}")
+                    
+                    # For OME-TIFF, source_file_path is the directory containing the files
+                    if self.current_path and os.path.isdir(self.current_path):
+                        source_file_path = self.current_path
+                    else:
+                        source_file_path = os.path.dirname(data_path) if data_path else None
+                
+                if not data_path or loader_type is None:
+                    raise ValueError(f"Could not determine data path or loader type for acquisition {acq.id}")
+                
+                # Deconvolve the acquisition
+                deconvolve_acquisition(
+                    data_path=data_path,
+                    acq_id=original_acq_id,
+                    output_dir=output_dir,
+                    x0=x0,
+                    iterations=iterations,
+                    output_format=output_format,
+                    channel_names=channel_names,
+                    source_file_path=source_file_path,  # Pass source file/dir for filename generation
+                    unique_acq_id=acq.id,  # Pass unique ID for filename
+                    loader_type=loader_type,
+                    channel_format=self.ometiff_channel_format if isinstance(loader, OMETIFFLoader) else 'CHW'
                 )
                 
-                try:
-                    # Get channel names
-                    loader = self._get_loader_for_acquisition(acq.id)
-                    if loader:
-                        channel_names = loader.get_channels(acq.id)
-                    else:
-                        channel_names = acq.channels
-                    
-                    # Deconvolve the acquisition
-                    deconvolve_acquisition(
-                        mcd_path=mcd_path,
-                        acq_id=acq.id,
-                        output_dir=output_dir,
-                        x0=x0,
-                        iterations=iterations,
-                        output_format=output_format,
-                        channel_names=channel_names
-                    )
-                    
-                    processed += 1
-                    progress_dlg.update_progress(
-                        processed * 100,
-                        f"Deconvolved {acq.name}",
-                        f"Completed {processed} of {total_acqs} acquisitions"
-                    )
-                except Exception as e:
-                    progress_dlg.update_progress(
-                        processed * 100,
-                        f"Error processing {acq.name}",
-                        f"Error: {str(e)}"
-                    )
-                    # Continue with next acquisition
-                    processed += 1
+                processed += 1
+                progress_dlg.update_progress(
+                    processed * 100,
+                    f"Deconvolved {acq.name}",
+                    f"Completed {processed} of {total_acqs} acquisitions"
+                )
+            except Exception as e:
+                progress_dlg.update_progress(
+                    processed * 100,
+                    f"Error processing {acq.name}",
+                    f"Error: {str(e)}"
+                )
+                # Continue with next acquisition
+                processed += 1
         
         progress_dlg.update_progress(
             total_acqs * 100,

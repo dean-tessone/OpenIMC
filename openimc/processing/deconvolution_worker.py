@@ -288,14 +288,16 @@ def RLD_HRIMC_circle(
     return processed_stack_cropped
 
 
-def deconvolve_acquisition(
+def deconvolve_acquisition_from_mcd(
     mcd_path: str,
     acq_id: str,
     output_dir: str,
     x0: float = 7.0,
     iterations: int = 4,
     output_format: str = "float",
-    channel_names: list = None
+    channel_names: list = None,
+    source_file_path: str = None,
+    unique_acq_id: str = None
 ) -> str:
     """
     Deconvolve a single acquisition from an MCD file and save as OME-TIFF.
@@ -308,6 +310,8 @@ def deconvolve_acquisition(
         iterations: Number of Richardson-Lucy iterations
         output_format: Output format, either 'float' or 'uint16'
         channel_names: List of channel names for OME metadata
+        source_file_path: Optional source file path for filename generation
+        unique_acq_id: Optional unique acquisition ID for filename generation
     
     Returns:
         Path to the saved OME-TIFF file
@@ -349,23 +353,37 @@ def deconvolve_acquisition(
         )  # Returns (C, H, W)
         print(f"Deconvolution complete: output shape={deconvolved_stack.shape}, dtype={deconvolved_stack.dtype}")
         
-        # Get acquisition info for filename
-        acq_info = loader.list_acquisitions()
-        acq = next((a for a in acq_info if a.id == acq_id), None)
-        if acq:
-            acq_name = acq.name
+        # Generate filename: source_file_acquisition_id.tif
+        # Get source file basename (without extension)
+        if source_file_path:
+            source_basename = os.path.splitext(os.path.basename(source_file_path))[0]
         else:
-            acq_name = f"acquisition_{acq_id}"
+            source_basename = os.path.splitext(os.path.basename(mcd_path))[0]
         
-        # Sanitize filename
-        safe_name = "".join(c for c in acq_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        safe_name = safe_name.replace(' ', '_')
+        # Get acquisition ID for filename
+        # Use unique_acq_id if provided (for multiple files), otherwise use acq_id
+        if unique_acq_id:
+            # Extract just the acquisition part from unique ID (remove file identifier)
+            # Unique ID format is: original_id__file_hash
+            if '__' in unique_acq_id:
+                acq_id_part = unique_acq_id.split('__')[0]
+            else:
+                acq_id_part = unique_acq_id
+        else:
+            acq_id_part = acq_id
+        
+        # Sanitize both source filename and acquisition ID
+        safe_source = "".join(c for c in source_basename if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_source = safe_source.replace(' ', '_')
+        
+        safe_acq_id = "".join(c for c in acq_id_part if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_acq_id = safe_acq_id.replace(' ', '_')
         
         # Ensure output directory exists
         os.makedirs(output_dir, exist_ok=True)
         
-        # Create output filename
-        output_filename = f"{safe_name}.ome.tif"
+        # Create output filename: source_file_acquisition_id.ome.tif
+        output_filename = f"{safe_source}_{safe_acq_id}.ome.tif"
         output_path = os.path.join(output_dir, output_filename)
         
         # Check if deconvolved stack is valid
@@ -432,4 +450,231 @@ def deconvolve_acquisition(
         
     finally:
         loader.close()
+
+
+def deconvolve_acquisition_from_ometiff(
+    tiff_path: str,
+    acq_id: str,
+    output_dir: str,
+    x0: float = 7.0,
+    iterations: int = 4,
+    output_format: str = "float",
+    channel_names: list = None,
+    source_file_path: str = None,
+    unique_acq_id: str = None,
+    channel_format: str = 'CHW'
+) -> str:
+    """
+    Deconvolve a single acquisition from an OME-TIFF file and save as OME-TIFF.
+    
+    Args:
+        tiff_path: Path to the OME-TIFF file
+        acq_id: Acquisition ID (not used for single file, but kept for consistency)
+        output_dir: Output directory for OME-TIFF files
+        x0: Parameter for kernel calculation
+        iterations: Number of Richardson-Lucy iterations
+        output_format: Output format, either 'float' or 'uint16'
+        channel_names: List of channel names for OME metadata
+        source_file_path: Optional source file path for filename generation
+        unique_acq_id: Optional unique acquisition ID for filename generation
+        channel_format: Format of channels in the input file ('CHW' or 'HWC')
+    
+    Returns:
+        Path to the saved OME-TIFF file
+    """
+    import tifffile
+    
+    # Load the OME-TIFF file
+    img_stack = tifffile.imread(tiff_path)
+    
+    # Convert to (H, W, C) format for processing
+    if img_stack.ndim == 2:
+        # Single channel, add channel dimension
+        img_stack = img_stack[..., np.newaxis]
+    elif img_stack.ndim == 3:
+        if channel_format == 'CHW':
+            # Input is (C, H, W), transpose to (H, W, C)
+            img_stack = np.transpose(img_stack, (1, 2, 0))
+        # else: already (H, W, C), no transpose needed
+    elif img_stack.ndim == 4:
+        # Could be (T, C, H, W), (T, H, W, C), etc.
+        if img_stack.shape[0] == 1:
+            img_stack = img_stack[0]
+            if img_stack.ndim == 3 and channel_format == 'CHW':
+                img_stack = np.transpose(img_stack, (1, 2, 0))
+        else:
+            # Take first time point
+            img_stack = img_stack[0]
+            if img_stack.ndim == 3 and channel_format == 'CHW':
+                img_stack = np.transpose(img_stack, (1, 2, 0))
+    else:
+        raise ValueError(f"Unsupported image dimensionality: {img_stack.ndim}D")
+    
+    # Verify image stack is valid
+    if img_stack.size == 0:
+        raise ValueError(f"Image stack is empty for file {tiff_path}")
+    
+    if img_stack.ndim != 3:
+        raise ValueError(f"Expected 3D array (H, W, C), got {img_stack.ndim}D array with shape {img_stack.shape}")
+    
+    # Check image dimensions
+    height, width, n_channels = img_stack.shape
+    if height < 1 or width < 1:
+        raise ValueError(f"Invalid image dimensions: {height}x{width}")
+    if n_channels < 1:
+        raise ValueError(f"No channels found in file {tiff_path}")
+    
+    # Convert to (C, H, W) for processing
+    img_stack = np.transpose(img_stack, (2, 0, 1))
+    
+    # Apply deconvolution
+    print(f"Deconvolving OME-TIFF {os.path.basename(tiff_path)}: shape={img_stack.shape}, x0={x0}, iterations={iterations}, format={output_format}")
+    deconvolved_stack = RLD_HRIMC_circle(
+        img_stack,
+        x0=x0,
+        iterations=iterations,
+        output_format=output_format
+    )  # Returns (C, H, W)
+    print(f"Deconvolution complete: output shape={deconvolved_stack.shape}, dtype={deconvolved_stack.dtype}")
+    
+    # Generate filename: preserve original OME-TIFF filename with _deconvolved suffix
+    # Get original filename without extension
+    original_filename = os.path.basename(tiff_path)
+    # Remove all extensions (.ome.tif, .tif, etc.)
+    base_name = original_filename
+    while '.' in base_name:
+        base_name = os.path.splitext(base_name)[0]
+    
+    # Sanitize the base name
+    safe_name = "".join(c for c in base_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+    safe_name = safe_name.replace(' ', '_')
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create output filename: original_name_deconvolved.ome.tif
+    # Preserve the .ome.tif extension format
+    output_filename = f"{safe_name}_deconvolved.ome.tif"
+    output_path = os.path.join(output_dir, output_filename)
+    
+    # Check if deconvolved stack is valid
+    if deconvolved_stack.size == 0:
+        raise ValueError(f"Deconvolved stack is empty for file {tiff_path}")
+    
+    # Verify deconvolved stack shape (should be C, H, W)
+    print(f"Before saving: shape={deconvolved_stack.shape}, expected (C, H, W)")
+    if deconvolved_stack.ndim != 3:
+        raise ValueError(f"Expected 3D array (C, H, W), got {deconvolved_stack.ndim}D array with shape {deconvolved_stack.shape}")
+    
+    # Verify channel count matches
+    expected_channels = len(channel_names) if channel_names else n_channels
+    if deconvolved_stack.shape[0] != expected_channels:
+        raise ValueError(f"Channel count mismatch: expected {expected_channels}, got {deconvolved_stack.shape[0]}")
+    
+    # Save as OME-TIFF in CHW format (matches GUI export format)
+    metadata = {}
+    if channel_names:
+        metadata['Channel'] = {'Name': channel_names}
+    
+    # Save as OME-TIFF in CHW format (same as GUI export)
+    try:
+        tifffile.imwrite(
+            output_path,
+            deconvolved_stack,  # Already in (C, H, W) format
+            photometric='minisblack',
+            metadata=metadata,
+            ome=True
+        )
+        
+        # Verify the file was written correctly
+        if not os.path.exists(output_path):
+            raise IOError(f"Output file was not created: {output_path}")
+        
+        # Check file size
+        file_size = os.path.getsize(output_path)
+        if file_size == 0:
+            raise IOError(f"Output file is empty: {output_path}")
+        
+        # Try to read it back to verify
+        with tifffile.TiffFile(output_path) as tif:
+            if not tif.series:
+                raise IOError(f"TIFF file contains no image series: {output_path}")
+            read_shape = tif.series[0].shape
+            # tifffile may return shape in different order, so we check if dimensions match
+            if set(read_shape) != set(deconvolved_stack.shape):
+                print(f"Warning: Written shape {deconvolved_stack.shape} != read shape {read_shape}")
+            else:
+                print(f"File verified: written shape {deconvolved_stack.shape}, read shape {read_shape}")
+        
+    except Exception as e:
+        # Clean up partial file if it exists
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except:
+                pass
+        raise IOError(f"Failed to write OME-TIFF file {output_path}: {str(e)}") from e
+    
+    return output_path
+
+
+def deconvolve_acquisition(
+    data_path: str,
+    acq_id: str,
+    output_dir: str,
+    x0: float = 7.0,
+    iterations: int = 4,
+    output_format: str = "float",
+    channel_names: list = None,
+    source_file_path: str = None,
+    unique_acq_id: str = None,
+    loader_type: str = "mcd",
+    channel_format: str = 'CHW'
+) -> str:
+    """
+    Deconvolve a single acquisition from an MCD file or OME-TIFF file and save as OME-TIFF.
+    
+    Args:
+        data_path: Path to the MCD file or OME-TIFF file
+        acq_id: Acquisition ID
+        output_dir: Output directory for OME-TIFF files
+        x0: Parameter for kernel calculation
+        iterations: Number of Richardson-Lucy iterations
+        output_format: Output format, either 'float' or 'uint16'
+        channel_names: List of channel names for OME metadata
+        source_file_path: Optional source file path for filename generation
+        unique_acq_id: Optional unique acquisition ID for filename generation
+        loader_type: Type of loader, either 'mcd' or 'ometiff'
+        channel_format: Format of channels in OME-TIFF files ('CHW' or 'HWC')
+    
+    Returns:
+        Path to the saved OME-TIFF file
+    """
+    if loader_type == "mcd":
+        return deconvolve_acquisition_from_mcd(
+            mcd_path=data_path,
+            acq_id=acq_id,
+            output_dir=output_dir,
+            x0=x0,
+            iterations=iterations,
+            output_format=output_format,
+            channel_names=channel_names,
+            source_file_path=source_file_path,
+            unique_acq_id=unique_acq_id
+        )
+    elif loader_type == "ometiff":
+        return deconvolve_acquisition_from_ometiff(
+            tiff_path=data_path,
+            acq_id=acq_id,
+            output_dir=output_dir,
+            x0=x0,
+            iterations=iterations,
+            output_format=output_format,
+            channel_names=channel_names,
+            source_file_path=source_file_path,
+            unique_acq_id=unique_acq_id,
+            channel_format=channel_format
+        )
+    else:
+        raise ValueError(f"Unknown loader type: {loader_type}")
 

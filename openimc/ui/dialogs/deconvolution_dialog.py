@@ -54,7 +54,8 @@ class DeconvolutionDialog(QtWidgets.QDialog):
         info_layout = QtWidgets.QVBoxLayout(info_group)
         info_label = QtWidgets.QLabel(
             "This deconvolution method is optimized for high resolution IMC images with step sizes of 333 nm and 500 nm. "
-            "The deconvolution uses Richardson-Lucy deconvolution with a circular kernel optimized for IMC data."
+            "The deconvolution uses Richardson-Lucy deconvolution with a circular kernel optimized for IMC data.\n\n"
+            "Works with both MCD files and OME-TIFF directories."
         )
         info_label.setWordWrap(True)
         info_label.setStyleSheet("QLabel { color: #0066cc; font-style: italic; }")
@@ -182,7 +183,11 @@ class DeconvolutionDialog(QtWidgets.QDialog):
                     info_text = f"Will deconvolve: {current_acq.name}\n"
                     info_text += f"Channels: {len(current_acq.channels)}\n"
                     if current_acq.well:
-                        info_text += f"Well: {current_acq.well}"
+                        info_text += f"Well: {current_acq.well}\n"
+                    # Show source file if available (for multiple files)
+                    if current_acq.source_file:
+                        source_name = os.path.basename(current_acq.source_file)
+                        info_text += f"Source: {source_name}"
                     self.acq_info_label.setText(info_text)
                 else:
                     self.acq_info_label.setText("Will deconvolve only the currently selected acquisition.")
@@ -191,7 +196,17 @@ class DeconvolutionDialog(QtWidgets.QDialog):
         else:
             # Show more detailed information about what will be deconvolved
             total_channels = sum(len(acq.channels) for acq in self.acquisitions)
-            info_text = f"Will deconvolve all {len(self.acquisitions)} acquisitions from the slide.\n"
+            
+            # Count files if multiple files are loaded
+            source_files = set()
+            for acq in self.acquisitions:
+                if acq.source_file:
+                    source_files.add(acq.source_file)
+            
+            info_text = f"Will deconvolve all {len(self.acquisitions)} acquisition(s)"
+            if len(source_files) > 1:
+                info_text += f" from {len(source_files)} file(s)"
+            info_text += ".\n"
             info_text += f"Total channels: {total_channels}\n"
             info_text += f"Acquisitions: {', '.join([acq.name for acq in self.acquisitions[:3]])}"
             if len(self.acquisitions) > 3:

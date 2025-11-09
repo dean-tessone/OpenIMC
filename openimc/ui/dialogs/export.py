@@ -361,25 +361,43 @@ class ExportDialog(QtWidgets.QDialog):
         """Populate the denoise channel combo with available channels."""
         # Get channels from the first acquisition or current acquisition
         channels = []
-        if self.current_acq_id:
-            # Get channels from parent (MainWindow)
-            parent = self.parent()
-            if hasattr(parent, 'loader') and hasattr(parent, 'current_acq_id'):
-                # Temporarily set current acquisition to get channels
-                original_acq_id = parent.current_acq_id
-                parent.current_acq_id = self.current_acq_id
-                try:
+        parent = self.parent()
+        if not parent:
+            return
+        
+        try:
+            if self.current_acq_id:
+                # Get loader for this acquisition (handles multiple MCD files)
+                if hasattr(parent, '_get_loader_for_acquisition'):
+                    loader = parent._get_loader_for_acquisition(self.current_acq_id)
+                    if loader:
+                        # Get original acquisition ID if this is a unique ID
+                        if hasattr(parent, '_get_original_acq_id'):
+                            original_acq_id = parent._get_original_acq_id(self.current_acq_id)
+                        else:
+                            original_acq_id = self.current_acq_id
+                        channels = loader.get_channels(original_acq_id)
+                elif hasattr(parent, 'loader') and parent.loader:
+                    # Fallback for single file case
                     channels = parent.loader.get_channels(self.current_acq_id)
-                finally:
-                    parent.current_acq_id = original_acq_id
-        elif self.acquisitions:
-            # Use first acquisition
-            parent = self.parent()
-            if hasattr(parent, 'loader'):
-                try:
-                    channels = parent.loader.get_channels(self.acquisitions[0].id)
-                except Exception:
-                    pass
+            elif self.acquisitions:
+                # Use first acquisition
+                acq_id = self.acquisitions[0].id
+                if hasattr(parent, '_get_loader_for_acquisition'):
+                    loader = parent._get_loader_for_acquisition(acq_id)
+                    if loader:
+                        # Get original acquisition ID if this is a unique ID
+                        if hasattr(parent, '_get_original_acq_id'):
+                            original_acq_id = parent._get_original_acq_id(acq_id)
+                        else:
+                            original_acq_id = acq_id
+                        channels = loader.get_channels(original_acq_id)
+                elif hasattr(parent, 'loader') and parent.loader:
+                    # Fallback for single file case
+                    channels = parent.loader.get_channels(acq_id)
+        except Exception:
+            # Silently handle errors to avoid disrupting the UI
+            pass
         
         self.denoise_channel_combo.blockSignals(True)
         self.denoise_channel_combo.clear()

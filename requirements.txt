@@ -6,6 +6,7 @@ seaborn>=0.13.2
 pillow
 tifffile>=2021.7.2
 scipy
+statsmodels>=0.14.0
 h5py
 lxml
 imageio
