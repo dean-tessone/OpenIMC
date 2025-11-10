@@ -39,3 +39,9 @@ openai>=1.42.0
 #Batch Correction
 combat>=0.1.0
 harmonypy>=0.0.9
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+pytest-qt>=4.2.0
