@@ -1,3 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# OpenIMC – Interactive analysis toolkit for IMC data
+#
+# Copyright (C) 2025 University of Southern California
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from typing import Dict, List, Optional, Tuple, Union
 import os
 import threading
@@ -912,6 +931,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Menu
         file_menu = self.menuBar().addMenu("&File")
+        act_about = file_menu.addAction("About…")
+        act_about.triggered.connect(self._show_about_dialog)
+        file_menu.addSeparator()
         act_open = file_menu.addAction("Open File/Folder…")
         act_open.triggered.connect(self._open_dialog)
         act_load_features = file_menu.addAction("Load Feature File…")
@@ -981,6 +1003,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.show_all_channels_btn.setVisible(self.grid_view_chk.isChecked())
         except Exception:
             pass
+
+    # ---------- About dialog ----------
+    def _show_about_dialog(self):
+        """Show the About dialog."""
+        QtWidgets.QMessageBox.about(
+            self,
+            "About OpenIMC",
+            "OpenIMC © 2025 University of Southern California — Licensed under GPL v3 or later\n\n"
+            "NO WARRANTY. See LICENSE for details."
+        )
 
     # ---------- File open ----------
     def _open_dialog(self):
