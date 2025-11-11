@@ -316,7 +316,8 @@ def deconvolve_acquisition_from_mcd(
     output_format: str = "float",
     channel_names: list = None,
     source_file_path: str = None,
-    unique_acq_id: str = None
+    unique_acq_id: str = None,
+    well_name: str = None
 ) -> str:
     """
     Deconvolve a single acquisition from an MCD file and save as OME-TIFF.
@@ -331,6 +332,7 @@ def deconvolve_acquisition_from_mcd(
         channel_names: List of channel names for OME metadata
         source_file_path: Optional source file path for filename generation
         unique_acq_id: Optional unique acquisition ID for filename generation
+        well_name: Optional well name to use in output filename (if None, will try to get from loader)
     
     Returns:
         Path to the saved OME-TIFF file
@@ -372,37 +374,48 @@ def deconvolve_acquisition_from_mcd(
         )  # Returns (C, H, W)
         print(f"Deconvolution complete: output shape={deconvolved_stack.shape}, dtype={deconvolved_stack.dtype}")
         
-        # Generate filename: source_file_acquisition_id.tif
+        # Generate filename: source_file_well_name.ome.tif (or source_file_acquisition_id.ome.tif if no well)
         # Get source file basename (without extension)
         if source_file_path:
             source_basename = os.path.splitext(os.path.basename(source_file_path))[0]
         else:
             source_basename = os.path.splitext(os.path.basename(mcd_path))[0]
         
-        # Get acquisition ID for filename
-        # Use unique_acq_id if provided (for multiple files), otherwise use acq_id
-        if unique_acq_id:
-            # Extract just the acquisition part from unique ID (remove file identifier)
-            # Unique ID format is: original_id__file_hash
-            if '__' in unique_acq_id:
-                acq_id_part = unique_acq_id.split('__')[0]
-            else:
-                acq_id_part = unique_acq_id
-        else:
-            acq_id_part = acq_id
+        # Get well name if available, otherwise use acquisition ID
+        # Use provided well_name parameter first, then try loader, otherwise None
+        if well_name is None:
+            well_name = loader._acq_well.get(acq_id) if hasattr(loader, '_acq_well') else None
         
-        # Sanitize both source filename and acquisition ID
+        # Sanitize source filename
         safe_source = "".join(c for c in source_basename if c.isalnum() or c in (' ', '-', '_')).rstrip()
         safe_source = safe_source.replace(' ', '_')
         
-        safe_acq_id = "".join(c for c in acq_id_part if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        safe_acq_id = safe_acq_id.replace(' ', '_')
+        # Use well name if available, otherwise use acquisition ID
+        if well_name:
+            label_for_filename = well_name
+        else:
+            # Get acquisition ID for filename
+            # Use unique_acq_id if provided (for multiple files), otherwise use acq_id
+            if unique_acq_id:
+                # Extract just the acquisition part from unique ID (remove file identifier)
+                # Unique ID format is: original_id__file_hash
+                if '__' in unique_acq_id:
+                    acq_id_part = unique_acq_id.split('__')[0]
+                else:
+                    acq_id_part = unique_acq_id
+            else:
+                acq_id_part = acq_id
+            label_for_filename = acq_id_part
+        
+        # Sanitize label
+        safe_label = "".join(c for c in label_for_filename if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_label = safe_label.replace(' ', '_')
         
         # Ensure output directory exists
         os.makedirs(output_dir, exist_ok=True)
         
-        # Create output filename: source_file_acquisition_id.ome.tif
-        output_filename = f"{safe_source}_{safe_acq_id}.ome.tif"
+        # Create output filename: source_file_label.ome.tif
+        output_filename = f"{safe_source}_{safe_label}.ome.tif"
         output_path = os.path.join(output_dir, output_filename)
         
         # Check if deconvolved stack is valid
@@ -648,7 +661,8 @@ def deconvolve_acquisition(
     source_file_path: str = None,
     unique_acq_id: str = None,
     loader_type: str = "mcd",
-    channel_format: str = 'CHW'
+    channel_format: str = 'CHW',
+    well_name: str = None
 ) -> str:
     """
     Deconvolve a single acquisition from an MCD file or OME-TIFF file and save as OME-TIFF.
@@ -665,6 +679,7 @@ def deconvolve_acquisition(
         unique_acq_id: Optional unique acquisition ID for filename generation
         loader_type: Type of loader, either 'mcd' or 'ometiff'
         channel_format: Format of channels in OME-TIFF files ('CHW' or 'HWC')
+        well_name: Optional well name to use in output filename (if None, will try to get from loader)
     
     Returns:
         Path to the saved OME-TIFF file
@@ -679,7 +694,8 @@ def deconvolve_acquisition(
             output_format=output_format,
             channel_names=channel_names,
             source_file_path=source_file_path,
-            unique_acq_id=unique_acq_id
+            unique_acq_id=unique_acq_id,
+            well_name=well_name
         )
     elif loader_type == "ometiff":
         return deconvolve_acquisition_from_ometiff(

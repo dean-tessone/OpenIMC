@@ -710,6 +710,51 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                 self.coverage_save_btn.setEnabled(True)
                 self.distribution_save_btn.setEnabled(True)
                 
+                # Log QC analysis (signal to noise ratio analysis)
+                logger = get_logger()
+                # Collect unique source files
+                source_files = set()
+                for acq_id, source_file in acq_to_file_map.items():
+                    if source_file:
+                        if source_file.endswith('.mcd') or source_file.endswith('.mcdx'):
+                            # For MCD files, use the file basename
+                            source_files.add(os.path.basename(source_file))
+                        else:
+                            # For OME-TIFF, use the folder name (directory containing the file)
+                            if os.path.isdir(source_file):
+                                # source_file is already a folder
+                                folder_path = source_file
+                            else:
+                                # source_file is a file, get its directory
+                                folder_path = os.path.dirname(source_file) if os.path.dirname(source_file) else source_file
+                            source_files.add(os.path.basename(folder_path))
+                
+                source_file_str = None
+                if source_files:
+                    if len(source_files) == 1:
+                        source_file_str = list(source_files)[0]
+                    else:
+                        sorted_files = sorted(source_files)
+                        if len(sorted_files) <= 3:
+                            source_file_str = ", ".join(sorted_files)
+                        else:
+                            source_file_str = ", ".join(sorted_files[:3]) + f" and {len(sorted_files) - 3} more"
+                
+                params = {
+                    "analysis_mode": self.analysis_mode,
+                    "n_acquisitions": len(acquisitions),
+                    "n_channels": len(results)
+                }
+                
+                logger._write_entry(
+                    entry_type="qc_analysis",
+                    operation="signal_to_noise_ratio",
+                    parameters=params,
+                    acquisitions=[acq.id for acq in acquisitions],
+                    notes=f"QC analysis (SNR) completed: {len(results)} channels across {len(acquisitions)} acquisitions",
+                    source_file=source_file_str
+                )
+                
                 progress_dlg.update_progress(100, "Analysis complete!", f"QC metrics calculated for {len(results)} channels across {len(acquisitions)} acquisitions.")
                 QtWidgets.QApplication.processEvents()
                 QtCore.QTimer.singleShot(500, progress_dlg.close)

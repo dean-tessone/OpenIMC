@@ -50,9 +50,13 @@ import numpy as np
 import pandas as pd
 from PyQt5 import QtWidgets, QtCore
 from scipy.spatial import cKDTree, Delaunay
+from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
+from scipy.spatial.distance import pdist
 import networkx as nx
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
+from matplotlib.collections import PathCollection
 import matplotlib.pyplot as plt
 import random
 from collections import defaultdict
@@ -69,6 +73,12 @@ try:
     _HAVE_IGRAPH = True
 except ImportError:
     _HAVE_IGRAPH = False
+
+try:
+    import seaborn as sns
+    _HAVE_SEABORN = True
+except ImportError:
+    _HAVE_SEABORN = False
 
 
 def _get_vivid_colors(n):
@@ -113,6 +123,101 @@ def _get_vivid_colors(n):
     return colors
 
 
+class SourceFileFilterDialog(QtWidgets.QDialog):
+    """Dialog for selecting source files to filter spatial analysis data."""
+    
+    def __init__(self, available_source_files: set, selected_source_files: set, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Source File Filter")
+        self.setModal(True)
+        self.resize(500, 400)
+        
+        self.available_source_files = available_source_files
+        self.selected_source_files = selected_source_files.copy() if selected_source_files else set()
+        
+        self._create_ui()
+        self._populate_file_list()
+    
+    def _create_ui(self):
+        """Create the user interface."""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        
+        # Info label
+        info_label = QtWidgets.QLabel(
+            "Select source files to include in spatial analysis.\n"
+            "Leave all unchecked to include all files."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # File list
+        self.source_file_list = QtWidgets.QListWidget()
+        self.source_file_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        layout.addWidget(self.source_file_list)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        self.select_all_btn = QtWidgets.QPushButton("Select All")
+        self.select_all_btn.clicked.connect(self._select_all)
+        button_layout.addWidget(self.select_all_btn)
+        
+        self.deselect_all_btn = QtWidgets.QPushButton("Deselect All")
+        self.deselect_all_btn.clicked.connect(self._deselect_all)
+        button_layout.addWidget(self.deselect_all_btn)
+        
+        button_layout.addStretch()
+        
+        # OK/Cancel buttons
+        self.ok_btn = QtWidgets.QPushButton("OK")
+        self.ok_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.ok_btn)
+        
+        self.cancel_btn = QtWidgets.QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def _populate_file_list(self):
+        """Populate the file list with available source files."""
+        self.source_file_list.clear()
+        source_files = sorted(self.available_source_files)
+        
+        for source_file in source_files:
+            item = QtWidgets.QListWidgetItem(source_file)
+            # Check if this file should be selected
+            # If selected_source_files is empty, select all (default behavior)
+            if not self.selected_source_files or source_file in self.selected_source_files:
+                item.setCheckState(QtCore.Qt.Checked)
+            else:
+                item.setCheckState(QtCore.Qt.Unchecked)
+            self.source_file_list.addItem(item)
+    
+    def _select_all(self):
+        """Select all source files."""
+        for i in range(self.source_file_list.count()):
+            item = self.source_file_list.item(i)
+            item.setCheckState(QtCore.Qt.Checked)
+    
+    def _deselect_all(self):
+        """Deselect all source files."""
+        for i in range(self.source_file_list.count()):
+            item = self.source_file_list.item(i)
+            item.setCheckState(QtCore.Qt.Unchecked)
+    
+    def get_selected_files(self):
+        """Get the set of selected source files."""
+        selected = set()
+        for i in range(self.source_file_list.count()):
+            item = self.source_file_list.item(i)
+            if item.checkState() == QtCore.Qt.Checked:
+                selected.add(item.text())
+        return selected
+
+
 class SpatialAnalysisDialog(QtWidgets.QDialog):
     def __init__(self, feature_dataframe: pd.DataFrame, batch_corrected_dataframe=None, parent=None):
         super().__init__(parent)
@@ -121,7 +226,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
         self.original_feature_dataframe = feature_dataframe  # Store original
         self.batch_corrected_dataframe = batch_corrected_dataframe  # Store batch-corrected
-        self.feature_dataframe = feature_dataframe  # Active dataframe (can be switched)
+        # Default to batch-corrected features if available, otherwise use original
+        if batch_corrected_dataframe is not None and not batch_corrected_dataframe.empty:
+            self.feature_dataframe = batch_corrected_dataframe.copy()  # Active dataframe (can be switched)
+        else:
+            self.feature_dataframe = feature_dataframe  # Active dataframe (can be switched)
         self.edge_df: Optional[pd.DataFrame] = None
         self.adj_matrices: Dict[str, sp.csr_matrix] = {}  # Per-ROI adjacency matrices
         self.cell_id_to_gid: Dict[Tuple[str, int], int] = {}  # (roi_id, cell_id) -> global_id
@@ -147,8 +256,22 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         # Cluster annotation mapping (will be populated from parent if available)
         self.cluster_annotation_map = {}
+        
+        # Source file filtering
+        self.selected_source_files = set()  # Set of selected source files (empty = all files)
+        self.available_source_files = set()  # All available source files in the dataframe
 
         self._create_ui()
+        
+        # Update source file status label after UI creation
+        if hasattr(self, 'source_file_status_label'):
+            self._update_source_file_status_label()
+    
+    def _get_roi_column(self):
+        """Get the appropriate ROI column name to use (source_well if available, otherwise acquisition_id)."""
+        if self.feature_dataframe is not None and 'source_well' in self.feature_dataframe.columns:
+            return 'source_well'
+        return 'acquisition_id'
     
     def _on_feature_set_changed(self):
         """Handle feature set selection change."""
@@ -162,6 +285,93 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             self.feature_dataframe = self.original_feature_dataframe.copy()
         
         # Clear cached analyses when switching feature sets
+        self._clear_analysis_cache()
+        
+        # Update source file filter when feature set changes
+        self._update_source_file_filter()
+        
+        # Reset Ripley cluster selection combo box and radio buttons
+        if hasattr(self, 'ripley_cluster_combo'):
+            self.ripley_cluster_combo.clear()
+            self.ripley_cluster_combo.setEnabled(False)
+        if hasattr(self, 'ripley_k_radio'):
+            self.ripley_k_radio.setEnabled(False)
+        if hasattr(self, 'ripley_l_radio'):
+            self.ripley_l_radio.setEnabled(False)
+        
+        # Update source file filter when feature set changes
+        self._update_source_file_filter()
+    
+    def _get_filtered_dataframe(self):
+        """Get the filtered dataframe based on selected source files."""
+        df = self.feature_dataframe.copy()
+        
+        # Apply source file filter if source_file column exists and files are explicitly selected
+        # If no files are selected (empty set), show all files (don't filter)
+        if ('source_file' in df.columns and 
+            hasattr(self, 'selected_source_files') and 
+            self.selected_source_files and 
+            len(self.selected_source_files) > 0):
+            df = df[df['source_file'].isin(self.selected_source_files)]
+        
+        return df
+    
+    def _get_source_files_for_logging(self):
+        """Get source file names from the filtered dataframe for logging."""
+        filtered_df = self._get_filtered_dataframe()
+        if 'source_file' in filtered_df.columns:
+            source_files = sorted(filtered_df['source_file'].dropna().unique())
+            if len(source_files) == 1:
+                return source_files[0]
+            elif len(source_files) > 1:
+                return f"{len(source_files)} files: {', '.join(source_files[:3])}" + ("..." if len(source_files) > 3 else "")
+        # Fallback to parent current_path if source_file column doesn't exist
+        if self.parent() is not None and hasattr(self.parent(), 'current_path'):
+            return os.path.basename(self.parent().current_path) if self.parent().current_path else None
+        return None
+    
+    def _open_source_file_filter_dialog(self):
+        """Open the source file filter dialog."""
+        dlg = SourceFileFilterDialog(
+            self.available_source_files,
+            self.selected_source_files,
+            self
+        )
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Update selected source files
+            selected = dlg.get_selected_files()
+            
+            # If all files are selected, clear the filter (treat as "all files")
+            if len(selected) == len(self.available_source_files):
+                self.selected_source_files = set()
+            else:
+                self.selected_source_files = selected
+            
+            # Update status label
+            self._update_source_file_status_label()
+            
+            # Clear cached analyses when filter changes
+            self._clear_analysis_cache()
+    
+    def _update_source_file_status_label(self):
+        """Update the source file status label to show current selection."""
+        if not hasattr(self, 'source_file_status_label'):
+            return
+        
+        if not self.selected_source_files:
+            self.source_file_status_label.setText("All files")
+        else:
+            count = len(self.selected_source_files)
+            total = len(self.available_source_files)
+            if count == 1:
+                # Show the single file name
+                file_name = list(self.selected_source_files)[0]
+                self.source_file_status_label.setText(f"1 file: {file_name}")
+            else:
+                self.source_file_status_label.setText(f"{count} of {total} files")
+    
+    def _clear_analysis_cache(self):
+        """Clear cached analyses when filtering changes."""
         self.edge_df = None
         self.adj_matrices = {}
         self.cell_id_to_gid = {}
@@ -181,6 +391,45 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.spatial_viz_run = False
         self.community_analysis_run = False
     
+    def _on_source_file_filter_changed(self):
+        """Handle source file filter selection change (legacy method, kept for compatibility)."""
+        # This method is no longer used but kept for backward compatibility
+        pass
+    
+    def _select_all_source_files(self):
+        """Select all source files."""
+        if not hasattr(self, 'source_file_list'):
+            return
+        for i in range(self.source_file_list.count()):
+            item = self.source_file_list.item(i)
+            item.setCheckState(QtCore.Qt.Checked)
+    
+    def _deselect_all_source_files(self):
+        """Deselect all source files."""
+        if not hasattr(self, 'source_file_list'):
+            return
+        for i in range(self.source_file_list.count()):
+            item = self.source_file_list.item(i)
+            item.setCheckState(QtCore.Qt.Unchecked)
+    
+    def _update_source_file_filter(self):
+        """Update source file filter when feature set changes."""
+        # Get available source files from current dataframe
+        if 'source_file' in self.feature_dataframe.columns:
+            source_files = sorted(self.feature_dataframe['source_file'].dropna().unique())
+            self.available_source_files = set(source_files)
+            
+            # Update status label if it exists
+            if hasattr(self, 'source_file_status_label'):
+                self._update_source_file_status_label()
+            
+            # Remove any selected files that are no longer available
+            if self.selected_source_files:
+                self.selected_source_files = {
+                    f for f in self.selected_source_files 
+                    if f in self.available_source_files
+                }
+    
     def _create_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
 
@@ -191,12 +440,32 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             self.feature_set_combo = QtWidgets.QComboBox()
             self.feature_set_combo.addItem("Original Features")
             self.feature_set_combo.addItem("Batch-Corrected Features")
-            self.feature_set_combo.setCurrentText("Original Features")
+            self.feature_set_combo.setCurrentText("Batch-Corrected Features")
             self.feature_set_combo.setToolTip("Choose between original or batch-corrected feature sets")
             self.feature_set_combo.currentTextChanged.connect(self._on_feature_set_changed)
             feature_set_layout.addWidget(self.feature_set_combo)
             feature_set_layout.addStretch()
             layout.addLayout(feature_set_layout)
+
+        # Source file filter button (if source_file column exists and multiple files are present)
+        if 'source_file' in self.feature_dataframe.columns:
+            source_files = sorted(self.feature_dataframe['source_file'].dropna().unique())
+            self.available_source_files = set(source_files)
+            
+            if len(source_files) > 1:
+                source_file_layout = QtWidgets.QHBoxLayout()
+                source_file_layout.addWidget(QtWidgets.QLabel("Source Files:"))
+                # Show count of selected files or "All" if none selected
+                self.source_file_status_label = QtWidgets.QLabel("All files")
+                self.source_file_status_label.setToolTip("Click 'Configure...' to filter source files")
+                source_file_layout.addWidget(self.source_file_status_label)
+                
+                self.source_file_config_btn = QtWidgets.QPushButton("Configure...")
+                self.source_file_config_btn.clicked.connect(self._open_source_file_filter_dialog)
+                source_file_layout.addWidget(self.source_file_config_btn)
+                
+                source_file_layout.addStretch()
+                layout.addLayout(source_file_layout)
 
         # Parameters group
         params_group = QtWidgets.QGroupBox("Spatial Graph Construction")
@@ -208,7 +477,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         self.k_spin = QtWidgets.QSpinBox()
         self.k_spin.setRange(1, 64)
-        self.k_spin.setValue(6)
+        self.k_spin.setValue(20)
         
         self.radius_spin = QtWidgets.QDoubleSpinBox()
         self.radius_spin.setRange(0.1, 500.0)
@@ -277,8 +546,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.neighborhood_run_btn = QtWidgets.QPushButton("Run Neighborhood Analysis")
         self.neighborhood_save_btn = QtWidgets.QPushButton("Save Plot")
         self.neighborhood_save_btn.setEnabled(False)
+        # Add hierarchical clustering checkbox
+        self.neighborhood_hierarchical_cb = QtWidgets.QCheckBox("Show Hierarchical Clustering / Dendrogram")
+        self.neighborhood_hierarchical_cb.setChecked(False)
         neighborhood_btn_layout.addWidget(self.neighborhood_run_btn)
         neighborhood_btn_layout.addWidget(self.neighborhood_save_btn)
+        neighborhood_btn_layout.addWidget(self.neighborhood_hierarchical_cb)
         neighborhood_btn_layout.addStretch()
         neighborhood_layout.addLayout(neighborhood_btn_layout)
         
@@ -342,6 +615,31 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         ripley_params.addStretch()
         ripley_layout.addLayout(ripley_params)
         
+        # Cluster selection and function type selection for K-L analysis
+        ripley_cluster_layout = QtWidgets.QHBoxLayout()
+        ripley_cluster_layout.addWidget(QtWidgets.QLabel("Display cluster:"))
+        self.ripley_cluster_combo = QtWidgets.QComboBox()
+        self.ripley_cluster_combo.setToolTip("Select which cluster to display in Ripley analysis")
+        self.ripley_cluster_combo.setEnabled(False)  # Enabled after analysis is run
+        self.ripley_cluster_combo.currentIndexChanged.connect(self._on_ripley_cluster_selection_changed)
+        ripley_cluster_layout.addWidget(self.ripley_cluster_combo)
+        
+        ripley_cluster_layout.addWidget(QtWidgets.QLabel("Function type:"))
+        self.ripley_function_group = QtWidgets.QButtonGroup()
+        self.ripley_k_radio = QtWidgets.QRadioButton("Ripley's K")
+        self.ripley_l_radio = QtWidgets.QRadioButton("Ripley's L")
+        self.ripley_k_radio.setChecked(True)  # Default to K function
+        self.ripley_k_radio.setEnabled(False)  # Disabled until analysis is run
+        self.ripley_l_radio.setEnabled(False)  # Disabled until analysis is run
+        self.ripley_function_group.addButton(self.ripley_k_radio, 0)
+        self.ripley_function_group.addButton(self.ripley_l_radio, 1)
+        self.ripley_k_radio.toggled.connect(self._on_ripley_function_changed)
+        self.ripley_l_radio.toggled.connect(self._on_ripley_function_changed)
+        ripley_cluster_layout.addWidget(self.ripley_k_radio)
+        ripley_cluster_layout.addWidget(self.ripley_l_radio)
+        ripley_cluster_layout.addStretch()
+        ripley_layout.addLayout(ripley_cluster_layout)
+        
         self.ripley_canvas = FigureCanvas(Figure(figsize=(8, 6)))
         ripley_layout.addWidget(self.ripley_canvas)
         self.tabs.addTab(self.ripley_tab, "Ripley K/L")
@@ -384,6 +682,22 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.spatial_size_combo.addItem("None")
         self.spatial_size_combo.setToolTip("Search and select feature for size encoding (optional)")
         spatial_viz_controls.addWidget(self.spatial_size_combo)
+        
+        # Point size multiplier control
+        spatial_viz_controls.addWidget(QtWidgets.QLabel("Point Size:"))
+        self.spatial_point_size_spin = QtWidgets.QDoubleSpinBox()
+        self.spatial_point_size_spin.setRange(0.1, 10.0)
+        self.spatial_point_size_spin.setSingleStep(0.1)
+        self.spatial_point_size_spin.setValue(1.0)
+        self.spatial_point_size_spin.setDecimals(1)
+        self.spatial_point_size_spin.setToolTip("Multiplier for point sizes (1.0 = default, increase for larger points)")
+        spatial_viz_controls.addWidget(self.spatial_point_size_spin)
+        
+        # Show edges checkbox (default to False since edges are expensive to plot)
+        self.spatial_show_edges_check = QtWidgets.QCheckBox("Show edges")
+        self.spatial_show_edges_check.setChecked(False)
+        self.spatial_show_edges_check.setToolTip("Display edges between cells (can be slow for large datasets)")
+        spatial_viz_controls.addWidget(self.spatial_show_edges_check)
         
         self.spatial_viz_run_btn = QtWidgets.QPushButton("Generate Spatial Plot")
         self.spatial_viz_save_btn = QtWidgets.QPushButton("Save Plot")
@@ -442,6 +756,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
         # Wire signals
         self.neighborhood_run_btn.clicked.connect(self._run_neighborhood_analysis)
+        self.neighborhood_hierarchical_cb.stateChanged.connect(self._on_hierarchical_changed)
         self.enrichment_run_btn.clicked.connect(self._run_enrichment_analysis)
         self.distance_run_btn.clicked.connect(self._run_distance_analysis)
         self.ripley_run_btn.clicked.connect(self._run_ripley_analysis)
@@ -452,9 +767,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.spatial_viz_run_btn.clicked.connect(self._run_spatial_visualization)
         self.spatial_viz_save_btn.clicked.connect(self._save_spatial_viz_plot)
         self.faceted_plot_check.toggled.connect(self._on_faceted_plot_toggled)
-        # Connect color/size changes to update plot without regenerating
+        # Connect color/size/edge changes to regenerate plot
         self.spatial_color_combo.currentTextChanged.connect(self._on_spatial_viz_option_changed)
         self.spatial_size_combo.currentTextChanged.connect(self._on_spatial_viz_option_changed)
+        self.spatial_point_size_spin.valueChanged.connect(self._on_spatial_viz_option_changed)
+        self.spatial_show_edges_check.toggled.connect(self._on_spatial_viz_option_changed)
         self.community_run_btn.clicked.connect(self._run_community_analysis)
         self.community_save_btn.clicked.connect(self._save_community_plot)
         self.export_btn.clicked.connect(self._export_results)
@@ -529,10 +846,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             parent = self.parent()
             if parent is not None and hasattr(parent, 'cluster_annotation_map'):
                 self.cluster_annotation_map = parent.cluster_annotation_map.copy()
-                print(f"[DEBUG] Loaded {len(self.cluster_annotation_map)} cluster annotations from parent")
             elif parent is not None and hasattr(parent, '_get_cluster_display_name'):
                 # If parent has the method, we can use it directly
-                print("[DEBUG] Parent has cluster display name method available")
+                pass
             
             # Also check if cluster_phenotype column exists in the dataframe
             if self.feature_dataframe is not None and 'cluster_phenotype' in self.feature_dataframe.columns:
@@ -550,10 +866,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 
                 if phenotype_map:
                     self.cluster_annotation_map.update(phenotype_map)
-                    print(f"[DEBUG] Loaded {len(phenotype_map)} cluster annotations from cluster_phenotype column")
                     
         except Exception as e:
-            print(f"[DEBUG] Could not load cluster annotations: {e}")
+            pass
 
     def _get_cluster_display_name(self, cluster_id):
         """Return display label for a cluster id, using annotation if available."""
@@ -573,6 +888,16 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
         return f"Cluster {int(cluster_id)}"
 
+    def _on_ripley_cluster_selection_changed(self):
+        """Handle cluster selection change for K-L analysis visualization."""
+        if self.ripley_analysis_run:
+            self._update_ripley_plot()
+    
+    def _on_ripley_function_changed(self):
+        """Handle function type change (K vs L) for Ripley analysis visualization."""
+        if self.ripley_analysis_run:
+            self._update_ripley_plot()
+
     def _check_annotation_updates(self):
         """Check if cluster annotations have been updated and refresh if needed."""
         try:
@@ -582,8 +907,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 parent_map = parent.cluster_annotation_map
                 if parent_map != self.cluster_annotation_map:
                     self.cluster_annotation_map = parent_map.copy()
-                    print(f"[DEBUG] Updated cluster annotations: {len(self.cluster_annotation_map)} annotations")
-                    
                     # Refresh plots if they exist
                     if self.neighborhood_analysis_run:
                         self._update_neighborhood_plot()
@@ -605,17 +928,20 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
     def _validate_data(self):
         """Validate that required data is available for analysis."""
         if self.feature_dataframe is None or self.feature_dataframe.empty:
-            print("[DEBUG] ERROR: Feature dataframe is None or empty")
             QtWidgets.QMessageBox.warning(self, "No Data", "Feature dataframe is empty.")
             return False
-            
-        print(f"[DEBUG] Feature dataframe shape: {self.feature_dataframe.shape}")
-        print(f"[DEBUG] Feature dataframe columns: {list(self.feature_dataframe.columns)}")
         
-        required_cols = {"acquisition_id", "cell_id", "centroid_x", "centroid_y"}
+        # Get filtered dataframe to check if any data remains after filtering
+        filtered_df = self._get_filtered_dataframe()
+        if filtered_df.empty:
+            QtWidgets.QMessageBox.warning(self, "No Data", "No data available for selected source files. Please select at least one source file.")
+            return False
+        
+        # Check for ROI column (source_well preferred, acquisition_id as fallback)
+        roi_col = self._get_roi_column()
+        required_cols = {roi_col, "cell_id", "centroid_x", "centroid_y"}
         missing = [c for c in required_cols if c not in self.feature_dataframe.columns]
         if missing:
-            print(f"[DEBUG] ERROR: Missing required columns: {missing}")
             QtWidgets.QMessageBox.critical(self, "Missing columns", f"Missing required columns: {', '.join(missing)}")
             return False
 
@@ -637,10 +963,7 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
     def _build_spatial_graph(self):
         """Build the spatial graph (edges and adjacency matrices)."""
         if hasattr(self, 'edge_df') and self.edge_df is not None and not self.edge_df.empty:
-            print("[DEBUG] Spatial graph already built, skipping...")
             return True
-            
-        print("[DEBUG] Building spatial graph...")
         
         mode = self.graph_mode_combo.currentText()
         k = int(self.k_spin.value())
@@ -650,9 +973,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.rng_seed = self.seed_spinbox.value()
         random.seed(self.rng_seed)
         np.random.seed(self.rng_seed)
-        
-        print(f"[DEBUG] Analysis parameters - Mode: {mode}, k: {k}, radius_um: {radius_um}")
-        print(f"[DEBUG] Random seed: {self.rng_seed}")
 
         try:
             # Initialize global cell ID mapping
@@ -665,21 +985,19 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             global_id_counter = 0
             
             parent = self.parent() if hasattr(self, 'parent') else None
-            print(f"[DEBUG] Parent available: {parent is not None}")
 
+            # Get filtered dataframe (respects source file filter)
+            filtered_df = self._get_filtered_dataframe()
+            
             # Process per ROI/acquisition to respect ROI boundaries
-            roi_groups = list(self.feature_dataframe.groupby('acquisition_id'))
-            print(f"[DEBUG] Found {len(roi_groups)} ROI groups")
+            roi_col = self._get_roi_column()
+            roi_groups = list(filtered_df.groupby(roi_col))
             
             for roi_idx, (roi_id, roi_df) in enumerate(roi_groups):
-                print(f"[DEBUG] Processing ROI {roi_idx + 1}/{len(roi_groups)}: {roi_id}")
-                print(f"[DEBUG] ROI dataframe shape: {roi_df.shape}")
                 
                 roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])  # ensure valid coordinates
-                print(f"[DEBUG] After dropping NaN coordinates: {roi_df.shape}")
                 
                 if roi_df.empty:
-                    print(f"[DEBUG] ROI {roi_id} is empty after dropping NaN, skipping")
                     continue
                     
                 coords_px = roi_df[["centroid_x", "centroid_y"]].to_numpy(dtype=float)
@@ -696,49 +1014,37 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 
                 global_id_counter += len(cell_ids)
                 
-                print(f"[DEBUG] Coords shape: {coords_px.shape}, Cell IDs shape: {cell_ids.shape}")
 
                 # Get pixel size in µm for this ROI
                 pixel_size_um = 1.0
                 try:
                     if parent is not None and hasattr(parent, '_get_pixel_size_um'):
                         pixel_size_um = float(parent._get_pixel_size_um(roi_id))  # type: ignore[attr-defined]
-                        print(f"[DEBUG] Got pixel size from parent: {pixel_size_um}")
                 except Exception as e:
-                    print(f"[DEBUG] Could not get pixel size from parent: {e}")
                     pixel_size_um = 1.0
 
-                print(f"[DEBUG] Creating cKDTree with {len(coords_px)} points")
                 tree = cKDTree(coords_px)
-                print(f"[DEBUG] cKDTree created successfully")
 
                 # Use set to deduplicate edges during construction
                 roi_edges_set = set()
                 roi_edges_list = []
 
                 if mode == "kNN":
-                    print(f"[DEBUG] Running kNN analysis with k={k}")
                     # Query k+1 (including self), exclude self idx 0
                     query_k = min(k + 1, max(2, len(coords_px)))
-                    print(f"[DEBUG] Query k: {query_k}")
                     
                     try:
                         dists, idxs = tree.query(coords_px, k=query_k)
-                        print(f"[DEBUG] Query completed - dists type: {type(dists)}, shape: {getattr(dists, 'shape', 'scalar')}")
-                        print(f"[DEBUG] Query completed - idxs type: {type(idxs)}, shape: {getattr(idxs, 'shape', 'scalar')}")
                         
                         # Handle scalar case (when only 1 point or k=1)
                         if np.isscalar(dists):
-                            print(f"[DEBUG] Handling scalar case")
                             dists = np.array([[dists]])
                             idxs = np.array([[idxs]])
                         # Ensure 2D for array case
                         elif dists.ndim == 1:
-                            print(f"[DEBUG] Handling 1D array case")
                             dists = dists[:, None]
                             idxs = idxs[:, None]
                         
-                        print(f"[DEBUG] Final dists shape: {dists.shape}, idxs shape: {idxs.shape}")
                         
                         for i in range(len(coords_px)):
                             src_cell_id = int(cell_ids[i])
@@ -755,24 +1061,18 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                                     dist_um = float(dists[i, j]) * pixel_size_um
                                     roi_edges_list.append((src_cell_id, dst_cell_id, dist_um))
                         
-                        print(f"[DEBUG] kNN analysis completed for ROI {roi_id}, found {len(roi_edges_list)} unique edges")
                         
                     except Exception as e:
-                        print(f"[DEBUG] ERROR in kNN analysis for ROI {roi_id}: {e}")
-                        print(f"[DEBUG] Exception type: {type(e)}")
                         import traceback
                         traceback.print_exc()
                         raise
                         
                 elif mode == "Radius":
-                    print(f"[DEBUG] Running radius analysis with radius={radius_um}µm")
                     # Radius graph: convert radius µm to pixels
                     radius_px = radius_um / max(pixel_size_um, 1e-12)
-                    print(f"[DEBUG] Radius in pixels: {radius_px}")
                     
                     try:
                         pairs = tree.query_pairs(r=radius_px)
-                        print(f"[DEBUG] Found {len(pairs)} pairs within radius")
                         
                         for i, j in pairs:
                             a_id = int(cell_ids[int(i)])
@@ -785,22 +1085,17 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                                 dist_um = float(np.linalg.norm(coords_px[int(i)] - coords_px[int(j)])) * pixel_size_um
                                 roi_edges_list.append((a_id, b_id, dist_um))
                         
-                        print(f"[DEBUG] Radius analysis completed for ROI {roi_id}, found {len(roi_edges_list)} unique edges")
                         
                     except Exception as e:
-                        print(f"[DEBUG] ERROR in radius analysis for ROI {roi_id}: {e}")
-                        print(f"[DEBUG] Exception type: {type(e)}")
                         import traceback
                         traceback.print_exc()
                         raise
                         
                 elif mode == "Delaunay":
-                    print(f"[DEBUG] Running Delaunay triangulation for ROI {roi_id}")
                     
                     try:
                         # Delaunay triangulation
                         tri = Delaunay(coords_px)
-                        print(f"[DEBUG] Delaunay triangulation created with {len(tri.simplices)} triangles")
                         
                         # Extract edges from simplices (triangles)
                         edges_set = set()
@@ -818,21 +1113,16 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                                         dist_um = float(np.linalg.norm(coords_px[v1] - coords_px[v2])) * pixel_size_um
                                         roi_edges_list.append((a_id, b_id, dist_um))
                         
-                        print(f"[DEBUG] Delaunay analysis completed for ROI {roi_id}, found {len(roi_edges_list)} unique edges")
                         
                     except Exception as e:
-                        print(f"[DEBUG] ERROR in Delaunay analysis for ROI {roi_id}: {e}")
-                        print(f"[DEBUG] Exception type: {type(e)}")
                         import traceback
                         traceback.print_exc()
                         raise
                 else:
-                    print(f"[DEBUG] ERROR: Unknown mode '{mode}' for ROI {roi_id}")
                     raise ValueError(f"Unknown graph construction mode: {mode}")
 
                 # Build per-ROI adjacency matrix
                 if _HAVE_SPARSE and len(roi_edges_list) > 0:
-                    print(f"[DEBUG] Building adjacency matrix for ROI {roi_id}")
                     n_cells = len(cell_ids)
                     rows, cols, data = [], [], []
                     
@@ -852,21 +1142,16 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     if rows:
                         adj_matrix = sp.coo_matrix((data, (rows, cols)), shape=(n_cells, n_cells))
                         self.adj_matrices[roi_id_str] = adj_matrix.tocsr()
-                        print(f"[DEBUG] Created adjacency matrix for ROI {roi_id}: {adj_matrix.shape}")
                 
                 # Add edges to global edge records
                 for src_cell_id, dst_cell_id, dist_um in roi_edges_list:
                     edge_records.append((roi_id_str, src_cell_id, dst_cell_id, dist_um))
 
-            print(f"[DEBUG] Total edge records: {len(edge_records)}")
 
             # Create edge dataframe (no need for drop_duplicates since we deduplicated during construction)
             if edge_records:
-                print(f"[DEBUG] Creating edge dataframe from {len(edge_records)} records")
                 self.edge_df = pd.DataFrame(edge_records, columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
-                print(f"[DEBUG] Edge dataframe shape: {self.edge_df.shape}")
             else:
-                print(f"[DEBUG] No edge records, creating empty dataframe")
                 self.edge_df = pd.DataFrame(columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
 
             # Update metadata
@@ -880,7 +1165,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 "pixel_size_um": pixel_size_um,
             })
 
-            print(f"[DEBUG] Spatial graph built successfully with {len(self.edge_df)} edges")
             
             # Log graph construction
             logger = get_logger()
@@ -894,10 +1178,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 "num_rois": len(roi_groups),
                 "pixel_size_um": pixel_size_um
             }
-            # Get source file name from parent if available
-            source_file = None
-            if self.parent() is not None and hasattr(self.parent(), 'current_path'):
-                source_file = os.path.basename(self.parent().current_path) if self.parent().current_path else None
+            # Get source file names from dataframe
+            source_file = self._get_source_files_for_logging()
             logger.log_spatial_analysis(
                 analysis_type="graph_construction",
                 parameters=params,
@@ -912,8 +1194,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             return True
             
         except Exception as e:
-            print(f"[DEBUG] CRITICAL ERROR in spatial graph building: {e}")
-            print(f"[DEBUG] Exception type: {type(e)}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Spatial Graph Error", f"Error: {str(e)}\n\nCheck console for detailed debug information.")
@@ -921,7 +1201,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
     def _run_neighborhood_analysis(self):
         """Run neighborhood composition analysis."""
-        print("[DEBUG] Starting neighborhood analysis...")
         
         if not self._validate_data():
             return
@@ -930,26 +1209,24 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             return
             
         try:
-            print(f"[DEBUG] Starting neighborhood composition analysis...")
             self._compute_neighborhood_composition()
             
             self.neighborhood_analysis_run = True
             self._update_tab_states()
             
-            print(f"[DEBUG] Neighborhood analysis completed successfully")
             
             # Log neighborhood analysis
             logger = get_logger()
-            acquisitions = list(self.feature_dataframe['acquisition_id'].unique()) if 'acquisition_id' in self.feature_dataframe.columns else []
+            filtered_df = self._get_filtered_dataframe()
+            roi_col = self._get_roi_column()
+            acquisitions = list(filtered_df[roi_col].unique()) if roi_col in filtered_df.columns else []
             params = {
                 "graph_mode": self.graph_mode_combo.currentText(),
                 "k": int(self.k_spin.value()),
                 "radius_um": float(self.radius_spin.value())
             }
-            # Get source file name from parent if available
-            source_file = None
-            if self.parent() is not None and hasattr(self.parent(), 'current_path'):
-                source_file = os.path.basename(self.parent().current_path) if self.parent().current_path else None
+            # Get source file names from dataframe
+            source_file = self._get_source_files_for_logging()
             logger.log_spatial_analysis(
                 analysis_type="neighborhood_composition",
                 parameters=params,
@@ -962,18 +1239,15 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             self.export_btn.setEnabled(True)
             
             # Update visualization
-            print(f"[DEBUG] Updating neighborhood visualization...")
             self._update_neighborhood_plot()
             
         except Exception as e:
-            print(f"[DEBUG] ERROR in neighborhood analysis: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Neighborhood Analysis Error", f"Error: {str(e)}")
 
     def _run_enrichment_analysis(self):
         """Run pairwise enrichment analysis."""
-        print("[DEBUG] Starting enrichment analysis...")
         
         if not self.neighborhood_analysis_run:
             QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
@@ -981,24 +1255,22 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
         try:
             n_perm = int(self.n_perm_spin.value())
-            print(f"[DEBUG] Starting pairwise enrichment analysis with {n_perm} permutations...")
             self._compute_pairwise_enrichment(n_perm=n_perm)
             
             self.enrichment_analysis_run = True
             
-            print(f"[DEBUG] Enrichment analysis completed successfully")
             
             # Log enrichment analysis
             logger = get_logger()
-            acquisitions = list(self.feature_dataframe['acquisition_id'].unique()) if 'acquisition_id' in self.feature_dataframe.columns else []
+            filtered_df = self._get_filtered_dataframe()
+            roi_col = self._get_roi_column()
+            acquisitions = list(filtered_df[roi_col].unique()) if roi_col in filtered_df.columns else []
             params = {
                 "n_permutations": n_perm,
                 "seed": self.seed_spinbox.value()
             }
-            # Get source file name from parent if available
-            source_file = None
-            if self.parent() is not None and hasattr(self.parent(), 'current_path'):
-                source_file = os.path.basename(self.parent().current_path) if self.parent().current_path else None
+            # Get source file names from dataframe
+            source_file = self._get_source_files_for_logging()
             logger.log_spatial_analysis(
                 analysis_type="pairwise_enrichment",
                 parameters=params,
@@ -1010,38 +1282,33 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Enrichment Analysis", "Enrichment analysis completed successfully.")
             
             # Update visualization
-            print(f"[DEBUG] Updating enrichment visualization...")
             self._update_enrichment_plot()
             
         except Exception as e:
-            print(f"[DEBUG] ERROR in enrichment analysis: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Enrichment Analysis Error", f"Error: {str(e)}")
 
     def _run_distance_analysis(self):
         """Run distance distribution analysis."""
-        print("[DEBUG] Starting distance analysis...")
         
         if not self.neighborhood_analysis_run:
             QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
             return
             
         try:
-            print(f"[DEBUG] Starting distance distribution analysis...")
             self._compute_distance_distributions()
             
             self.distance_analysis_run = True
             
-            print(f"[DEBUG] Distance analysis completed successfully")
             
             # Log distance analysis
             logger = get_logger()
-            acquisitions = list(self.feature_dataframe['acquisition_id'].unique()) if 'acquisition_id' in self.feature_dataframe.columns else []
-            # Get source file name from parent if available
-            source_file = None
-            if self.parent() is not None and hasattr(self.parent(), 'current_path'):
-                source_file = os.path.basename(self.parent().current_path) if self.parent().current_path else None
+            filtered_df = self._get_filtered_dataframe()
+            roi_col = self._get_roi_column()
+            acquisitions = list(filtered_df[roi_col].unique()) if roi_col in filtered_df.columns else []
+            # Get source file names from dataframe
+            source_file = self._get_source_files_for_logging()
             logger.log_spatial_analysis(
                 analysis_type="distance_distribution",
                 parameters={},
@@ -1053,18 +1320,15 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Distance Analysis", "Distance analysis completed successfully.")
             
             # Update visualization
-            print(f"[DEBUG] Updating distance visualization...")
             self._update_distance_plot()
             
         except Exception as e:
-            print(f"[DEBUG] ERROR in distance analysis: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Distance Analysis Error", f"Error: {str(e)}")
 
     def _run_ripley_analysis(self):
         """Run Ripley K/L functions analysis."""
-        print("[DEBUG] Starting Ripley analysis...")
         
         if not self.neighborhood_analysis_run:
             QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
@@ -1073,24 +1337,22 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         try:
             ripley_r_max = float(self.ripley_r_max_spin.value())
             ripley_n_steps = int(self.ripley_n_steps_spin.value())
-            print(f"[DEBUG] Starting Ripley functions analysis with r_max={ripley_r_max}, steps={ripley_n_steps}...")
             self._compute_ripley_functions(r_max=ripley_r_max, n_steps=ripley_n_steps)
             
             self.ripley_analysis_run = True
             
-            print(f"[DEBUG] Ripley analysis completed successfully")
             
             # Log Ripley analysis
             logger = get_logger()
-            acquisitions = list(self.feature_dataframe['acquisition_id'].unique()) if 'acquisition_id' in self.feature_dataframe.columns else []
+            filtered_df = self._get_filtered_dataframe()
+            roi_col = self._get_roi_column()
+            acquisitions = list(filtered_df[roi_col].unique()) if roi_col in filtered_df.columns else []
             params = {
                 "r_max": ripley_r_max,
                 "n_steps": ripley_n_steps
             }
-            # Get source file name from parent if available
-            source_file = None
-            if self.parent() is not None and hasattr(self.parent(), 'current_path'):
-                source_file = os.path.basename(self.parent().current_path) if self.parent().current_path else None
+            # Get source file names from dataframe
+            source_file = self._get_source_files_for_logging()
             logger.log_spatial_analysis(
                 analysis_type="ripley_k",
                 parameters=params,
@@ -1101,20 +1363,40 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
             QtWidgets.QMessageBox.information(self, "Ripley Analysis", "Ripley analysis completed successfully.")
             
+            # Populate cluster selection combo box and enable radio buttons
+            if self.ripley_df is not None and not self.ripley_df.empty:
+                unique_clusters = sorted(self.ripley_df['cell_type'].unique())
+                self.ripley_cluster_combo.blockSignals(True)  # Block signals during population
+                self.ripley_cluster_combo.clear()
+                for cluster in unique_clusters:
+                    cluster_name = self._get_cluster_display_name(cluster)
+                    self.ripley_cluster_combo.addItem(cluster_name, cluster)
+                self.ripley_cluster_combo.setEnabled(True)
+                # Default to first cluster
+                if self.ripley_cluster_combo.count() > 0:
+                    self.ripley_cluster_combo.setCurrentIndex(0)
+                self.ripley_cluster_combo.blockSignals(False)  # Re-enable signals
+                
+                # Enable radio buttons
+                if hasattr(self, 'ripley_k_radio'):
+                    self.ripley_k_radio.setEnabled(True)
+                if hasattr(self, 'ripley_l_radio'):
+                    self.ripley_l_radio.setEnabled(True)
+            
             # Update visualization
-            print(f"[DEBUG] Updating Ripley visualization...")
             self._update_ripley_plot()
             
         except Exception as e:
-            print(f"[DEBUG] ERROR in Ripley analysis: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Ripley Analysis Error", f"Error: {str(e)}")
 
     def _populate_roi_combo(self):
         """Populate the ROI combo box and list widget with available ROIs."""
-        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
-            unique_rois = sorted(self.feature_dataframe['acquisition_id'].unique())
+        filtered_df = self._get_filtered_dataframe()
+        if filtered_df is not None and not filtered_df.empty:
+            roi_col = self._get_roi_column()
+            unique_rois = sorted(filtered_df[roi_col].unique())
             self.roi_combo.clear()
             self.roi_combo.addItems([str(roi) for roi in unique_rois])
             
@@ -1125,7 +1407,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 item.setCheckState(QtCore.Qt.Unchecked)
                 self.roi_list_widget.addItem(item)
             
-            print(f"[DEBUG] Populated ROI combo with {len(unique_rois)} ROIs")
 
     def _populate_spatial_color_options(self):
         """Populate the spatial color combo box with available features (searchable)."""
@@ -1166,7 +1447,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 marker_name = feature.replace('_mean', '').replace('_', ' ')
                 self.spatial_color_combo.addItem(f"Marker: {marker_name}")
             
-            print(f"[DEBUG] Populated spatial color options with {self.spatial_color_combo.count()} options")
 
     def _populate_spatial_size_options(self):
         """Populate the spatial size combo box with available features (searchable)."""
@@ -1193,15 +1473,15 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 marker_name = feature.replace('_mean', '').replace('_', ' ')
                 self.spatial_size_combo.addItem(f"Marker: {marker_name}")
             
-            print(f"[DEBUG] Populated spatial size options with {self.spatial_size_combo.count()} options")
 
     def _populate_community_roi_combo(self):
         """Populate the community ROI combo box with available ROIs."""
-        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
-            unique_rois = sorted(self.feature_dataframe['acquisition_id'].unique())
+        filtered_df = self._get_filtered_dataframe()
+        if filtered_df is not None and not filtered_df.empty:
+            roi_col = self._get_roi_column()
+            unique_rois = sorted(filtered_df[roi_col].unique())
             self.community_roi_combo.clear()
             self.community_roi_combo.addItems([str(roi) for roi in unique_rois])
-            print(f"[DEBUG] Populated community ROI combo with {len(unique_rois)} ROIs")
 
     def _populate_exclude_clusters_list(self):
         """Populate the exclude clusters list with available cluster types."""
@@ -1224,7 +1504,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                         item.setData(QtCore.Qt.UserRole, cluster)
                         self.exclude_clusters_list.addItem(item)
                 
-                print(f"[DEBUG] Populated exclude clusters list with {self.exclude_clusters_list.count()} cluster types")
 
     def _on_faceted_plot_toggled(self, checked):
         """Handle faceted plot checkbox toggle."""
@@ -1239,7 +1518,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
 
     def _run_spatial_visualization(self):
         """Generate spatial visualization for the selected ROI(s)."""
-        print("[DEBUG] Starting spatial visualization...")
         
         if not self.neighborhood_analysis_run:
             QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
@@ -1258,7 +1536,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     QtWidgets.QMessageBox.warning(self, "No ROIs Selected", "Please select at least one ROI for faceted plot.")
                     return
                 
-                print(f"[DEBUG] Generating faceted spatial visualization for {len(selected_rois)} ROIs")
                 self._create_faceted_spatial_visualization(selected_rois)
             else:
                 # Single ROI mode
@@ -1267,23 +1544,20 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     return
                 
                 selected_roi = self.roi_combo.currentText()
-                print(f"[DEBUG] Generating spatial visualization for ROI: {selected_roi}")
                 self._create_spatial_visualization(selected_roi)
             
             self.spatial_viz_run = True
             self._update_tab_states()
             
-            print(f"[DEBUG] Spatial visualization completed successfully")
             QtWidgets.QMessageBox.information(self, "Spatial Visualization", "Spatial visualization completed successfully.")
             
         except Exception as e:
-            print(f"[DEBUG] ERROR in spatial visualization: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Spatial Visualization Error", f"Error: {str(e)}")
 
     def _on_spatial_viz_option_changed(self):
-        """Handle color/size option changes - update plot without regenerating edges."""
+        """Handle color/size option changes - regenerate entire plot for safety."""
         if not self.spatial_viz_run:
             return  # Don't update if plot hasn't been generated yet
         
@@ -1292,8 +1566,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         current_roi = self.roi_combo.currentText()
         if current_roi and current_roi in self.spatial_viz_cache:
-            # Update only the scatter plot, not edges
-            self._update_spatial_scatter_plot(current_roi)
+            # Regenerate entire plot to avoid zoom/rotation issues
+            self._create_spatial_visualization(current_roi, force_regenerate=True)
 
     def _create_spatial_visualization(self, roi_id, force_regenerate=False):
         """Create spatial visualization showing cells and edges for a specific ROI."""
@@ -1309,13 +1583,26 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             roi_df = cache['roi_df']
             roi_edges = cache['roi_edges']
             cell_coords = cache['cell_coords']
+            
+            # If cache doesn't have data limits (old cache entry), calculate and store them
+            if 'data_xlim' not in cache or 'data_ylim' not in cache:
+                x_coords = roi_df['centroid_x'].values
+                y_coords = roi_df['centroid_y'].values
+                x_min, x_max = x_coords.min(), x_coords.max()
+                y_min, y_max = y_coords.min(), y_coords.max()
+                # Add small padding (2% of range) to prevent points from touching edges
+                x_padding = (x_max - x_min) * 0.02 if x_max > x_min else 1.0
+                y_padding = (y_max - y_min) * 0.02 if y_max > y_min else 1.0
+                cache['data_xlim'] = (x_min - x_padding, x_max + x_padding)
+                cache['data_ylim'] = (y_min - y_padding, y_max + y_padding)
         else:
-            # Get data for the selected ROI
-            roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+            # Get data for the selected ROI (use filtered dataframe)
+            filtered_df = self._get_filtered_dataframe()
+            roi_col = self._get_roi_column()
+            roi_df = filtered_df[filtered_df[roi_col] == roi_id].copy()
             roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
             
             if roi_df.empty:
-                print(f"[DEBUG] No data found for ROI {roi_id}")
                 return
             
             # Create a mapping from cell_id to coordinates
@@ -1323,26 +1610,39 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             for _, row in roi_df.iterrows():
                 cell_coords[int(row['cell_id'])] = (row['centroid_x'], row['centroid_y'])
             
-            # Cache the data
+            # Calculate and store original data coordinate limits (before any plotting)
+            # This ensures we always use the same limits regardless of point sizes
+            x_coords = roi_df['centroid_x'].values
+            y_coords = roi_df['centroid_y'].values
+            x_min, x_max = x_coords.min(), x_coords.max()
+            y_min, y_max = y_coords.min(), y_coords.max()
+            # Add small padding (2% of range) to prevent points from touching edges
+            x_padding = (x_max - x_min) * 0.02 if x_max > x_min else 1.0
+            y_padding = (y_max - y_min) * 0.02 if y_max > y_min else 1.0
+            data_xlim = (x_min - x_padding, x_max + x_padding)
+            data_ylim = (y_min - y_padding, y_max + y_padding)
+            
+            # Cache the data including original coordinate limits
             self.spatial_viz_cache[roi_id] = {
                 'roi_df': roi_df,
                 'roi_edges': roi_edges,
-                'cell_coords': cell_coords
+                'cell_coords': cell_coords,
+                'data_xlim': data_xlim,
+                'data_ylim': data_ylim
             }
         
         # Get color and size options
         color_option = self.spatial_color_combo.currentText()
         size_option = self.spatial_size_combo.currentText()
-        print(f"[DEBUG] Color option: {color_option}, Size option: {size_option}")
         
         # Clear the canvas only if forcing regeneration or not using cache
         if not use_cache:
             self.spatial_viz_canvas.figure.clear()
             ax = self.spatial_viz_canvas.figure.add_subplot(111)
             
-            # Plot edges first (so they appear behind the nodes) - only if regenerating
-            if not roi_edges.empty:
-                print(f"[DEBUG] Plotting {len(roi_edges)} edges for ROI {roi_id}")
+            # Plot edges first (so they appear behind the nodes) - only if checkbox is checked
+            show_edges = hasattr(self, 'spatial_show_edges_check') and self.spatial_show_edges_check.isChecked()
+            if show_edges and not roi_edges.empty:
                 
                 # Plot edges
                 for _, edge in roi_edges.iterrows():
@@ -1366,14 +1666,32 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         if not use_cache:
             ax.set_xlabel('X Position (pixels)')
             ax.set_ylabel('Y Position (pixels)')
-            ax.set_title(f'Spatial Visualization - ROI {roi_id}')
-            ax.set_aspect('equal')
-            ax.invert_yaxis()
+            # Add source file info to title if available
+            source_file_info = ""
+            if 'source_file' in roi_df.columns and not roi_df['source_file'].isna().all():
+                source_file = roi_df['source_file'].iloc[0]
+                if pd.notna(source_file):
+                    source_file_info = f" ({source_file})"
+            ax.set_title(f'Spatial Visualization - ROI {roi_id}{source_file_info}')
             ax.grid(True, alpha=0.3)
+            
+            # Set axis limits from cached data limits BEFORE plotting to prevent expansion
+            if roi_id in self.spatial_viz_cache:
+                cache = self.spatial_viz_cache[roi_id]
+                if 'data_xlim' in cache and 'data_ylim' in cache:
+                    ax.set_xlim(cache['data_xlim'])
+                    ax.set_ylim(cache['data_ylim'])
+                    # Disable autoscaling to keep limits fixed
+                    ax.set_autoscale_on(False)
+            
+            # Set axis properties
+            # Use adjustable='box' to prevent matplotlib from adjusting data limits to maintain aspect
+            ax.set_aspect('equal', adjustable='box')
+            ax.invert_yaxis()
+            
             self.spatial_viz_canvas.figure.tight_layout()
         
         self.spatial_viz_canvas.draw()
-        print(f"[DEBUG] Spatial visualization created for ROI {roi_id} with {len(roi_df)} cells and {len(roi_edges)} edges")
 
     def _update_spatial_scatter_plot(self, roi_id, ax=None):
         """Update only the scatter plot (cells) without regenerating edges."""
@@ -1389,9 +1707,37 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             if ax is None:
                 return
         
+        # Get stored data coordinate limits - these are the true data bounds
+        if 'data_xlim' in cache and 'data_ylim' in cache:
+            xlim = cache['data_xlim']
+            ylim = cache['data_ylim']
+        else:
+            # Fallback: calculate from data
+            x_coords = roi_df['centroid_x'].values
+            y_coords = roi_df['centroid_y'].values
+            x_min, x_max = x_coords.min(), x_coords.max()
+            y_min, y_max = y_coords.min(), y_coords.max()
+            x_padding = (x_max - x_min) * 0.02 if x_max > x_min else 1.0
+            y_padding = (y_max - y_min) * 0.02 if y_max > y_min else 1.0
+            xlim = (x_min - x_padding, x_max + x_padding)
+            ylim = (y_min - y_padding, y_max + y_padding)
+        
+        # Store aspect ratio
+        aspect = ax.get_aspect()
+        
+        # Set axis limits FIRST before any plotting to prevent expansion
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        # Use adjustable='box' to prevent matplotlib from adjusting data limits to maintain aspect
+        # This will adjust the axes box size instead, preventing the warning
+        ax.set_aspect(aspect, adjustable='box')
+        
+        # Disable autoscaling to prevent matplotlib from adjusting limits
+        ax.set_autoscale_on(False)
+        
         # Clear existing scatter plots and colorbars (but keep edges)
         for artist in ax.collections[:]:
-            if isinstance(artist, plt.PathCollection):  # scatter plots
+            if isinstance(artist, PathCollection):  # scatter plots
                 artist.remove()
         for cbar in self.spatial_viz_canvas.figure.axes[1:]:  # colorbars
             cbar.remove()
@@ -1401,10 +1747,13 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Get color and size options
         color_option = self.spatial_color_combo.currentText()
         size_option = self.spatial_size_combo.currentText()
+        point_size_multiplier = float(self.spatial_point_size_spin.value())
         
         # Get size values if specified
         size_values = None
         size_feature_name = None
+        size_min_val = None
+        size_max_val = None
         if size_option and size_option != "None":
             if size_option.startswith("Morphology:"):
                 size_feature_name = size_option.replace("Morphology: ", "")
@@ -1414,18 +1763,19 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
             if size_feature_name and size_feature_name in roi_df.columns:
                 size_values = roi_df[size_feature_name].values
-                # Normalize sizes to reasonable range (20-200)
+                # Normalize sizes to reasonable range (20-200) * multiplier
                 valid_sizes = size_values[~np.isnan(size_values)]
                 if len(valid_sizes) > 0:
-                    min_size, max_size = valid_sizes.min(), valid_sizes.max()
-                    if max_size > min_size:
-                        size_values = 20 + 180 * (size_values - min_size) / (max_size - min_size)
+                    size_min_val = valid_sizes.min()
+                    size_max_val = valid_sizes.max()
+                    if size_max_val > size_min_val:
+                        size_values = (20 + 180 * (size_values - size_min_val) / (size_max_val - size_min_val)) * point_size_multiplier
                     else:
-                        size_values = np.full_like(size_values, 50)
+                        size_values = np.full_like(size_values, 50 * point_size_multiplier)
                 else:
                     size_values = None
         else:
-            size_values = 20  # Default size
+            size_values = 20 * point_size_multiplier  # Default size
         
         # Get all coordinates
         x_coords = roi_df['centroid_x'].values
@@ -1449,7 +1799,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                         break
             
             if cluster_col is None:
-                print(f"[DEBUG] No cluster column found for ROI {roi_id}")
                 return
                 
             # Get unique clusters and create color map
@@ -1461,12 +1810,14 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             cluster_color_map = {cluster: colors[i % len(colors)] for i, cluster in enumerate(unique_clusters)}
             
             # Plot cells (nodes) colored by cluster with optional size encoding
+            total_points = 0
             for cluster in unique_clusters:
                 cluster_mask = roi_df[cluster_col] == cluster
                 cluster_cells = roi_df[cluster_mask]
                 if not cluster_cells.empty:
                     cluster_x = cluster_cells['centroid_x'].values
                     cluster_y = cluster_cells['centroid_y'].values
+                    total_points += len(cluster_x)
                     
                     # Get sizes for this cluster
                     if isinstance(size_values, np.ndarray):
@@ -1474,15 +1825,36 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     else:
                         cluster_sizes = size_values
                     
-                    # Plot cells as points
+                    # Plot cells as points (limits already set, clip to axes)
                     ax.scatter(cluster_x, cluster_y, 
                               c=[cluster_color_map[cluster]], 
                               s=cluster_sizes, alpha=0.8, edgecolors='black', linewidth=0.5,
                               label=self._get_cluster_display_name(cluster),
-                              zorder=2)
+                              zorder=2, clip_on=True)
             
-            # Add legend for clusters
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+            
+            # Re-apply limits after plotting to ensure they stay fixed
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
+            
+            # Add legend for clusters with uniform point sizes
+            # Create custom legend handles with uniform sizes (not variable sizes from scatter)
+            legend_handles = []
+            for cluster in unique_clusters:
+                cluster_name = self._get_cluster_display_name(cluster)
+                # Use uniform size for legend markers regardless of actual point sizes
+                legend_handles.append(
+                    plt.Line2D([0], [0], marker='o', color='w', 
+                              markerfacecolor=cluster_color_map[cluster], 
+                              markeredgecolor='black', markeredgewidth=0.5,
+                              markersize=8,  # Uniform size for all legend markers
+                              label=cluster_name, linestyle='None')
+                )
+            ax.legend(handles=legend_handles, bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+            
+            # Add size legend if size encoding is used
+            if size_option and size_option != "None" and size_min_val is not None and size_max_val is not None:
+                self._add_size_legend(ax, size_min_val, size_max_val, point_size_multiplier)
             
         else:
             # Color by continuous feature (morphology or marker expression)
@@ -1511,39 +1883,91 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     else:
                         valid_sizes = size_values
                     
-                    # Create scatter plot with colorbar
+                    # Create scatter plot with colorbar (limits already set, clip to axes)
                     scatter = ax.scatter(valid_x, valid_y, 
                                        c=valid_values, 
                                        s=valid_sizes, alpha=0.8, edgecolors='black', linewidth=0.5,
-                                       cmap='viridis', zorder=2)
+                                       cmap='viridis', zorder=2, clip_on=True)
+                    
+                    
+                    # Re-apply limits after plotting to ensure they stay fixed
+                    ax.set_xlim(xlim)
+                    ax.set_ylim(ylim)
                     
                     # Add colorbar
                     cbar = self.spatial_viz_canvas.figure.colorbar(scatter, ax=ax)
                     cbar.set_label(feature_name, rotation=270, labelpad=15)
+                    
+                    # Add size legend if size encoding is used
+                    if size_option and size_option != "None" and size_min_val is not None and size_max_val is not None:
+                        self._add_size_legend(ax, size_min_val, size_max_val, point_size_multiplier)
                 else:
-                    print(f"[DEBUG] No valid values found for feature {feature_name}")
                     return
             else:
-                print(f"[DEBUG] Feature {feature_name} not found in data")
                 return
         
+        # Re-apply axis limits to ensure they stay fixed (matplotlib might adjust them during plotting)
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        # Use adjustable='box' to prevent matplotlib from adjusting data limits
+        ax.set_aspect(aspect, adjustable='box')
+        if not ax.yaxis_inverted():
+            ax.invert_yaxis()
+        
         # Customize the plot
-        ax.set_xlabel('X Position (pixels)')
-        ax.set_ylabel('Y Position (pixels)')
+        if not ax.get_xlabel() or ax.get_xlabel() == '':
+            ax.set_xlabel('X Position (pixels)')
+        if not ax.get_ylabel() or ax.get_ylabel() == '':
+            ax.set_ylabel('Y Position (pixels)')
         ax.set_title(f'Spatial Visualization - ROI {roi_id}')
-        ax.set_aspect('equal')
-        
-        # Invert y-axis to match typical image coordinates (origin at top-left)
-        ax.invert_yaxis()
-        
-        # Add grid
         ax.grid(True, alpha=0.3)
         
-        # Adjust layout to prevent legend cutoff
-        self.spatial_viz_canvas.figure.tight_layout()
-        self.spatial_viz_canvas.draw()
+        # Don't call tight_layout() on every update - it can change axis limits and cause rotation
+        # Only draw the canvas, layout should already be set from initial creation
+        self.spatial_viz_canvas.draw_idle()
         
-        print(f"[DEBUG] Spatial visualization created for ROI {roi_id} with {len(roi_df)} cells and {len(roi_edges)} edges")
+        # Get roi_edges from cache for debug message
+        cache = self.spatial_viz_cache.get(roi_id, {})
+        roi_edges = cache.get('roi_edges', pd.DataFrame())
+
+    def _add_size_legend(self, ax, min_val, max_val, multiplier):
+        """Add a legend showing point sizes and their corresponding values."""
+        # Create example sizes (min, mid, max)
+        example_sizes = [
+            (20 * multiplier, min_val),
+            (110 * multiplier, (min_val + max_val) / 2),
+            (200 * multiplier, max_val)
+        ]
+        
+        # Get the size feature name for display
+        size_option = self.spatial_size_combo.currentText()
+        if size_option.startswith("Morphology:"):
+            size_feature_name = size_option.replace("Morphology: ", "")
+        elif size_option.startswith("Marker:"):
+            size_feature_name = size_option.replace("Marker: ", "")
+        else:
+            size_feature_name = "Value"
+        
+        # Create legend handles
+        legend_elements = []
+        for size, val in example_sizes:
+            # Create a scatter point for the legend
+            legend_elements.append(
+                plt.Line2D([0], [0], marker='o', color='w', 
+                          markerfacecolor='gray', markeredgecolor='black',
+                          markersize=np.sqrt(size) / 2,  # Approximate marker size
+                          label=f'{size_feature_name}: {val:.2f}',
+                          linestyle='None')
+            )
+        
+        # Add legend to the right side of the plot
+        ax2 = ax.twinx()
+        ax2.set_ylim(ax.get_ylim())
+        ax2.set_xlim(ax.get_xlim())
+        ax2.axis('off')
+        legend = ax2.legend(handles=legend_elements, loc='lower right', 
+                           title='Point Size', fontsize=8, framealpha=0.9)
+        legend.get_title().set_fontsize(9)
 
     def _create_faceted_spatial_visualization(self, roi_ids):
         """Create faceted spatial visualization showing multiple ROIs side by side."""
@@ -1555,7 +1979,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         # Get color option
         color_option = self.spatial_color_combo.currentText()
-        print(f"[DEBUG] Color option selected: {color_option}")
         
         # Clear the canvas
         self.spatial_viz_canvas.figure.clear()
@@ -1597,18 +2020,27 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             ax = self.spatial_viz_canvas.figure.add_subplot(n_rows, n_cols, idx + 1)
             axes.append(ax)
             
-            # Get data for this ROI
-            roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+            # Get data for this ROI (use filtered dataframe)
+            filtered_df = self._get_filtered_dataframe()
+            roi_col = self._get_roi_column()
+            roi_df = filtered_df[filtered_df[roi_col] == roi_id].copy()
             roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
             
             if roi_df.empty:
                 ax.text(0.5, 0.5, f'No data for ROI {roi_id}', 
                        ha='center', va='center', transform=ax.transAxes)
-                ax.set_title(f'ROI {roi_id}')
+                # Add source file info to title if available
+                source_file_info = ""
+                if 'source_file' in roi_df.columns and not roi_df['source_file'].isna().all():
+                    source_file = roi_df['source_file'].iloc[0]
+                    if pd.notna(source_file):
+                        source_file_info = f" ({source_file})"
+                ax.set_title(f'ROI {roi_id}{source_file_info}')
                 continue
             
-            # Plot edges first
-            if not roi_edges.empty:
+            # Plot edges first (only if checkbox is checked)
+            show_edges = hasattr(self, 'spatial_show_edges_check') and self.spatial_show_edges_check.isChecked()
+            if show_edges and not roi_edges.empty:
                 cell_coords = {}
                 for _, row_data in roi_df.iterrows():
                     cell_coords[int(row_data['cell_id'])] = (row_data['centroid_x'], row_data['centroid_y'])
@@ -1658,7 +2090,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
             # Customize subplot
             ax.set_title(f'ROI {roi_id}', fontsize=10)
-            ax.set_aspect('equal')
+            # Use adjustable='box' to prevent matplotlib from adjusting data limits
+            ax.set_aspect('equal', adjustable='box')
             ax.invert_yaxis()
             ax.grid(True, alpha=0.3)
             
@@ -1688,11 +2121,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.spatial_viz_canvas.figure.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
         self.spatial_viz_canvas.draw()
         
-        print(f"[DEBUG] Faceted spatial visualization created for {len(roi_ids)} ROIs")
 
     def _run_community_analysis(self):
         """Run spatial community detection analysis."""
-        print("[DEBUG] Starting spatial community analysis...")
         
         if not self.neighborhood_analysis_run:
             QtWidgets.QMessageBox.warning(self, "Prerequisite Required", "Please run neighborhood analysis first.")
@@ -1705,14 +2136,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         try:
             selected_roi = self.community_roi_combo.currentText()
             min_cells = int(self.min_cells_spin.value())
-            print(f"[DEBUG] Running community analysis for ROI: {selected_roi}, min_cells: {min_cells}")
             
             self._detect_spatial_communities(selected_roi, min_cells)
             
             self.community_analysis_run = True
             self._update_tab_states()
             
-            print(f"[DEBUG] Community analysis completed successfully")
             
             # Log community analysis
             logger = get_logger()
@@ -1721,10 +2150,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 "min_cells": min_cells,
                 "seed": self.seed_spinbox.value()
             }
-            # Get source file name from parent if available
-            source_file = None
-            if self.parent() is not None and hasattr(self.parent(), 'current_path'):
-                source_file = os.path.basename(self.parent().current_path) if self.parent().current_path else None
+            # Get source file names from dataframe
+            source_file = self._get_source_files_for_logging()
             logger.log_spatial_analysis(
                 analysis_type="community_detection",
                 parameters=params,
@@ -1736,7 +2163,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Community Analysis", "Spatial community analysis completed successfully.")
             
         except Exception as e:
-            print(f"[DEBUG] ERROR in community analysis: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Community Analysis Error", f"Error: {str(e)}")
@@ -1746,12 +2172,13 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         if self.feature_dataframe is None or self.edge_df is None:
             return
             
-        # Get data for the selected ROI
-        roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+        # Get data for the selected ROI (use filtered dataframe)
+        filtered_df = self._get_filtered_dataframe()
+        roi_col = self._get_roi_column()
+        roi_df = filtered_df[filtered_df[roi_col] == roi_id].copy()
         roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
         
         if roi_df.empty:
-            print(f"[DEBUG] No data found for ROI {roi_id}")
             return
             
         # Get cluster column for exclusion
@@ -1770,7 +2197,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     excluded_clusters.append(item.data(QtCore.Qt.UserRole))
             
             if excluded_clusters:
-                print(f"[DEBUG] Excluding clusters: {excluded_clusters}")
                 roi_df = roi_df[~roi_df[cluster_col].isin(excluded_clusters)]
                 # Also filter edges to only include remaining cells
                 remaining_cells = set(roi_df['cell_id'].astype(int))
@@ -1778,10 +2204,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     (roi_edges['cell_id_A'].isin(remaining_cells)) & 
                     (roi_edges['cell_id_B'].isin(remaining_cells))
                 ]
-                print(f"[DEBUG] After exclusion: {len(roi_df)} cells, {len(roi_edges)} edges")
         
         if roi_df.empty or roi_edges.empty:
-            print(f"[DEBUG] No data remaining after exclusion for ROI {roi_id}")
             return
         
         # Create NetworkX graph
@@ -1795,7 +2219,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         for _, edge in roi_edges.iterrows():
             G.add_edge(int(edge['cell_id_A']), int(edge['cell_id_B']))
         
-        print(f"[DEBUG] Created graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
         
         # Run Louvain community detection with fixed seed for reproducibility
         seed = self.seed_spinbox.value()
@@ -1804,16 +2227,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         try:
             communities = nx.community.louvain_communities(G, seed=seed)
-            print(f"[DEBUG] Found {len(communities)} communities")
         except Exception as e:
-            print(f"[DEBUG] Error in community detection: {e}")
             # Fallback to simple connected components
             communities = list(nx.connected_components(G))
-            print(f"[DEBUG] Using connected components: {len(communities)} communities")
         
         # Filter communities by minimum size
         filtered_communities = [comm for comm in communities if len(comm) >= min_cells]
-        print(f"[DEBUG] After filtering (min_cells={min_cells}): {len(filtered_communities)} communities")
         
         # Assign community IDs to cells
         community_assignments = {}
@@ -1853,7 +2272,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         # Plot edges first (so they appear behind the nodes)
         if not roi_edges.empty:
-            print(f"[DEBUG] Plotting {len(roi_edges)} edges for community visualization")
             
             # Create a mapping from cell_id to coordinates
             cell_coords = {}
@@ -1891,7 +2309,13 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Customize the plot
         ax.set_xlabel('X Position (pixels)')
         ax.set_ylabel('Y Position (pixels)')
-        ax.set_title(f'Spatial Communities - ROI {results["roi_id"]} (min_cells={results["min_cells"]})')
+        # Add source file info to title if available
+        source_file_info = ""
+        if 'source_file' in roi_df.columns and not roi_df['source_file'].isna().all():
+            source_file = roi_df['source_file'].iloc[0]
+            if pd.notna(source_file):
+                source_file_info = f" ({source_file})"
+        ax.set_title(f'Spatial Communities - ROI {results["roi_id"]}{source_file_info} (min_cells={results["min_cells"]})')
         ax.set_aspect('equal')
         
         # Add legend
@@ -1907,7 +2331,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.community_canvas.figure.tight_layout()
         self.community_canvas.draw()
         
-        print(f"[DEBUG] Community visualization created with {len(communities)} communities")
 
     def _export_results(self):
         if self.edge_df is None:
@@ -1992,13 +2415,15 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         G = nx.Graph()
         
-        # Filter edges by ROI if specified
+        # Filter edges by ROI if specified (use filtered dataframe)
+        filtered_df = self._get_filtered_dataframe()
         if roi_id is not None:
             roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)].copy()
-            roi_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == roi_id].copy()
+            roi_col = self._get_roi_column()
+            roi_df = filtered_df[filtered_df[roi_col] == roi_id].copy()
         else:
             roi_edges = self.edge_df.copy()
-            roi_df = self.feature_dataframe.copy()
+            roi_df = filtered_df.copy()
         
         if roi_df.empty or roi_edges.empty:
             raise ValueError(f"No data available for ROI: {roi_id}")
@@ -2121,7 +2546,9 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         roi_layout.addWidget(QtWidgets.QLabel("Export graph for:"))
         roi_combo = QtWidgets.QComboBox()
         roi_combo.addItem("All ROIs (combined)", None)
-        unique_rois = sorted(self.feature_dataframe['acquisition_id'].unique())
+        filtered_df = self._get_filtered_dataframe()
+        roi_col = self._get_roi_column()
+        unique_rois = sorted(filtered_df[roi_col].unique())
         for roi_id in unique_rois:
             roi_combo.addItem(str(roi_id), roi_id)
         roi_layout.addWidget(roi_combo)
@@ -2194,31 +2621,25 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         try:
             # Build graph
             roi_label = str(roi_id) if roi_id is not None else "all_rois"
-            print(f"[DEBUG] Building graph for ROI: {roi_label}")
             G = self._build_graph_with_features(roi_id=roi_id)
-            print(f"[DEBUG] Built graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
             
             # Export NetworkX formats
             if export_networkx:
                 if "GraphML" in nx_format or nx_format == "Both":
                     graphml_file = os.path.join(out_dir, f"spatial_graph_{roi_label}.graphml")
                     nx.write_graphml(G, graphml_file)
-                    print(f"[DEBUG] Exported NetworkX GraphML to: {graphml_file}")
                 
                 if "Pickle" in nx_format or nx_format == "Both":
                     pickle_file = os.path.join(out_dir, f"spatial_graph_{roi_label}.gpickle")
                     nx.write_gpickle(G, pickle_file)
-                    print(f"[DEBUG] Exported NetworkX pickle to: {pickle_file}")
             
             # Export igraph formats
             if export_igraph:
                 ig_G = self._convert_to_igraph(G)
-                print(f"[DEBUG] Converted to igraph with {len(ig_G.vs)} vertices and {len(ig_G.es)} edges")
                 
                 if "GraphML" in ig_format or ig_format == "Both":
                     graphml_file = os.path.join(out_dir, f"spatial_graph_{roi_label}_igraph.graphml")
                     ig_G.write_graphml(graphml_file)
-                    print(f"[DEBUG] Exported igraph GraphML to: {graphml_file}")
                 
                 if "Pickle" in ig_format or ig_format == "Both":
                     pickle_file = os.path.join(out_dir, f"spatial_graph_{roi_label}_igraph.pickle")
@@ -2226,7 +2647,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     import pickle
                     with open(pickle_file, 'wb') as f:
                         pickle.dump(ig_G, f)
-                    print(f"[DEBUG] Exported igraph pickle to: {pickle_file}")
             
             # Export metadata about the graph
             metadata = {
@@ -2255,7 +2675,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             )
             
         except Exception as e:
-            print(f"[DEBUG] Error exporting graph: {e}")
             import traceback
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Export Error", f"Error exporting graph:\n{str(e)}")
@@ -2282,8 +2701,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Initialize neighborhood composition dataframe
         neighborhood_data = []
         
+        # Get filtered dataframe (respects source file filter)
+        filtered_df = self._get_filtered_dataframe()
+        
         # Process each ROI separately
-        for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
+        roi_col = self._get_roi_column()
+        for roi_id, roi_df in filtered_df.groupby(roi_col):
             roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)]
             
             if roi_edges.empty:
@@ -2347,6 +2770,11 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
             self.cluster_summary_df = pd.DataFrame(cluster_summary_data)
 
+    def _on_hierarchical_changed(self):
+        """Handle hierarchical clustering checkbox state change."""
+        if self.neighborhood_analysis_run:
+            self._update_neighborhood_plot()
+
     def _update_neighborhood_plot(self):
         """Update the neighborhood composition visualization."""
         if self.neighborhood_df is None or self.neighborhood_df.empty:
@@ -2360,16 +2788,14 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
         self.neighborhood_canvas.figure.clear()
         
-        # Create subplots
-        fig = self.neighborhood_canvas.figure
-        ax1 = fig.add_subplot(121)
-        ax2 = fig.add_subplot(122)
-        
         # Get cluster information
         unique_clusters = sorted(self.neighborhood_df['cluster_id'].unique())
         n_clusters = len(unique_clusters)
         
-        # Plot 1: Average neighborhood composition per cluster
+        # Check if hierarchical clustering is enabled
+        use_hierarchical = self.neighborhood_hierarchical_cb.isChecked()
+        
+        # Plot: Average neighborhood composition per cluster
         if self.cluster_summary_df is not None and not self.cluster_summary_df.empty:
             cluster_labels = [self._get_cluster_display_name(c) for c in unique_clusters]
             neighbor_labels = [self._get_cluster_display_name(c) for c in unique_clusters]
@@ -2384,45 +2810,110 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                         if col_name in cluster_row.columns:
                             composition_matrix[i, j] = cluster_row.iloc[0][col_name]
             
-            # Heatmap
-            im = ax1.imshow(composition_matrix, cmap='viridis', aspect='auto')
-            ax1.set_xticks(range(n_clusters))
-            # Calculate font size based on number of labels and label length
-            max_label_len = max([len(str(l)) for l in neighbor_labels] + [1])
-            fontsize = max(6, min(10, 12 - max_label_len // 5))
-            ax1.set_xticklabels(neighbor_labels, rotation=45, ha='right', fontsize=fontsize)
-            ax1.set_yticks(range(len(unique_clusters)))
-            ax1.set_yticklabels(cluster_labels, fontsize=fontsize)
-            ax1.set_xlabel('Neighbor Cluster')
-            ax1.set_ylabel('Cell Cluster')
-            ax1.set_title('Average Neighborhood Composition')
+            # Create DataFrame for seaborn (rows = cell clusters, columns = neighbor clusters)
+            composition_df = pd.DataFrame(
+                composition_matrix,
+                index=cluster_labels,
+                columns=neighbor_labels
+            )
             
-            # Add colorbar
-            fig.colorbar(im, ax=ax1, label='Fraction')
-        
-        # Plot 2: Distribution of neighbor fractions for each cluster
-        frac_cols = [col for col in self.neighborhood_df.columns if col.startswith('frac_cluster_')]
-        if frac_cols:
-            # Create box plot data
-            plot_data = []
-            plot_labels = []
-            for col in frac_cols:
-                plot_data.append(self.neighborhood_df[col].values)
-                # Extract cluster ID from column name (e.g., 'frac_cluster_1' -> '1')
-                cluster_id = int(col.split('_')[-1])
-                plot_labels.append(self._get_cluster_display_name(cluster_id))
-            
-            ax2.boxplot(plot_data, labels=plot_labels)
-            ax2.set_xlabel('Neighbor Cluster')
-            ax2.set_ylabel('Fraction')
-            ax2.set_title('Distribution of Neighbor Fractions')
-            # Calculate font size based on number of labels and label length
-            max_label_len = max([len(str(l)) for l in plot_labels] + [1])
-            fontsize = max(6, min(10, 12 - max_label_len // 5))
-            ax2.tick_params(axis='x', rotation=45, labelsize=fontsize)
-        
-        fig.tight_layout()
-        self.neighborhood_canvas.draw()
+            if use_hierarchical and n_clusters > 1 and _HAVE_SEABORN:
+                # Use seaborn clustermap for native hierarchical clustering
+                # Get canvas size to determine appropriate figure size
+                canvas_width = self.neighborhood_canvas.width()
+                canvas_height = self.neighborhood_canvas.height()
+                # Convert pixels to inches (assuming 100 DPI)
+                fig_width = max(8, canvas_width / 100)
+                fig_height = max(6, canvas_height / 100)
+                
+                # Create clustermap - seaborn handles all the layout automatically
+                g = sns.clustermap(
+                    composition_df,
+                    method='ward',
+                    metric='euclidean',
+                    cmap='viridis',
+                    figsize=(fig_width, fig_height),
+                    cbar_kws={'label': 'Fraction'},
+                    row_cluster=True,
+                    col_cluster=True,
+                    dendrogram_ratio=(0.15, 0.15),  # Ratio for dendrograms
+                    colors_ratio=0.03,  # Ratio for colorbar
+                    linewidths=0.5,
+                    linecolor='gray'
+                )
+                
+                # Set labels
+                g.ax_heatmap.set_xlabel('Neighbor Cluster', fontsize=12)
+                g.ax_heatmap.set_ylabel('Cell Cluster', fontsize=12)
+                g.ax_heatmap.set_title('Average Neighborhood Composition (Hierarchical Clustering)', 
+                                      fontsize=14, pad=20)
+                
+                # Rotate x-axis labels
+                g.ax_heatmap.set_xticklabels(g.ax_heatmap.get_xticklabels(), rotation=45, ha='right')
+                
+                # Replace the figure with the seaborn figure (same pattern as clustering.py)
+                old_figure = self.neighborhood_canvas.figure
+                self.neighborhood_canvas.figure = g.fig
+                
+                # Close the old figure to free memory
+                plt.close(old_figure)
+                
+                # Force canvas update
+                self.neighborhood_canvas.draw()
+                
+            elif use_hierarchical and n_clusters > 1 and not _HAVE_SEABORN:
+                # Fallback: simple heatmap with warning if seaborn not available
+                fig = self.neighborhood_canvas.figure
+                ax1 = fig.add_subplot(111)
+                im = ax1.imshow(composition_matrix, cmap='viridis', aspect='auto')
+                ax1.set_xticks(range(n_clusters))
+                max_label_len = max([len(str(l)) for l in neighbor_labels] + [1])
+                fontsize = max(6, min(10, 12 - max_label_len // 5))
+                ax1.set_xticklabels(neighbor_labels, rotation=45, ha='right', fontsize=fontsize)
+                ax1.set_yticks(range(len(unique_clusters)))
+                ax1.set_yticklabels(cluster_labels, fontsize=fontsize)
+                ax1.set_xlabel('Neighbor Cluster')
+                ax1.set_ylabel('Cell Cluster')
+                ax1.set_title('Average Neighborhood Composition (seaborn not available for hierarchical clustering)')
+                fig.colorbar(im, ax=ax1, label='Fraction')
+                fig.tight_layout()
+                self.neighborhood_canvas.draw()
+            else:
+                # Standard heatmap without dendrogram
+                fig = self.neighborhood_canvas.figure
+                if _HAVE_SEABORN:
+                    # Use seaborn heatmap for better appearance
+                    fig.clear()
+                    ax1 = fig.add_subplot(111)
+                    sns.heatmap(
+                        composition_df,
+                        cmap='viridis',
+                        ax=ax1,
+                        cbar_kws={'label': 'Fraction'},
+                        linewidths=0.5,
+                        linecolor='gray'
+                    )
+                    ax1.set_xlabel('Neighbor Cluster', fontsize=12)
+                    ax1.set_ylabel('Cell Cluster', fontsize=12)
+                    ax1.set_title('Average Neighborhood Composition', fontsize=14, pad=20)
+                    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=45, ha='right')
+                    fig.tight_layout()
+                else:
+                    # Fallback to matplotlib
+                    ax1 = fig.add_subplot(111)
+                    im = ax1.imshow(composition_matrix, cmap='viridis', aspect='auto')
+                    ax1.set_xticks(range(n_clusters))
+                    max_label_len = max([len(str(l)) for l in neighbor_labels] + [1])
+                    fontsize = max(6, min(10, 12 - max_label_len // 5))
+                    ax1.set_xticklabels(neighbor_labels, rotation=45, ha='right', fontsize=fontsize)
+                    ax1.set_yticks(range(len(unique_clusters)))
+                    ax1.set_yticklabels(cluster_labels, fontsize=fontsize)
+                    ax1.set_xlabel('Neighbor Cluster')
+                    ax1.set_ylabel('Cell Cluster')
+                    ax1.set_title('Average Neighborhood Composition')
+                    fig.colorbar(im, ax=ax1, label='Fraction')
+                    fig.tight_layout()
+                self.neighborhood_canvas.draw()
 
     def _compute_pairwise_enrichment(self, n_perm=100):
         """Compute pairwise interaction enrichment analysis using permutation null."""
@@ -2438,8 +2929,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         
         enrichment_data = []
         
+        # Get filtered dataframe (respects source file filter)
+        filtered_df = self._get_filtered_dataframe()
+        
         # Process each ROI separately
-        for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
+        roi_col = self._get_roi_column()
+        for roi_id, roi_df in filtered_df.groupby(roi_col):
             roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)]
             
             if roi_edges.empty:
@@ -2645,8 +3140,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Get pixel size for distance conversion
         parent = self.parent() if hasattr(self, 'parent') else None
         
+        # Get filtered dataframe (respects source file filter)
+        filtered_df = self._get_filtered_dataframe()
+        
         # Process each ROI separately
-        for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
+        roi_col = self._get_roi_column()
+        for roi_id, roi_df in filtered_df.groupby(roi_col):
             roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])
             if roi_df.empty:
                 continue
@@ -2859,8 +3358,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Get pixel size for distance conversion
         parent = self.parent() if hasattr(self, 'parent') else None
         
+        # Get filtered dataframe (respects source file filter)
+        filtered_df = self._get_filtered_dataframe()
+        
         # Process each ROI separately
-        for roi_id, roi_df in self.feature_dataframe.groupby('acquisition_id'):
+        roi_col = self._get_roi_column()
+        for roi_id, roi_df in filtered_df.groupby(roi_col):
             roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])
             if roi_df.empty:
                 continue
@@ -2975,53 +3478,85 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
             
         self.ripley_canvas.figure.clear()
         
-        # Create subplots
+        # Create single subplot
         fig = self.ripley_canvas.figure
-        ax1 = fig.add_subplot(121)
-        ax2 = fig.add_subplot(122)
+        ax = fig.add_subplot(111)
         
-        # Get unique clusters
-        unique_clusters = sorted(self.ripley_df['cell_type'].unique())
+        # Get selected cluster from combo box
+        selected_cluster = None
+        if hasattr(self, 'ripley_cluster_combo') and self.ripley_cluster_combo.isEnabled():
+            current_index = self.ripley_cluster_combo.currentIndex()
+            if current_index >= 0:
+                selected_cluster = self.ripley_cluster_combo.itemData(current_index)
         
-        if len(unique_clusters) == 0:
+        if selected_cluster is None:
+            ax.text(0.5, 0.5, 'No cluster selected', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_title('Ripley K/L Functions')
+            fig.tight_layout()
+            self.ripley_canvas.draw()
             return
         
-        # Plot 1: K function curves
-        for cluster in unique_clusters:
-            cluster_data = self.ripley_df[self.ripley_df['cell_type'] == cluster]
-            if not cluster_data.empty:
-                cluster_name = self._get_cluster_display_name(cluster)
-                ax1.plot(cluster_data['r_um'], cluster_data['K_obs'], 
-                        label=f'{cluster_name} (Observed)', linewidth=2)
-                ax1.plot(cluster_data['r_um'], cluster_data['K_exp'], 
-                        '--', alpha=0.7, label=f'{cluster_name} (Expected)')
+        # Get data for selected cluster only
+        cluster_data = self.ripley_df[self.ripley_df['cell_type'] == selected_cluster]
         
-        ax1.set_xlabel('Radius (µm)')
-        ax1.set_ylabel('K(r)')
-        ax1.set_title('Ripley K Function')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
+        if cluster_data.empty:
+            ax.text(0.5, 0.5, 'No data available for selected cluster', 
+                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+            ax.set_title('Ripley K/L Functions')
+            fig.tight_layout()
+            self.ripley_canvas.draw()
+            return
         
-        # Plot 2: L function curves
-        for cluster in unique_clusters:
-            cluster_data = self.ripley_df[self.ripley_df['cell_type'] == cluster]
-            if not cluster_data.empty:
-                cluster_name = self._get_cluster_display_name(cluster)
-                ax2.plot(cluster_data['r_um'], cluster_data['L_obs'], 
-                        label=f'{cluster_name} (Observed)', linewidth=2)
-                # L expected is always 0 under CSR
-                ax2.axhline(y=0, color='black', linestyle='--', alpha=0.7, label='Expected (CSR)')
+        # Aggregate data across ROIs by averaging values for each radius
+        aggregated = cluster_data.groupby('r_um').agg({
+            'K_obs': 'mean',
+            'K_exp': 'mean',
+            'L_obs': 'mean',
+            'L_exp': 'mean'
+        }).reset_index()
         
-        ax2.set_xlabel('Radius (µm)')
-        ax2.set_ylabel('L(r)')
-        ax2.set_title('Ripley L Function')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+        # Sort by radius to ensure proper line plotting
+        aggregated = aggregated.sort_values('r_um')
+        
+        cluster_name = self._get_cluster_display_name(selected_cluster)
+        
+        # Determine which function to display based on radio button selection
+        show_k_function = True
+        if hasattr(self, 'ripley_l_radio') and self.ripley_l_radio.isChecked():
+            show_k_function = False
+        
+        if show_k_function:
+            # Plot K function
+            ax.plot(aggregated['r_um'], aggregated['K_obs'], 
+                   label=f'{cluster_name} (Observed)', linewidth=2, color='blue')
+            ax.plot(aggregated['r_um'], aggregated['K_exp'], 
+                   '--', alpha=0.7, label='Expected (CSR)', linewidth=2, color='red')
+            ax.set_ylabel('K(r)')
+            ax.set_title(f'Ripley K Function - {cluster_name}')
+            interpretation_text = (
+                'Interpretation: Observed (solid) vs Expected (dashed, Complete Spatial Randomness). '
+                'Observed > Expected indicates clustering at that distance.'
+            )
+        else:
+            # Plot L function
+            ax.plot(aggregated['r_um'], aggregated['L_obs'], 
+                   label=f'{cluster_name} (Observed)', linewidth=2, color='blue')
+            ax.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=2, label='Expected (CSR)')
+            ax.set_ylabel('L(r)')
+            ax.set_title(f'Ripley L Function - {cluster_name}')
+            interpretation_text = (
+                'Interpretation: L(r) > 0 indicates clustering at distance r; '
+                'L(r) < 0 indicates dispersion. Expected under CSR is 0.'
+            )
+        
+        ax.set_xlabel('Radius (µm)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
         
         # Add interpretation text
-        fig.text(0.5, 0.02, 
-                'L(r) > 0: Clustering at scale r; L(r) < 0: Dispersion at scale r', 
-                ha='center', fontsize=10, style='italic')
+        fig.text(0.5, 0.02, interpretation_text, 
+                ha='center', fontsize=9, style='italic', wrap=True)
         
         fig.tight_layout()
         self.ripley_canvas.draw()

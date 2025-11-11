@@ -491,13 +491,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.segmentation_overlay_chk = QtWidgets.QCheckBox("Show segmentation overlay")
         self.segmentation_overlay_chk.toggled.connect(self._on_segmentation_overlay_toggled)
         
-        # Overlay mode selection (outline vs mask)
+        # Overlay mode selection (outline vs mask vs cluster)
         overlay_mode_layout = QtWidgets.QHBoxLayout()
         overlay_mode_layout.addWidget(QtWidgets.QLabel("Mode:"))
         self.segmentation_overlay_mode_combo = QtWidgets.QComboBox()
-        self.segmentation_overlay_mode_combo.addItems(["Mask", "Outline"])
+        self.segmentation_overlay_mode_combo.addItems(["Mask", "Outline", "Cluster"])
         self.segmentation_overlay_mode_combo.setCurrentText("Mask")
         self.segmentation_overlay_mode_combo.currentTextChanged.connect(self._on_segmentation_overlay_mode_changed)
+        
+        # Initially disable Cluster mode (will be enabled if cluster data is available)
+        # This will be updated when features are loaded or acquisition changes
         overlay_mode_layout.addWidget(self.segmentation_overlay_mode_combo)
         overlay_mode_layout.addStretch()
         self.segmentation_overlay_mode_widget = QtWidgets.QWidget()
@@ -784,8 +787,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Segmentation state
         self.segmentation_masks = {}  # {acq_id: mask_array}
         self.segmentation_colors = {}  # {acq_id: colors_array}
+        self.cluster_colors = {}  # {acq_id: {cluster_id: color_array}}
+        self.cluster_color_map = {}  # {acq_id: {cluster_id: display_name}}
         self.segmentation_overlay = False
-        self.segmentation_overlay_mode = "Mask"  # "Outline" or "Mask"
+        self.segmentation_overlay_mode = "Mask"  # "Outline", "Mask", or "Cluster"
         self.preprocessing_cache = PreprocessingCache()
         # Per-channel denoise config {channel: {"hot": {...}, "speckle": {...}, "background": {...}}}
         self.channel_denoise: Dict[str, Dict[str, dict]] = {}
@@ -793,6 +798,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # Feature extraction state
         self.feature_dataframe = None  # Store extracted features in memory
         self.batch_corrected_dataframe = None  # Store batch-corrected features in memory
+        
+        # Dialog instances for state retention
+        self.clustering_dialog = None  # Store clustering dialog instance
+        self.spatial_dialog = None  # Store spatial analysis dialog instance
+        self.segmentation_dialog = None  # Store segmentation dialog instance
         
         # Color assignment for RGB composite
         self.color_assignment_frame = QtWidgets.QFrame()
@@ -1003,6 +1013,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.show_all_channels_btn.setVisible(self.grid_view_chk.isChecked())
         except Exception:
             pass
+        
+        # Initialize cluster mode availability (will be disabled initially)
+        try:
+            self._update_cluster_mode_availability()
+        except Exception:
+            pass
 
     # ---------- About dialog ----------
     def _show_about_dialog(self):
@@ -1138,9 +1154,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.acq_combo.clear()
         for ai in self.acquisitions:
             file_name = os.path.basename(ai.source_file) if ai.source_file else "Unknown"
-            label = f"{ai.name}"
-            if ai.well:
-                label += f" ({ai.well})"
+            # Use well name if available, otherwise use acquisition name
+            label = ai.well if ai.well else ai.name
             label += f" [{file_name}]"
             self.acq_combo.addItem(label, ai.id)
         
@@ -1263,6 +1278,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """Load data from either a .mcd file or a directory of OME-TIFF files."""
         # Close existing loaders
         self._close_all_loaders()
+        # Delete LLM cache when switching files
+        pass
         
         # Determine if path is a file or directory
         is_file = os.path.isfile(path)
@@ -1329,7 +1346,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.acquisitions = self.loader.list_acquisitions(source_file=path if is_file else None)
         self.acq_combo.clear()
         for ai in self.acquisitions:
-            label = ai.name + (f" ({ai.well})" if ai.well else "")
+            # Use well name if available, otherwise use acquisition name
+            label = ai.well if ai.well else ai.name
             self.acq_combo.addItem(label, ai.id)
         if self.acquisitions:
             self._populate_channels(self.acquisitions[0].id)
@@ -1379,6 +1397,9 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Update segmentation overlay text for new acquisition
         self._update_segmentation_overlay_text()
+        
+        # Update cluster mode availability for new acquisition
+        self._update_cluster_mode_availability()
         try:
             loader = self._get_loader_for_acquisition(acq_id)
             if loader is None:
@@ -3022,6 +3043,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                     channel_names=chans, channel_scaling=self.channel_scaling, 
                                     custom_scaling_enabled=self.custom_scaling_chk.isChecked(),
                                     scale_bar_length_um=scale_bar_length_um, pixel_size_um=pixel_size_um)
+                
+                # Add cluster legend if cluster overlay mode is active
+                self._add_cluster_legend()
             
             # Restore zoom limits if we preserved them
             if self.preserve_zoom:
@@ -3038,8 +3062,24 @@ class MainWindow(QtWidgets.QMainWindow):
         # Don't preserve zoom - force reset
         self.preserve_zoom = False
         
-        # Simply redraw the current view - this will reset everything to default
+        # Redraw the current view - this will reset everything to default
+        # imshow automatically sets the axes limits to show the full image
         self._view_selected()
+        
+        # After redrawing, update the navigation toolbar's home view
+        # This ensures the toolbar's zoom state is properly reset
+        # The view_selected() call already sets the correct limits via imshow,
+        # so we just need to tell the toolbar that this is the new "home" view
+        try:
+            if hasattr(self, 'nav_toolbar') and self.nav_toolbar:
+                # Push the current view (full image) as the new home
+                # This updates the toolbar's internal state
+                self.nav_toolbar.push_current()
+                # Navigate to home (which is now the full image view)
+                self.nav_toolbar.home()
+        except Exception:
+            # If toolbar update fails, that's okay - the view is already reset
+            pass
     
     def _save_zoom_limits(self):
         """Save current zoom limits."""
@@ -3137,6 +3177,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                     channel_names=selected_channels, channel_scaling=self.channel_scaling, 
                                     custom_scaling_enabled=self.custom_scaling_chk.isChecked(),
                                     scale_bar_length_um=scale_bar_length_um, pixel_size_um=pixel_size_um)
+                
+                # Add cluster legend if cluster overlay mode is active
+                self._add_cluster_legend()
         except Exception as e:
             print(f"Auto-load error: {e}")
 
@@ -3391,6 +3434,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     spine.set_visible(False)
         
         self.canvas.draw()
+        
+        # Add cluster legend if cluster overlay mode is active
+        self._add_cluster_legend()
 
 
     # ---------- Comparison ----------
@@ -3410,27 +3456,66 @@ class MainWindow(QtWidgets.QMainWindow):
             return "figure.png"
             
         try:
+            import re
+            
             # Get filename without extension (handle both files and directories)
             if os.path.isdir(self.current_path):
                 base_filename = os.path.basename(self.current_path) or os.path.basename(os.path.dirname(self.current_path))
             else:
                 base_filename = os.path.splitext(os.path.basename(self.current_path))[0]
             
-            # Get acquisition descriptor (subtitle)
+            # Get acquisition descriptor (subtitle) - this is the ROI
             acquisition_descriptor = self._get_acquisition_subtitle(self.current_acq_id)
             
-            # Get currently selected channels
-            selected_channels = self._selected_channels()
+            # Check if we're in RGB mode (grid view is off)
+            is_rgb_mode = hasattr(self, 'grid_view_chk') and not self.grid_view_chk.isChecked()
             
-            # Create filename: filename_acquisition_descriptor_channels.png
-            if selected_channels:
-                channels_str = "_".join(selected_channels)
-                filename = f"{base_filename}_{acquisition_descriptor}_{channels_str}.png"
+            if is_rgb_mode and hasattr(self, 'red_list') and hasattr(self, 'green_list') and hasattr(self, 'blue_list'):
+                # RGB mode: use format slide_roi_Red_channel(s)_Green_channel(s)_Blue_channel(s)
+                def _checked(lst: QtWidgets.QListWidget) -> List[str]:
+                    vals: List[str] = []
+                    for i in range(lst.count()):
+                        item = lst.item(i)
+                        if item.checkState() == Qt.Checked:
+                            vals.append(item.text())
+                    return vals
+                
+                red_selection = _checked(self.red_list)
+                green_selection = _checked(self.green_list)
+                blue_selection = _checked(self.blue_list)
+                
+                # Build filename parts
+                parts = [base_filename, acquisition_descriptor]
+                
+                # Add Red channel(s) if any are selected
+                if red_selection:
+                    # Sanitize channel names and join with underscores
+                    red_str = "_".join([re.sub(r'[<>:"/\\|?*]', '_', ch) for ch in red_selection])
+                    parts.append(f"Red_{red_str}")
+                
+                # Add Green channel(s) if any are selected
+                if green_selection:
+                    green_str = "_".join([re.sub(r'[<>:"/\\|?*]', '_', ch) for ch in green_selection])
+                    parts.append(f"Green_{green_str}")
+                
+                # Add Blue channel(s) if any are selected
+                if blue_selection:
+                    blue_str = "_".join([re.sub(r'[<>:"/\\|?*]', '_', ch) for ch in blue_selection])
+                    parts.append(f"Blue_{blue_str}")
+                
+                filename = "_".join(parts) + ".png"
             else:
-                filename = f"{base_filename}_{acquisition_descriptor}.png"
+                # Non-RGB mode: use original format
+                selected_channels = self._selected_channels()
+                
+                # Create filename: filename_acquisition_descriptor_channels.png
+                if selected_channels:
+                    channels_str = "_".join(selected_channels)
+                    filename = f"{base_filename}_{acquisition_descriptor}_{channels_str}.png"
+                else:
+                    filename = f"{base_filename}_{acquisition_descriptor}.png"
             
-            # Clean filename (remove invalid characters)
-            import re
+            # Clean filename (remove invalid characters) - do this after all joins
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
             
             return filename
@@ -3828,20 +3913,25 @@ class MainWindow(QtWidgets.QMainWindow):
             # Stack channels (C, H, W) for OME-TIFF
             stack = np.stack(channel_data, axis=0)
             
-            # Create filename from source_file and acquisition ID
-            # Get original acquisition ID (not the unique ID with __file_ prefix)
-            original_acq_id_for_filename = self._get_original_acq_id(acq_info.id)
+            # Create filename from source_file and well name (or acquisition name if well doesn't exist)
+            # Use well name if available, otherwise use acquisition name
+            if acq_info.well:
+                label_for_filename = acq_info.well
+            else:
+                # Get original acquisition ID (not the unique ID with __file_ prefix)
+                original_acq_id_for_filename = self._get_original_acq_id(acq_info.id)
+                label_for_filename = original_acq_id_for_filename
             
             # Extract source file basename (without extension)
             if acq_info.source_file:
                 source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
                 safe_source = self._sanitize_filename(source_basename)
-                safe_acq_id = self._sanitize_filename(original_acq_id_for_filename)
-                filename = f"{safe_source}_{safe_acq_id}.ome.tiff"
+                safe_label = self._sanitize_filename(label_for_filename)
+                filename = f"{safe_source}_{safe_label}.ome.tiff"
             else:
                 # Fallback if no source_file available
-                safe_acq_id = self._sanitize_filename(original_acq_id_for_filename)
-                filename = f"{safe_acq_id}.ome.tiff"
+                safe_label = self._sanitize_filename(label_for_filename)
+                filename = f"{safe_label}.ome.tiff"
             
             output_path = os.path.join(output_dir, filename)
             
@@ -4232,103 +4322,144 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, "No channels", "No channels available for segmentation.")
             return
         
-        # Open segmentation dialog
-        dlg = SegmentationDialog(channels, self)
+        # Check if dialog already exists and is still valid
+        if self.segmentation_dialog is not None:
+            try:
+                # Check if dialog still exists (hasn't been deleted)
+                # If dialog is visible, just bring it to front
+                # If dialog is not visible, show it
+                if self.segmentation_dialog.isVisible():
+                    self.segmentation_dialog.raise_()
+                    self.segmentation_dialog.activateWindow()
+                else:
+                    self.segmentation_dialog.show()
+                    self.segmentation_dialog.raise_()
+                    self.segmentation_dialog.activateWindow()
+                # Update channels if they've changed (e.g., user switched acquisitions)
+                # The dialog will handle channel updates through its persistence mechanism
+                return
+            except (RuntimeError, AttributeError):
+                # Dialog was deleted, set to None
+                self.segmentation_dialog = None
+        
+        # Create new segmentation dialog
+        self.segmentation_dialog = SegmentationDialog(channels, self)
         # Initialize with current viewer denoising toggle state
         try:
-            dlg.set_use_viewer_denoising(self.denoise_enable_chk.isChecked())
+            self.segmentation_dialog.set_use_viewer_denoising(self.denoise_enable_chk.isChecked())
         except Exception:
             pass
-        if dlg.exec_() != QtWidgets.QDialog.Accepted:
-            return
+        # Make dialog non-modal so it can be closed and reopened without losing state
+        self.segmentation_dialog.setModal(False)
+        # Prevent dialog from being deleted when closed, so we can reopen it
+        self.segmentation_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.segmentation_dialog.show()
         
-        # Get segmentation parameters
-        model = dlg.get_model()
+        # Connect to accepted signal to handle segmentation when user clicks "Run Segmentation"
+        # Only connect if not already connected (to avoid duplicate connections)
+        if not hasattr(self.segmentation_dialog, '_segmentation_accepted_connected'):
+            def on_segmentation_accepted():
+                """Handle segmentation when dialog is accepted."""
+                dlg = self.segmentation_dialog
+                if dlg is None:
+                    return
+                
+                # Get segmentation parameters
+                model = dlg.get_model()
+                
+                # Handle Ilastik segmentation
+                if model == "Ilastik":
+                    self._run_ilastik_segmentation(dlg)
+                    return
+                
+                # Check dependencies based on selected model
+                if model == "DeepCell CellSAM":
+                    if not _HAVE_CELLSAM:
+                        QtWidgets.QMessageBox.critical(
+                            self, "Missing dependency", 
+                            "CellSAM library is required for segmentation.\n"
+                            "Install it with: pip install git+https://github.com/vanvalenlab/cellSAM.git"
+                        )
+                        return
+                elif model != "Classical Watershed" and not _HAVE_CELLPOSE:
+                    QtWidgets.QMessageBox.critical(
+                        self, "Missing dependency", 
+                        "Cellpose library is required for segmentation.\n"
+                        "Install it with: pip install cellpose"
+                    )
+                    return
+                
+                diameter = dlg.get_diameter()
+                flow_threshold = dlg.get_flow_threshold()
+                cellprob_threshold = dlg.get_cellprob_threshold()
+                show_overlay = dlg.get_show_overlay()
+                save_masks = dlg.get_save_masks()
+                masks_directory = dlg.get_masks_directory()
+                gpu_id = dlg.get_selected_gpu()
+                preprocessing_config = dlg.get_preprocessing_config()
+                use_viewer_denoising = dlg.get_use_viewer_denoising()
+                segment_all = dlg.get_segment_all()
+                
+                # Get denoising parameters
+                denoise_source = dlg.get_denoise_source()
+                custom_denoise_settings = dlg.get_custom_denoise_settings()
+                
+                # Validate preprocessing configuration
+                if not preprocessing_config:
+                    QtWidgets.QMessageBox.warning(self, "No preprocessing configured", "Please configure preprocessing to select channels for segmentation.")
+                    return
+                
+                # Get channels from preprocessing config
+                nuclear_channels = preprocessing_config.get('nuclear_channels', [])
+                cyto_channels = preprocessing_config.get('cyto_channels', [])
+                
+                if not nuclear_channels:
+                    QtWidgets.QMessageBox.warning(self, "No nuclear channels", "Please select at least one nuclear channel in the preprocessing configuration.")
+                    return
+                
+                if model == "cyto3" and not cyto_channels:
+                    QtWidgets.QMessageBox.warning(self, "No cytoplasm channels", "Please select at least one cytoplasm channel in the preprocessing configuration for whole-cell segmentation.")
+                    return
+                
+                if model == "Classical Watershed" and not cyto_channels:
+                    QtWidgets.QMessageBox.warning(self, "No membrane channels", "Please select at least one membrane/cytoplasm channel in the preprocessing configuration for watershed segmentation.")
+                    return
+                
+                # For DeepCell CellSAM, at least one channel (nuclear or cyto) must be selected
+                if model == "DeepCell CellSAM":
+                    if not nuclear_channels and not cyto_channels:
+                        QtWidgets.QMessageBox.warning(self, "No channels selected", "Please select at least one nuclear or cytoplasm channel in the preprocessing configuration for CellSAM segmentation.")
+                        return
+                
+                try:
+                    if segment_all:
+                        # Run segmentation on all acquisitions
+                        self._perform_segmentation_all_acquisitions(
+                            model, diameter, flow_threshold, cellprob_threshold, 
+                            show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config,
+                            denoise_source, custom_denoise_settings, dlg
+                        )
+                    else:
+                        # Run segmentation on current acquisition only
+                        self._perform_segmentation(
+                            model, diameter, flow_threshold, cellprob_threshold, 
+                            show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config, use_viewer_denoising,
+                            denoise_source, custom_denoise_settings, dlg
+                        )
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(
+                        self, "Segmentation Failed", 
+                        f"Segmentation failed with error:\n{str(e)}"
+                    )
+            
+            # Connect to accepted signal
+            self.segmentation_dialog.accepted.connect(on_segmentation_accepted)
+            # Mark as connected to avoid duplicate connections
+            self.segmentation_dialog._segmentation_accepted_connected = True
         
-        # Handle Ilastik segmentation
-        if model == "Ilastik":
-            self._run_ilastik_segmentation(dlg)
-            return
-        
-        # Check dependencies based on selected model
-        if model == "DeepCell CellSAM":
-            if not _HAVE_CELLSAM:
-                QtWidgets.QMessageBox.critical(
-                    self, "Missing dependency", 
-                    "CellSAM library is required for segmentation.\n"
-                    "Install it with: pip install git+https://github.com/vanvalenlab/cellSAM.git"
-                )
-                return
-        elif model != "Classical Watershed" and not _HAVE_CELLPOSE:
-            QtWidgets.QMessageBox.critical(
-                self, "Missing dependency", 
-                "Cellpose library is required for segmentation.\n"
-                "Install it with: pip install cellpose"
-            )
-            return
-        
-        diameter = dlg.get_diameter()
-        flow_threshold = dlg.get_flow_threshold()
-        cellprob_threshold = dlg.get_cellprob_threshold()
-        show_overlay = dlg.get_show_overlay()
-        save_masks = dlg.get_save_masks()
-        masks_directory = dlg.get_masks_directory()
-        gpu_id = dlg.get_selected_gpu()
-        preprocessing_config = dlg.get_preprocessing_config()
-        use_viewer_denoising = dlg.get_use_viewer_denoising()
-        segment_all = dlg.get_segment_all()
-        
-        # Get denoising parameters
-        denoise_source = dlg.get_denoise_source()
-        custom_denoise_settings = dlg.get_custom_denoise_settings()
-        
-        # Validate preprocessing configuration
-        if not preprocessing_config:
-            QtWidgets.QMessageBox.warning(self, "No preprocessing configured", "Please configure preprocessing to select channels for segmentation.")
-            return
-        
-        # Get channels from preprocessing config
-        nuclear_channels = preprocessing_config.get('nuclear_channels', [])
-        cyto_channels = preprocessing_config.get('cyto_channels', [])
-        
-        if not nuclear_channels:
-            QtWidgets.QMessageBox.warning(self, "No nuclear channels", "Please select at least one nuclear channel in the preprocessing configuration.")
-            return
-        
-        if model == "cyto3" and not cyto_channels:
-            QtWidgets.QMessageBox.warning(self, "No cytoplasm channels", "Please select at least one cytoplasm channel in the preprocessing configuration for whole-cell segmentation.")
-            return
-        
-        if model == "Classical Watershed" and not cyto_channels:
-            QtWidgets.QMessageBox.warning(self, "No membrane channels", "Please select at least one membrane/cytoplasm channel in the preprocessing configuration for watershed segmentation.")
-            return
-        
-        # For DeepCell CellSAM, at least one channel (nuclear or cyto) must be selected
-        if model == "DeepCell CellSAM":
-            if not nuclear_channels and not cyto_channels:
-                QtWidgets.QMessageBox.warning(self, "No channels selected", "Please select at least one nuclear or cytoplasm channel in the preprocessing configuration for CellSAM segmentation.")
-                return
-        
-        try:
-            if segment_all:
-                # Run segmentation on all acquisitions
-                self._perform_segmentation_all_acquisitions(
-                    model, diameter, flow_threshold, cellprob_threshold, 
-                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config,
-                    denoise_source, custom_denoise_settings, dlg
-                )
-            else:
-                # Run segmentation on current acquisition only
-                self._perform_segmentation(
-                    model, diameter, flow_threshold, cellprob_threshold, 
-                    show_overlay, save_masks, masks_directory, gpu_id, preprocessing_config, use_viewer_denoising,
-                    denoise_source, custom_denoise_settings, dlg
-                )
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self, "Segmentation Failed", 
-                f"Segmentation failed with error:\n{str(e)}"
-            )
+        # Show dialog (non-modal, so it can be closed and reopened)
+        # User can click "Run Segmentation" to trigger segmentation, or close the dialog
+        # The dialog state (including channel selections) will be preserved
     
     def _run_ilastik_segmentation(self, seg_dlg):
         """Run Ilastik segmentation."""
@@ -4708,6 +4839,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # Clear colors for this acquisition so they get regenerated
             if self.current_acq_id in self.segmentation_colors:
                 del self.segmentation_colors[self.current_acq_id]
+            if self.current_acq_id in self.cluster_colors:
+                del self.cluster_colors[self.current_acq_id]
+            if self.current_acq_id in self.cluster_color_map:
+                del self.cluster_color_map[self.current_acq_id]
             self.segmentation_overlay = show_overlay
             
             # Save masks if requested
@@ -4963,6 +5098,10 @@ class MainWindow(QtWidgets.QMainWindow):
                                 # Clear colors for this acquisition so they get regenerated
                                 if acq_id in self.segmentation_colors:
                                     del self.segmentation_colors[acq_id]
+                                if acq_id in self.cluster_colors:
+                                    del self.cluster_colors[acq_id]
+                                if acq_id in self.cluster_color_map:
+                                    del self.cluster_color_map[acq_id]
                                 successful_segmentations += 1
                                 processed_acquisitions.add(acq_idx)
                                 
@@ -5142,6 +5281,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Clear colors for this acquisition so they get regenerated
                     if acq_id in self.segmentation_colors:
                         del self.segmentation_colors[acq_id]
+                    if acq_id in self.cluster_colors:
+                        del self.cluster_colors[acq_id]
+                    if acq_id in self.cluster_color_map:
+                        del self.cluster_color_map[acq_id]
                     
                     successful_segmentations += 1
                     
@@ -5528,6 +5671,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # Clear colors for this acquisition so they get regenerated
             if acq.id in self.segmentation_colors:
                 del self.segmentation_colors[acq.id]
+            if acq.id in self.cluster_colors:
+                del self.cluster_colors[acq.id]
+            if acq.id in self.cluster_color_map:
+                del self.cluster_color_map[acq.id]
             
             # Save masks if requested
             if save_masks:
@@ -5539,15 +5686,21 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def _save_segmentation_masks_for_acquisition_with_info(self, masks: np.ndarray, acq_info: AcquisitionInfo, masks_directory: str = None):
         """Save segmentation masks for a specific acquisition using the provided AcquisitionInfo."""
+        # Use well name if available, otherwise use acquisition name
+        if acq_info.well:
+            label_for_filename = acq_info.well
+        else:
+            label_for_filename = acq_info.name
+        
+        safe_label = self._sanitize_filename(label_for_filename)
         # Include source file name in filename to ensure uniqueness across multiple MCD files
-        safe_name = self._sanitize_filename(acq_info.name)
         if acq_info.source_file:
             # Use source file basename (without extension) to make filename unique
             source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
             safe_source = self._sanitize_filename(source_basename)
-            filename = f"{safe_source}_{safe_name}_segmentation_masks.tif"
+            filename = f"{safe_source}_{safe_label}_segmentation_masks.tif"
         else:
-            filename = f"{safe_name}_segmentation_masks.tif"
+            filename = f"{safe_label}_segmentation_masks.tif"
         
         # Use provided directory or fallback to current file/folder directory
         if masks_directory and os.path.exists(masks_directory):
@@ -5602,22 +5755,20 @@ class MainWindow(QtWidgets.QMainWindow):
                     print(f"Warning: Could not find acquisition {acq_id} for saving masks")
                     continue
                 
-                safe_name = self._sanitize_filename(acq_info.name)
+                # Use well name if available, otherwise use acquisition name
+                if acq_info.well:
+                    label_for_filename = acq_info.well
+                else:
+                    label_for_filename = acq_info.name
+                
+                safe_label = self._sanitize_filename(label_for_filename)
                 # Include source file name in filename to ensure uniqueness across multiple MCD files
                 if acq_info.source_file:
                     source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
                     safe_source = self._sanitize_filename(source_basename)
-                    if acq_info.well:
-                        safe_well = self._sanitize_filename(acq_info.well)
-                        filename = f"{safe_source}_{safe_name}_{safe_well}_segmentation.tiff"
-                    else:
-                        filename = f"{safe_source}_{safe_name}_segmentation.tiff"
+                    filename = f"{safe_source}_{safe_label}_segmentation.tiff"
                 else:
-                    if acq_info.well:
-                        safe_well = self._sanitize_filename(acq_info.well)
-                        filename = f"{safe_name}_{safe_well}_segmentation.tiff"
-                    else:
-                        filename = f"{safe_name}_segmentation.tiff"
+                    filename = f"{safe_label}_segmentation.tiff"
                 
                 output_path = os.path.join(output_dir, filename)
                 
@@ -5646,8 +5797,268 @@ class MainWindow(QtWidgets.QMainWindow):
         # Refresh the current view
         self._view_selected()
     
+    def _get_source_well_for_acquisition(self, acq_id: str) -> Optional[str]:
+        """Get the source_well value for a given acquisition ID.
+        
+        Constructs source_well in the same way as feature extraction:
+        - If source_file and well: "{source_file_base}_{well}"
+        - If only well: "{well}"
+        - If only source_file: "{source_file_base}"
+        """
+        if not hasattr(self, 'acquisitions') or not self.acquisitions:
+            return None
+        
+        # Find the acquisition info
+        acq_info = None
+        for acq in self.acquisitions:
+            if acq.id == acq_id:
+                acq_info = acq
+                break
+        
+        if acq_info is None:
+            return None
+        
+        # Get source file
+        source_file = None
+        if hasattr(self, 'acq_to_file') and acq_id in self.acq_to_file:
+            source_file = self.acq_to_file[acq_id]
+        
+        # Get well name
+        well_name = acq_info.well if hasattr(acq_info, 'well') else None
+        
+        # Construct source_well the same way as feature extraction
+        import os
+        source_filename = os.path.basename(source_file) if source_file else None
+        source_well = None
+        
+        if source_filename and well_name:
+            # Remove .tif, .mcd, or .ome.tif extensions
+            source_base = source_filename
+            for ext in ['.ome.tif', '.tif', '.mcd']:
+                if source_base.lower().endswith(ext):
+                    source_base = source_base[:-len(ext)]
+                    break
+            source_well = f"{source_base}_{well_name}"
+        elif well_name:
+            # If no source_file but we have well, just use well
+            source_well = well_name
+        elif source_filename:
+            # If no well but we have source_file, use source_file base name
+            source_base = source_filename
+            for ext in ['.ome.tif', '.tif', '.mcd']:
+                if source_base.lower().endswith(ext):
+                    source_base = source_base[:-len(ext)]
+                    break
+            source_well = source_base
+        
+        return source_well
+    
+    def _has_cluster_data(self, acq_id: Optional[str] = None) -> bool:
+        """Check if cluster data is available in the feature dataframe.
+        
+        Args:
+            acq_id: Optional acquisition ID to check for specific acquisition. If None, checks all data.
+        
+        Returns:
+            True if cluster data is available, False otherwise.
+        """
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            return False
+        
+        # Filter dataframe for specific acquisition if provided
+        if acq_id is not None:
+            # Try matching by source_well first (preferred method)
+            if 'source_well' in self.feature_dataframe.columns:
+                source_well = self._get_source_well_for_acquisition(acq_id)
+                if source_well:
+                    acq_df = self.feature_dataframe[self.feature_dataframe['source_well'] == source_well]
+                else:
+                    acq_df = pd.DataFrame()
+            else:
+                acq_df = pd.DataFrame()
+            
+            # Fallback to acquisition_id matching if source_well doesn't work
+            if acq_df.empty and 'acquisition_id' in self.feature_dataframe.columns:
+                # Try exact match first
+                acq_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == acq_id]
+                
+                # If no exact match, try using original acquisition ID (for multiple MCD files)
+                if acq_df.empty and hasattr(self, 'unique_acq_to_original') and acq_id in self.unique_acq_to_original:
+                    original_acq_id = self.unique_acq_to_original[acq_id]
+                    acq_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == original_acq_id]
+        else:
+            acq_df = self.feature_dataframe
+        
+        if acq_df.empty:
+            return False
+        
+        # Check if cluster columns exist
+        has_cluster_col = any(col in acq_df.columns for col in ['cluster_phenotype', 'cluster', 'cluster_id'])
+        has_centroid_cols = 'centroid_x' in acq_df.columns and 'centroid_y' in acq_df.columns
+        
+        # Only require cluster column - centroids can be computed from mask if missing
+        return has_cluster_col
+    
+    def _update_cluster_mode_availability(self):
+        """Update the availability of Cluster mode in the overlay dropdown."""
+        # Check for cluster data - first try current acquisition, then check all data
+        current_acq_id = self.current_acq_id if hasattr(self, 'current_acq_id') else None
+        has_cluster = self._has_cluster_data(current_acq_id)
+        
+        # If no cluster data for current acquisition, check if any cluster data exists at all
+        if not has_cluster:
+            has_cluster = self._has_cluster_data(None)  # Check all data
+        
+        # Find the Cluster item in the combo box
+        cluster_index = -1
+        for i in range(self.segmentation_overlay_mode_combo.count()):
+            if self.segmentation_overlay_mode_combo.itemText(i) == "Cluster":
+                cluster_index = i
+                break
+        
+        if cluster_index >= 0:
+            # Enable or disable the Cluster option
+            model = self.segmentation_overlay_mode_combo.model()
+            item = model.item(cluster_index)
+            if item:
+                item.setEnabled(has_cluster)
+                # If Cluster is currently selected but no longer available, switch to Mask
+                if (self.segmentation_overlay_mode_combo.currentText() == "Cluster" and not has_cluster):
+                    self.segmentation_overlay_mode_combo.setCurrentText("Mask")
+                    self.segmentation_overlay_mode = "Mask"
+    
+    def _get_cluster_assignments(self, acq_id: str) -> Optional[Dict[int, Union[int, str]]]:
+        """Get cluster assignments for cells in the current acquisition by matching centroids.
+        
+        Matches mask cells to feature dataframe rows by finding the closest centroid coordinates.
+        
+        Returns:
+            Dictionary mapping mask cell label (cell_id) to cluster_id/cluster_phenotype, or None if no cluster data available.
+        """
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            return None
+        
+        if acq_id not in self.segmentation_masks:
+            return None
+        
+        mask = self.segmentation_masks[acq_id]
+        
+        # Filter dataframe for current acquisition - use source_well (preferred)
+        if 'source_well' in self.feature_dataframe.columns:
+            source_well = self._get_source_well_for_acquisition(acq_id)
+            if source_well:
+                acq_df = self.feature_dataframe[self.feature_dataframe['source_well'] == source_well].copy()
+            else:
+                acq_df = pd.DataFrame()
+        else:
+            acq_df = pd.DataFrame()
+        
+        # Fallback to acquisition_id matching if source_well doesn't work
+        if acq_df.empty and 'acquisition_id' in self.feature_dataframe.columns:
+            # Try exact match first
+            acq_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == acq_id].copy()
+            
+            # If no exact match, try using original acquisition ID (for multiple MCD files)
+            if acq_df.empty and hasattr(self, 'unique_acq_to_original') and acq_id in self.unique_acq_to_original:
+                original_acq_id = self.unique_acq_to_original[acq_id]
+                acq_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == original_acq_id].copy()
+            
+            # If still no match, try matching by prefix
+            if acq_df.empty:
+                for df_acq_id in self.feature_dataframe['acquisition_id'].unique():
+                    if acq_id.startswith(df_acq_id) or df_acq_id.startswith(acq_id):
+                        acq_df = self.feature_dataframe[self.feature_dataframe['acquisition_id'] == df_acq_id].copy()
+                        break
+        elif acq_df.empty:
+            # No source_well or acquisition_id columns
+            acq_df = self.feature_dataframe.copy()
+        
+        if acq_df.empty:
+            return None
+        
+        # Look for cluster columns (prefer cluster_phenotype, then cluster, then cluster_id)
+        cluster_col = None
+        for col in ['cluster_phenotype', 'cluster', 'cluster_id']:
+            if col in acq_df.columns:
+                cluster_col = col
+                break
+        
+        if cluster_col is None:
+            return None
+        
+        # Check if centroids are in dataframe, otherwise we'll compute them from mask
+        has_centroids = 'centroid_x' in acq_df.columns and 'centroid_y' in acq_df.columns
+        
+        # Compute centroids for each cell in the mask using regionprops
+        props = regionprops(mask)
+        
+        # Create mapping from mask cell labels to their centroids
+        mask_centroids = {}
+        for prop in props:
+            if prop.label == 0:  # Skip background
+                continue
+            # regionprops centroid is (row, col) = (y, x)
+            mask_centroids[prop.label] = (prop.centroid[1], prop.centroid[0])  # (x, y)
+        
+        if not mask_centroids:
+            return None
+        
+        # Create mapping from mask cell labels to clusters
+        cluster_map = {}
+        
+        if has_centroids:
+            # Match by centroids if available in dataframe
+            # Remove rows with NaN centroids from feature dataframe
+            valid_df = acq_df.dropna(subset=['centroid_x', 'centroid_y'])
+            
+            if not valid_df.empty:
+                # For each mask cell, find the closest feature dataframe row by centroid distance
+                for mask_label, (mask_x, mask_y) in mask_centroids.items():
+                    # Calculate distances to all feature dataframe centroids
+                    distances = np.sqrt(
+                        (valid_df['centroid_x'].values - mask_x) ** 2 +
+                        (valid_df['centroid_y'].values - mask_y) ** 2
+                    )
+                    
+                    # Find the closest match (within reasonable tolerance, e.g., 5 pixels)
+                    min_distance = np.min(distances)
+                    if min_distance < 5.0:  # Tolerance: 5 pixels
+                        closest_idx = np.argmin(distances)
+                        closest_row = valid_df.iloc[closest_idx]
+                        cluster_val = closest_row[cluster_col]
+                        
+                        # Handle NaN values
+                        if pd.isna(cluster_val):
+                            cluster_map[mask_label] = 'Unassigned'
+                        else:
+                            cluster_map[mask_label] = cluster_val
+                    else:
+                        # No close match found
+                        cluster_map[mask_label] = 'Unassigned'
+        else:
+            # Centroids not in dataframe - match by cell_id as fallback
+            if 'cell_id' in acq_df.columns:
+                # Create mapping from cell_id to cluster
+                cell_to_cluster = {}
+                for _, row in acq_df.iterrows():
+                    cell_id = int(row['cell_id'])
+                    cluster_val = row[cluster_col]
+                    if pd.isna(cluster_val):
+                        cell_to_cluster[cell_id] = 'Unassigned'
+                    else:
+                        cell_to_cluster[cell_id] = cluster_val
+                
+                # Map mask labels (which are cell_ids) to clusters
+                for mask_label in mask_centroids.keys():
+                    cluster_map[mask_label] = cell_to_cluster.get(mask_label, 'Unassigned')
+            else:
+                # No way to match - return None
+                return None
+        
+        return cluster_map
+    
     def _get_segmentation_overlay(self, img: np.ndarray) -> np.ndarray:
-        """Create segmentation overlay for display (outline or mask mode)."""
+        """Create segmentation overlay for display (outline, mask, or cluster mode)."""
         if not self.segmentation_overlay or self.current_acq_id not in self.segmentation_masks:
             return img
         
@@ -5656,43 +6067,109 @@ class MainWindow(QtWidgets.QMainWindow):
         # Create overlay
         overlay = np.zeros((*img.shape[:2], 3), dtype=np.float32)
         
-        # Get or generate colors for this acquisition
-        unique_labels = np.unique(mask)
-        if self.current_acq_id not in self.segmentation_colors:
-            # Generate and store colors for this acquisition
-            self.segmentation_colors[self.current_acq_id] = np.random.rand(len(unique_labels), 3)
-        
-        colors = self.segmentation_colors[self.current_acq_id]
-        
         # Get current overlay mode
         overlay_mode = getattr(self, 'segmentation_overlay_mode', 'Mask')
         
-        if overlay_mode == "Outline":
-            # Use efficient edge detection instead of computing full contours
-            # Compute all outlines at once by eroding the entire mask
-            # Create binary mask (non-zero labels)
-            binary_mask = (mask > 0)
+        if overlay_mode == "Cluster":
+            # Cluster coloring mode
+            cluster_map = self._get_cluster_assignments(self.current_acq_id)
+            if cluster_map is None or len(cluster_map) == 0:
+                # No cluster data available, fall back to regular mask mode
+                unique_labels = np.unique(mask)
+                if self.current_acq_id not in self.segmentation_colors:
+                    self.segmentation_colors[self.current_acq_id] = np.random.rand(len(unique_labels), 3)
+                colors = self.segmentation_colors[self.current_acq_id]
+                
+                for i, label in enumerate(unique_labels):
+                    if label == 0:
+                        continue
+                    cell_mask = (mask == label)
+                    overlay[cell_mask, :] = colors[i]
+            else:
+                # Get unique clusters and generate colors
+                unique_clusters = sorted(set(cluster_map.values()))
+                
+                # Initialize cluster colors if not already set
+                if self.current_acq_id not in self.cluster_colors:
+                    # Use a colormap to generate distinct colors
+                    import matplotlib.cm as cm
+                    import matplotlib.colors as mcolors
+                    
+                    # Use tab20 colormap for up to 20 clusters, otherwise use a larger colormap
+                    if len(unique_clusters) <= 20:
+                        cmap = cm.get_cmap('tab20')
+                    else:
+                        cmap = cm.get_cmap('tab20c')  # Has more colors
+                    
+                    cluster_colors_dict = {}
+                    cluster_color_map_dict = {}
+                    
+                    for idx, cluster in enumerate(unique_clusters):
+                        # Get color from colormap
+                        color = cmap(idx % cmap.N)
+                        # Convert to RGB (0-1 range)
+                        cluster_colors_dict[cluster] = np.array(color[:3])
+                        # Store display name
+                        cluster_color_map_dict[cluster] = str(cluster)
+                    
+                    self.cluster_colors[self.current_acq_id] = cluster_colors_dict
+                    self.cluster_color_map[self.current_acq_id] = cluster_color_map_dict
+                
+                cluster_colors = self.cluster_colors[self.current_acq_id]
+                
+                # Color each cell by its cluster
+                unique_labels = np.unique(mask)
+                for label in unique_labels:
+                    if label == 0:  # Background
+                        continue
+                    
+                    # Get cluster for this cell
+                    cluster = cluster_map.get(label, 'Unassigned')
+                    if cluster not in cluster_colors:
+                        # Use gray for unassigned
+                        color = np.array([0.5, 0.5, 0.5])
+                    else:
+                        color = cluster_colors[cluster]
+                    
+                    # Fill cell mask with cluster color
+                    cell_mask = (mask == label)
+                    overlay[cell_mask, :] = color
+        else:
+            # Regular mask or outline mode
+            # Get or generate colors for this acquisition
+            unique_labels = np.unique(mask)
+            if self.current_acq_id not in self.segmentation_colors:
+                # Generate and store colors for this acquisition
+                self.segmentation_colors[self.current_acq_id] = np.random.rand(len(unique_labels), 3)
             
-            # Erode by 1 pixel to get interior regions
-            interior = ndi.binary_erosion(binary_mask, structure=np.ones((3, 3)))
+            colors = self.segmentation_colors[self.current_acq_id]
             
-            # Outline is the difference (original - interior)
-            outline_mask = binary_mask & ~interior
-            
-            # Color outline pixels with their corresponding label colors
-            for i, label in enumerate(unique_labels):
-                if label == 0:  # Background
-                    continue
-                # Find outline pixels that belong to this label
-                label_outline = outline_mask & (mask == label)
-                overlay[label_outline, :] = colors[i]
-        else:  # Mask mode (filled)
-            # Fill all pixels of each cell with colors
-            for i, label in enumerate(unique_labels):
-                if label == 0:  # Background
-                    continue
-                cell_mask = (mask == label)
-                overlay[cell_mask, :] = colors[i]
+            if overlay_mode == "Outline":
+                # Use efficient edge detection instead of computing full contours
+                # Compute all outlines at once by eroding the entire mask
+                # Create binary mask (non-zero labels)
+                binary_mask = (mask > 0)
+                
+                # Erode by 1 pixel to get interior regions
+                interior = ndi.binary_erosion(binary_mask, structure=np.ones((3, 3)))
+                
+                # Outline is the difference (original - interior)
+                outline_mask = binary_mask & ~interior
+                
+                # Color outline pixels with their corresponding label colors
+                for i, label in enumerate(unique_labels):
+                    if label == 0:  # Background
+                        continue
+                    # Find outline pixels that belong to this label
+                    label_outline = outline_mask & (mask == label)
+                    overlay[label_outline, :] = colors[i]
+            else:  # Mask mode (filled)
+                # Fill all pixels of each cell with colors
+                for i, label in enumerate(unique_labels):
+                    if label == 0:  # Background
+                        continue
+                    cell_mask = (mask == label)
+                    overlay[cell_mask, :] = colors[i]
         
         # Blend with original image
         if img.ndim == 2:
@@ -5708,6 +6185,89 @@ class MainWindow(QtWidgets.QMainWindow):
         blended = 0.7 * img_norm + 0.3 * overlay_norm
         
         return blended
+    
+    def _add_cluster_legend(self):
+        """Add cluster legend to the canvas if cluster overlay mode is active."""
+        if (not self.segmentation_overlay or 
+            self.segmentation_overlay_mode != "Cluster" or
+            self.current_acq_id not in self.cluster_color_map):
+            return
+        
+        cluster_color_map = self.cluster_color_map[self.current_acq_id]
+        cluster_colors = self.cluster_colors[self.current_acq_id]
+        
+        if not cluster_color_map:
+            return
+        
+        # Create legend elements
+        import matplotlib.patches as mpatches
+        legend_elements = []
+        
+        # Sort clusters for consistent legend order
+        sorted_clusters = sorted(cluster_color_map.keys(), key=lambda x: (isinstance(x, str), str(x)))
+        
+        for cluster in sorted_clusters:
+            color = cluster_colors.get(cluster, [0.5, 0.5, 0.5])
+            label = cluster_color_map.get(cluster, str(cluster))
+            legend_elements.append(
+                mpatches.Patch(facecolor=color, edgecolor='black', linewidth=0.5, label=label)
+            )
+        
+        if not legend_elements:
+            return
+        
+        # Clear any existing legends first
+        if hasattr(self.canvas, 'ax') and self.canvas.ax:
+            self.canvas.ax.legend_ = None
+        if hasattr(self.canvas, 'grid_axes') and self.canvas.grid_axes:
+            for ax in self.canvas.grid_axes:
+                ax.legend_ = None
+        if hasattr(self.canvas, 'fig'):
+            # Clear figure-level legends
+            for ax in self.canvas.fig.axes:
+                if hasattr(ax, 'legend_') and ax.legend_ is not None:
+                    ax.legend_.remove()
+        
+        # Add legend to the right of the image
+        # Try to find the main axes (for single image view) or grid axes
+        if hasattr(self.canvas, 'ax') and self.canvas.ax:
+            # Single image view (RGB composite or single channel)
+            # Position legend to the right of the axes
+            legend = self.canvas.ax.legend(handles=legend_elements, loc='center left', 
+                                          bbox_to_anchor=(1.02, 0.5), frameon=True, 
+                                          fontsize=8, title='Clusters', title_fontsize=9,
+                                          framealpha=0.9)
+            # Adjust subplot to make room for legend on the right
+            try:
+                self.canvas.fig.subplots_adjust(right=0.85)  # Leave 15% space on right for legend
+            except Exception:
+                pass
+        elif hasattr(self.canvas, 'grid_axes') and self.canvas.grid_axes:
+            # Grid view - add legend to the figure, positioned to the right
+            if len(self.canvas.grid_axes) > 0:
+                # Position legend to the right of the figure
+                legend = self.canvas.fig.legend(handles=legend_elements, loc='center left',
+                                                bbox_to_anchor=(1.02, 0.5), frameon=True,
+                                                fontsize=8, title='Clusters', title_fontsize=9,
+                                                framealpha=0.9)
+                # Adjust subplot to make room for legend on the right
+                try:
+                    self.canvas.fig.subplots_adjust(right=0.85)  # Leave 15% space on right for legend
+                except Exception:
+                    pass
+        elif hasattr(self.canvas, 'fig'):
+            # Fallback: add legend to figure
+            legend = self.canvas.fig.legend(handles=legend_elements, loc='center left',
+                                           bbox_to_anchor=(1.02, 0.5), frameon=True,
+                                           fontsize=8, title='Clusters', title_fontsize=9,
+                                           framealpha=0.9)
+            # Adjust subplot to make room for legend on the right
+            try:
+                self.canvas.fig.subplots_adjust(right=0.85)  # Leave 15% space on right for legend
+            except Exception:
+                pass
+        
+        self.canvas.draw()
 
     def _get_gpu_info(self):
         """Get GPU information for display."""
@@ -5874,6 +6434,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update checkbox text
         self._update_segmentation_overlay_text()
         
+        # Update cluster mode availability
+        self._update_cluster_mode_availability()
+        
         # Update display if we have segmentation masks
         if self.current_acq_id in self.segmentation_masks:
             self.preserve_zoom = True
@@ -6006,12 +6569,14 @@ class MainWindow(QtWidgets.QMainWindow):
                     
                     # Get original acquisition ID if this is a unique ID
                     original_acq_id = self._get_original_acq_id(acq_id)
+                    # Use well name for acquisition label if available, otherwise use acquisition name
+                    acq_label = current_acq_info.well if current_acq_info.well else current_acq_info.name
                     mp_args.append((
                         original_acq_id,  # Use original ID for loader
                         mask, 
                         selected_features, 
                         acq_info_dict, 
-                        current_acq_info.name,  # acq_label
+                        acq_label,  # acq_label - use well name if available
                         file_path,  # file path for loading
                         loader_type,  # "mcd" or "ometiff"
                         arcsinh_enabled, 
@@ -6108,6 +6673,9 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Store in memory
             self.feature_dataframe = combined_features
+            
+            # Update cluster mode availability after feature extraction
+            self._update_cluster_mode_availability()
             
             # Log feature extraction operation
             logger = get_logger()
@@ -6346,21 +6914,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 missing_acqs.append((acq_info.name, source_file_name))
                 continue
             
-            safe_name = self._sanitize_filename(acq_info.name)
             source_basename = os.path.splitext(os.path.basename(acq_info.source_file))[0]
             safe_source = self._sanitize_filename(source_basename)
             
             # Try different possible filenames with source file prefix
-            # Format: {source_file}_{name}_{well}_segmentation.tiff
+            # First try well name, then fall back to acquisition name
             possible_filenames = []
             
+            # Try well name first (if available)
             if acq_info.well:
                 safe_well = self._sanitize_filename(acq_info.well)
-                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation.tiff")
-                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation.tif")
-                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation_masks.tiff")
-                possible_filenames.append(f"{safe_source}_{safe_name}_{safe_well}_segmentation_masks.tif")
+                possible_filenames.append(f"{safe_source}_{safe_well}_segmentation.tiff")
+                possible_filenames.append(f"{safe_source}_{safe_well}_segmentation.tif")
+                possible_filenames.append(f"{safe_source}_{safe_well}_segmentation_masks.tiff")
+                possible_filenames.append(f"{safe_source}_{safe_well}_segmentation_masks.tif")
             
+            # Fall back to acquisition name
+            safe_name = self._sanitize_filename(acq_info.name)
             possible_filenames.append(f"{safe_source}_{safe_name}_segmentation.tiff")
             possible_filenames.append(f"{safe_source}_{safe_name}_segmentation.tif")
             possible_filenames.append(f"{safe_source}_{safe_name}_segmentation_masks.tiff")
@@ -6394,6 +6964,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Clear colors for this acquisition so they get regenerated
                 if acq_info.id in self.segmentation_colors:
                     del self.segmentation_colors[acq_info.id]
+                if acq_info.id in self.cluster_colors:
+                    del self.cluster_colors[acq_info.id]
+                if acq_info.id in self.cluster_color_map:
+                    del self.cluster_color_map[acq_info.id]
                 
                 loaded_count += 1
                 cell_count = len(np.unique(mask)) - 1  # Subtract 1 for background
@@ -6458,6 +7032,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """Clean up when closing the application."""
         if self.loader:
             self.loader.close()
+        # Delete LLM cache when closing the app
+        pass
         event.accept()
 
     def _open_clustering_dialog(self):
@@ -6472,59 +7048,89 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         
+        # Check if dialog already exists and is still valid
+        if self.clustering_dialog is not None:
+            try:
+                # Check if dialog still exists (hasn't been deleted)
+                # If dialog is visible, just bring it to front
+                # If dialog is not visible, show it
+                if self.clustering_dialog.isVisible():
+                    self.clustering_dialog.raise_()
+                    self.clustering_dialog.activateWindow()
+                else:
+                    self.clustering_dialog.show()
+                    self.clustering_dialog.raise_()
+                    self.clustering_dialog.activateWindow()
+                return
+            except (RuntimeError, AttributeError):
+                # Dialog was deleted, set to None
+                self.clustering_dialog = None
+        
         # Get normalization configuration from feature extraction
         normalization_config = None
         if hasattr(self, 'feature_extraction_config') and self.feature_extraction_config:
             normalization_config = self.feature_extraction_config.get('normalization_config')
         
-        # Open clustering dialog with both original and batch-corrected features
-        dlg = CellClusteringDialog(
+        # Create new clustering dialog with both original and batch-corrected features
+        self.clustering_dialog = CellClusteringDialog(
             self.feature_dataframe, 
             normalization_config, 
             batch_corrected_dataframe=self.batch_corrected_dataframe,
             parent=self
         )
-        dlg.exec_()
+        # Make dialog non-modal so it can be closed and reopened without losing state
+        self.clustering_dialog.setModal(False)
+        # Prevent dialog from being deleted when closed, so we can reopen it
+        self.clustering_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.clustering_dialog.show()
         
-        # Update main window dataframes with cluster assignments from dialog
-        # This ensures cluster, cluster_id, cluster_phenotype, etc. are appended to both dataframes
-        if hasattr(dlg, 'clustered_data') and dlg.clustered_data is not None:
-            # Get all cluster-related columns to copy
-            cluster_cols = [col for col in dlg.clustered_data.columns 
-                          if col in ['cluster', 'cluster_id', 'cluster_phenotype'] 
-                          or col.startswith('cluster_')]
-            
-            if cluster_cols:
-                # Helper function to update a dataframe with cluster assignments
-                def update_dataframe_with_clusters(target_df, source_df, cluster_cols):
-                    """Update target dataframe with cluster columns from source."""
-                    for col in cluster_cols:
-                        if col not in target_df.columns:
-                            # Initialize with default value (0 for numeric, empty string for string)
-                            if col in ['cluster', 'cluster_id']:
-                                target_df[col] = 0
-                            else:
-                                target_df[col] = ''
+        # Connect to dialog's close event to update main window dataframes
+        def on_dialog_closed():
+            """Update main window dataframes when dialog is closed."""
+            if hasattr(self.clustering_dialog, 'clustered_data') and self.clustering_dialog.clustered_data is not None:
+                # Get all cluster-related columns to copy
+                cluster_cols = [col for col in self.clustering_dialog.clustered_data.columns 
+                              if col in ['cluster', 'cluster_id', 'cluster_phenotype'] 
+                              or col.startswith('cluster_')]
+                
+                if cluster_cols:
+                    # Helper function to update a dataframe with cluster assignments
+                    def update_dataframe_with_clusters(target_df, source_df, cluster_cols):
+                        """Update target dataframe with cluster columns from source."""
+                        for col in cluster_cols:
+                            if col not in target_df.columns:
+                                # Initialize with default value (0 for numeric, empty string for string)
+                                if col in ['cluster', 'cluster_id']:
+                                    target_df[col] = 0
+                                else:
+                                    target_df[col] = ''
+                        
+                        # Match by index if possible
+                        if source_df.index.isin(target_df.index).any():
+                            matching_indices = source_df.index.intersection(target_df.index)
+                            for col in cluster_cols:
+                                target_df.loc[matching_indices, col] = source_df.loc[matching_indices, col].values
+                        # Otherwise match by cell_id
+                        elif 'cell_id' in source_df.columns and 'cell_id' in target_df.columns:
+                            # Create mapping from cell_id to cluster values
+                            for col in cluster_cols:
+                                cluster_map = dict(zip(source_df['cell_id'], source_df[col]))
+                                mask = target_df['cell_id'].isin(cluster_map.keys())
+                                target_df.loc[mask, col] = target_df.loc[mask, 'cell_id'].map(cluster_map)
                     
-                    # Match by index if possible
-                    if source_df.index.isin(target_df.index).any():
-                        matching_indices = source_df.index.intersection(target_df.index)
-                        for col in cluster_cols:
-                            target_df.loc[matching_indices, col] = source_df.loc[matching_indices, col].values
-                    # Otherwise match by cell_id
-                    elif 'cell_id' in source_df.columns and 'cell_id' in target_df.columns:
-                        # Create mapping from cell_id to cluster values
-                        for col in cluster_cols:
-                            cluster_map = dict(zip(source_df['cell_id'], source_df[col]))
-                            mask = target_df['cell_id'].isin(cluster_map.keys())
-                            target_df.loc[mask, col] = target_df.loc[mask, 'cell_id'].map(cluster_map)
-                
-                # Update original feature dataframe
-                update_dataframe_with_clusters(self.feature_dataframe, dlg.clustered_data, cluster_cols)
-                
-                # Update batch-corrected dataframe if it exists
-                if self.batch_corrected_dataframe is not None and not self.batch_corrected_dataframe.empty:
-                    update_dataframe_with_clusters(self.batch_corrected_dataframe, dlg.clustered_data, cluster_cols)
+                    # Update original feature dataframe
+                    update_dataframe_with_clusters(self.feature_dataframe, self.clustering_dialog.clustered_data, cluster_cols)
+                    
+                    # Update batch-corrected dataframe if it exists
+                    if self.batch_corrected_dataframe is not None and not self.batch_corrected_dataframe.empty:
+                        update_dataframe_with_clusters(self.batch_corrected_dataframe, self.clustering_dialog.clustered_data, cluster_cols)
+                    
+                    # Update cluster mode availability after cluster data is added
+                    # Use a small delay to ensure the update happens after the dialog is fully closed
+                    QTimer.singleShot(100, self._update_cluster_mode_availability)
+        
+        # Connect close event
+        self.clustering_dialog.finished.connect(on_dialog_closed)
 
     def _open_spatial_dialog(self):
         """Open the spatial analysis dialog."""
@@ -6537,13 +7143,36 @@ class MainWindow(QtWidgets.QMainWindow):
                 "- Load features using 'Analysis > Load Feature File'"
             )
             return
-        # Open spatial analysis dialog with both original and batch-corrected features
-        dlg = SpatialAnalysisDialog(
+        
+        # Check if dialog already exists and is still valid
+        if self.spatial_dialog is not None:
+            try:
+                # Check if dialog still exists (hasn't been deleted)
+                # If dialog is visible, just bring it to front
+                # If dialog is not visible, show it
+                if self.spatial_dialog.isVisible():
+                    self.spatial_dialog.raise_()
+                    self.spatial_dialog.activateWindow()
+                else:
+                    self.spatial_dialog.show()
+                    self.spatial_dialog.raise_()
+                    self.spatial_dialog.activateWindow()
+                return
+            except (RuntimeError, AttributeError):
+                # Dialog was deleted, set to None
+                self.spatial_dialog = None
+        
+        # Create new spatial analysis dialog with both original and batch-corrected features
+        self.spatial_dialog = SpatialAnalysisDialog(
             self.feature_dataframe, 
             batch_corrected_dataframe=self.batch_corrected_dataframe,
             parent=self
         )
-        dlg.exec_()
+        # Make dialog non-modal so it can be closed and reopened without losing state
+        self.spatial_dialog.setModal(False)
+        # Prevent dialog from being deleted when closed, so we can reopen it
+        self.spatial_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.spatial_dialog.show()
     
     def _open_qc_dialog(self):
         """Open the QC analysis dialog."""
@@ -6763,10 +7392,39 @@ class MainWindow(QtWidgets.QMainWindow):
                 source_file_path=source_file_path,  # Pass source file/dir for filename generation
                 unique_acq_id=self.current_acq_id,  # Pass unique ID for filename
                 loader_type=loader_type,
-                channel_format=self.ometiff_channel_format if isinstance(loader, OMETIFFLoader) else 'CHW'
+                channel_format=self.ometiff_channel_format if isinstance(loader, OMETIFFLoader) else 'CHW',
+                well_name=acq_info.well  # Pass well name if available
             )
             
             progress_dlg.update_progress(100, "Complete", f"Saved to {os.path.basename(output_path)}")
+            
+            # Log deconvolution
+            logger = get_logger()
+            # Get source file name for logging
+            source_file_name = None
+            if isinstance(loader, MCDLoader):
+                source_file_name = os.path.basename(source_file_path) if source_file_path else None
+            elif isinstance(loader, OMETIFFLoader):
+                # For OME-TIFF, use the folder name
+                source_file_name = os.path.basename(source_file_path) if source_file_path else None
+            
+            params = {
+                "x0": x0,
+                "iterations": iterations,
+                "output_format": output_format,
+                "loader_type": loader_type
+            }
+            
+            logger._write_entry(
+                entry_type="deconvolution",
+                operation="high_resolution_deconvolution",
+                parameters=params,
+                acquisitions=[self.current_acq_id],
+                output_path=output_path,
+                notes=f"High resolution deconvolution: {acq_info.name}",
+                source_file=source_file_name
+            )
+            
             return True
             
         except Exception as e:
@@ -6897,6 +7555,55 @@ class MainWindow(QtWidgets.QMainWindow):
             "Complete",
             f"Successfully deconvolved {processed} acquisition(s)"
         )
+        
+        # Log deconvolution for all acquisitions
+        logger = get_logger()
+        # Collect unique source files
+        source_files = set()
+        for acq in self.acquisitions:
+            loader = self._get_loader_for_acquisition(acq.id)
+            if loader:
+                if isinstance(loader, MCDLoader):
+                    if acq.id in self.acq_to_file:
+                        source_file = self.acq_to_file[acq.id]
+                        source_files.add(os.path.basename(source_file))
+                    elif acq.source_file:
+                        source_files.add(os.path.basename(acq.source_file))
+                elif isinstance(loader, OMETIFFLoader):
+                    if self.current_path and os.path.isdir(self.current_path):
+                        source_files.add(os.path.basename(self.current_path))
+                    elif acq.source_file:
+                        folder_path = os.path.dirname(acq.source_file) if os.path.dirname(acq.source_file) else acq.source_file
+                        source_files.add(os.path.basename(folder_path))
+        
+        source_file_str = None
+        if source_files:
+            if len(source_files) == 1:
+                source_file_str = list(source_files)[0]
+            else:
+                sorted_files = sorted(source_files)
+                if len(sorted_files) <= 3:
+                    source_file_str = ", ".join(sorted_files)
+                else:
+                    source_file_str = ", ".join(sorted_files[:3]) + f" and {len(sorted_files) - 3} more"
+        
+        params = {
+            "x0": x0,
+            "iterations": iterations,
+            "output_format": output_format,
+            "n_acquisitions": processed
+        }
+        
+        logger._write_entry(
+            entry_type="deconvolution",
+            operation="high_resolution_deconvolution",
+            parameters=params,
+            acquisitions=[acq.id for acq in self.acquisitions],
+            output_path=output_dir,
+            notes=f"High resolution deconvolution: {processed} acquisition(s) deconvolved",
+            source_file=source_file_str
+        )
+        
         return True
     
     def _load_deconvolved_images(self, output_dir: str):
@@ -6925,7 +7632,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.acquisitions = self.loader.list_acquisitions(source_file=output_dir)
             self.acq_combo.clear()
             for ai in self.acquisitions:
-                label = ai.name + (f" ({ai.well})" if ai.well else "")
+                # Use well name if available, otherwise use acquisition name
+                label = ai.well if ai.well else ai.name
                 self.acq_combo.addItem(label, ai.id)
             
             # Update window title
@@ -6990,6 +7698,9 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Store in memory
             self.feature_dataframe = df
+            
+            # Update cluster mode availability after loading features
+            self._update_cluster_mode_availability()
             
             QtWidgets.QMessageBox.information(
                 self,

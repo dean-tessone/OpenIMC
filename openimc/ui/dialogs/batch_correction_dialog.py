@@ -37,6 +37,8 @@ from openimc.processing.batch_correction import (
     apply_harmony_correction,
     validate_batch_correction_inputs
 )
+from openimc.ui.dialogs.custom_grouping_dialog import CustomGroupingDialog
+from openimc.utils.logger import get_logger
 
 # Optional imports for batch correction methods
 try:
@@ -64,6 +66,7 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         
         self.feature_dataframe = feature_dataframe
         self.corrected_dataframe: Optional[pd.DataFrame] = None
+        self.custom_grouping: Optional[Dict[str, str]] = None  # Maps acquisition_id -> group_name
         
         self._create_ui()
         self._update_ui_state()
@@ -208,16 +211,31 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         method_layout.addWidget(self.pca_variance_widget)
         
         # Batch variable selection
-        batch_var_layout = QtWidgets.QHBoxLayout()
-        batch_var_layout.addWidget(QtWidgets.QLabel("Batch variable:"))
+        batch_var_layout = QtWidgets.QVBoxLayout()
+        batch_var_label_layout = QtWidgets.QHBoxLayout()
+        batch_var_label_layout.addWidget(QtWidgets.QLabel("Batch variable:"))
         self.batch_var_combo = QtWidgets.QComboBox()
-        self.batch_var_combo.addItems(["source_file", "acquisition_id"])
+        self.batch_var_combo.addItems(["source_file", "acquisition_id", "Custom grouping"])
         self.batch_var_combo.setToolTip(
             "Variable to use for batch identification.\n"
-            "'source_file' groups by file name, 'acquisition_id' groups by acquisition."
+            "'source_file' groups by file name, 'acquisition_id' groups by acquisition.\n"
+            "'Custom grouping' allows you to create custom groups using source_well (recommended) or acquisition_id."
         )
-        batch_var_layout.addWidget(self.batch_var_combo)
-        batch_var_layout.addStretch()
+        self.batch_var_combo.currentTextChanged.connect(self._on_batch_var_changed)
+        batch_var_label_layout.addWidget(self.batch_var_combo)
+        batch_var_label_layout.addStretch()
+        batch_var_layout.addLayout(batch_var_label_layout)
+        
+        # Custom grouping button (hidden by default)
+        self.custom_grouping_btn = QtWidgets.QPushButton("Configure Custom Groups...")
+        self.custom_grouping_btn.clicked.connect(self._open_custom_grouping_dialog)
+        self.custom_grouping_btn.setVisible(False)
+        self.custom_grouping_status = QtWidgets.QLabel("")
+        self.custom_grouping_status.setStyleSheet("QLabel { color: #666; font-size: 8pt; }")
+        self.custom_grouping_status.setVisible(False)
+        batch_var_layout.addWidget(self.custom_grouping_btn)
+        batch_var_layout.addWidget(self.custom_grouping_status)
+        
         method_layout.addLayout(batch_var_layout)
         
         content_layout.addWidget(method_group)
@@ -324,6 +342,41 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         
         # Store loaded files
         self.loaded_files: List[str] = []
+    
+    def _on_batch_var_changed(self, text: str):
+        """Handle batch variable selection change."""
+        is_custom = (text == "Custom grouping")
+        self.custom_grouping_btn.setVisible(is_custom)
+        self.custom_grouping_status.setVisible(is_custom)
+        if not is_custom:
+            self.custom_grouping = None
+            self.custom_grouping_status.setText("")
+    
+    def _open_custom_grouping_dialog(self):
+        """Open the custom grouping dialog."""
+        # Get combined dataframe to pass to dialog
+        combined_df = self._get_combined_dataframe()
+        if combined_df is None or combined_df.empty:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Data",
+                "No feature data available. Please load features first."
+            )
+            return
+        
+        # Create and show dialog (pass existing grouping if any)
+        dialog = CustomGroupingDialog(combined_df, self.custom_grouping, self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            self.custom_grouping = dialog.get_grouping()
+            # Update status label
+            if self.custom_grouping:
+                num_groups = len(set(self.custom_grouping.values()))
+                num_acqs = len(self.custom_grouping)
+                self.custom_grouping_status.setText(
+                    f"Custom grouping configured: {num_acqs} acquisition(s) in {num_groups} group(s)"
+                )
+            else:
+                self.custom_grouping_status.setText("No custom grouping configured")
     
     def _on_source_changed(self):
         """Handle data source radio button change."""
@@ -649,6 +702,73 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         # Get batch variable
         batch_var = self.batch_var_combo.currentText()
         
+        # Handle custom grouping
+        temp_batch_var = None
+        if batch_var == "Custom grouping":
+            if not self.custom_grouping:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "No Custom Grouping",
+                    "Please configure custom groups first by clicking 'Configure Custom Groups...'"
+                )
+                return
+            
+            # Create batch variable column based on custom grouping
+            # Use a user-friendly column name that will be preserved in the output
+            temp_batch_var = "batch_group"
+            combined_df = combined_df.copy()
+            
+            # Determine which column to use for grouping (source_well preferred, acquisition_id as fallback)
+            grouping_column = None
+            if 'source_well' in combined_df.columns:
+                grouping_column = 'source_well'
+            elif 'acquisition_id' in combined_df.columns:
+                grouping_column = 'acquisition_id'
+            
+            if not grouping_column:
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Missing Column",
+                    "Custom grouping requires 'source_well' or 'acquisition_id' column in the feature dataframe."
+                )
+                return
+            
+            # Map source_well or acquisition_id to group name
+            def get_group(acq_id):
+                return self.custom_grouping.get(str(acq_id), "__unassigned__")
+            
+            combined_df[temp_batch_var] = combined_df[grouping_column].apply(get_group)
+            
+            # Check that we have at least 2 groups (excluding unassigned)
+            unique_groups = set(combined_df[temp_batch_var].unique())
+            assigned_groups = unique_groups - {"__unassigned__"}
+            
+            if len(assigned_groups) < 2:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Insufficient Groups",
+                    f"Custom grouping resulted in only {len(assigned_groups)} assigned group(s). "
+                    "At least 2 groups are required for batch correction."
+                )
+                return
+            
+            # Warn if there are unassigned acquisitions
+            unassigned_count = (combined_df[temp_batch_var] == "__unassigned__").sum()
+            if unassigned_count > 0:
+                reply = QtWidgets.QMessageBox.warning(
+                    self,
+                    "Unassigned Acquisitions",
+                    f"{unassigned_count} acquisition(s) are not assigned to any group. "
+                    "They will be treated as a separate batch. Continue?",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.No
+                )
+                if reply == QtWidgets.QMessageBox.No:
+                    return
+            
+            # Use the temporary batch variable
+            batch_var = temp_batch_var
+        
         # Validate inputs
         try:
             validate_batch_correction_inputs(combined_df, batch_var, selected_features)
@@ -697,6 +817,7 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
             progress.close()
             
             # Validate output path if saving
+            output_path = None
             if self.save_output_chk.isChecked():
                 output_path = self.output_path_edit.text().strip()
                 if not output_path:
@@ -706,6 +827,64 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
                         "Please specify an output path to save the corrected features."
                     )
                     return
+            
+            # Log batch correction
+            logger = get_logger()
+            
+            # Collect source files from the combined dataframe
+            source_files = set()
+            if 'source_file' in combined_df.columns:
+                source_files = set(combined_df['source_file'].dropna().unique())
+            
+            source_file_str = None
+            if source_files:
+                if len(source_files) == 1:
+                    source_file_str = list(source_files)[0]
+                else:
+                    sorted_files = sorted(source_files)
+                    if len(sorted_files) <= 3:
+                        source_file_str = ", ".join(sorted_files)
+                    else:
+                        source_file_str = ", ".join(sorted_files[:3]) + f" and {len(sorted_files) - 3} more"
+            
+            # Collect acquisition IDs
+            acquisitions = []
+            if 'acquisition_id' in combined_df.columns:
+                acquisitions = list(combined_df['acquisition_id'].dropna().unique())
+            
+            # Prepare parameters
+            # Get number of batches (use the actual batch variable column, not the display name)
+            actual_batch_var = temp_batch_var if temp_batch_var else batch_var
+            n_batches = len(combined_df[actual_batch_var].unique()) if actual_batch_var in combined_df.columns else 0
+            
+            params = {
+                "method": method,
+                "batch_variable": batch_var if not temp_batch_var else "custom_grouping",
+                "n_features": len(selected_features),
+                "n_cells": len(combined_df),
+                "n_batches": n_batches
+            }
+            
+            # Add method-specific parameters
+            if method == "Harmony" and hasattr(self, 'pca_variance_spin'):
+                params["pca_variance"] = self.pca_variance_spin.value()
+            
+            if temp_batch_var:
+                params["custom_grouping"] = True
+                params["n_groups"] = len(set(combined_df[actual_batch_var].unique()))
+            
+            logger._write_entry(
+                entry_type="batch_correction",
+                operation=method.lower(),
+                parameters=params,
+                acquisitions=acquisitions,
+                output_path=output_path,
+                notes=f"Batch correction applied to {len(selected_features)} features across {len(combined_df)} cells",
+                source_file=source_file_str
+            )
+            
+            # Note: The batch_group column is preserved in the corrected dataframe
+            # for use in visualization (e.g., coloring by batch in clustering/spatial analysis)
             
             # Success - accept dialog
             self.accept()

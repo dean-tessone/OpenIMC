@@ -41,6 +41,7 @@ from openimc.data.mcd_loader import MCDLoader
 from openimc.data.ometiff_loader import OMETIFFLoader
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.progress_dialog import ProgressDialog
+from openimc.utils.logger import get_logger
 import tifffile
 import multiprocessing as mp
 
@@ -1069,6 +1070,56 @@ class PixelCorrelationDialog(QtWidgets.QDialog):
                 selected.append(item.text())
         return selected if selected else None
     
+    def _get_source_files_for_logging(self) -> Optional[str]:
+        """Get source file names for logging. Returns a string with all unique source files."""
+        source_files = set()
+        
+        # Collect source files from ROI items
+        if self.use_conditions_chk.isChecked():
+            for widget in self.condition_widgets:
+                name, roi_items = widget.get_condition_data()
+                if roi_items:
+                    for acq_id, acq_name, file_path, loader_type in roi_items:
+                        if loader_type == "mcd":
+                            # For MCD files, use the file basename
+                            source_files.add(os.path.basename(file_path))
+                        elif loader_type == "ometiff":
+                            # For OME-TIFF, use the folder name (directory containing the file)
+                            if os.path.isdir(file_path):
+                                # file_path is already a folder
+                                folder_path = file_path
+                            else:
+                                # file_path is a file, get its directory
+                                folder_path = os.path.dirname(file_path) if os.path.dirname(file_path) else file_path
+                            source_files.add(os.path.basename(folder_path))
+        else:
+            for acq_id, acq_name, file_path, loader_type in self.roi_items:
+                if loader_type == "mcd":
+                    # For MCD files, use the file basename
+                    source_files.add(os.path.basename(file_path))
+                elif loader_type == "ometiff":
+                    # For OME-TIFF, use the folder name (directory containing the file)
+                    if os.path.isdir(file_path):
+                        # file_path is already a folder
+                        folder_path = file_path
+                    else:
+                        # file_path is a file, get its directory
+                        folder_path = os.path.dirname(file_path) if os.path.dirname(file_path) else file_path
+                    source_files.add(os.path.basename(folder_path))
+        
+        if not source_files:
+            return None
+        
+        if len(source_files) == 1:
+            return list(source_files)[0]
+        else:
+            # Return comma-separated list of source files
+            sorted_files = sorted(source_files)
+            if len(sorted_files) <= 3:
+                return ", ".join(sorted_files)
+            else:
+                return ", ".join(sorted_files[:3]) + f" and {len(sorted_files) - 3} more"
+    
     def _run_analysis(self):
         """Run pixel-level correlation analysis with multiprocessing."""
         use_conditions = self.use_conditions_chk.isChecked()
@@ -1336,6 +1387,37 @@ class PixelCorrelationDialog(QtWidgets.QDialog):
             self._update_results_display(use_conditions)
             
             progress_dlg.close()
+            
+            # Log pixel correlation analysis
+            logger = get_logger()
+            # Collect acquisition IDs
+            acquisitions = []
+            if use_conditions:
+                for widget in self.condition_widgets:
+                    name, roi_items = widget.get_condition_data()
+                    if roi_items:
+                        for acq_id, acq_name, file_path, loader_type in roi_items:
+                            acquisitions.append(acq_id)
+            else:
+                for acq_id, acq_name, file_path, loader_type in self.roi_items:
+                    acquisitions.append(acq_id)
+            
+            params = {
+                "scope": "within_cell_masks" if self.analyze_within_masks else "entire_roi",
+                "selected_channels": self._get_selected_channels() is not None,
+                "n_channels": len(self._get_selected_channels()) if self._get_selected_channels() else "all",
+                "use_conditions": use_conditions
+            }
+            source_file = self._get_source_files_for_logging()
+            
+            logger._write_entry(
+                entry_type="pixel_correlation",
+                operation="spearman_correlation",
+                parameters=params,
+                acquisitions=acquisitions,
+                notes=f"Pixel-level correlation analysis: {len(self.correlation_results)} marker pair correlations computed",
+                source_file=source_file
+            )
             
             QtWidgets.QMessageBox.information(
                 self,

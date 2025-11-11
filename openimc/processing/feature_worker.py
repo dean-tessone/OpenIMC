@@ -367,11 +367,38 @@ def extract_features_for_acquisition(
             source_filename = os.path.basename(source_file)
         else:
             source_filename = None
+        
+        # Get well name from acq_info if available
+        well_name = acq_info.get("well") if isinstance(acq_info, dict) else None
+        
+        # Create source_well column: source_file (without extension) + well name
+        source_well = None
+        if source_filename and well_name:
+            # Remove .tif, .mcd, or .ome.tif extensions
+            source_base = source_filename
+            for ext in ['.ome.tif', '.tif', '.mcd']:
+                if source_base.lower().endswith(ext):
+                    source_base = source_base[:-len(ext)]
+                    break
+            source_well = f"{source_base}_{well_name}"
+        elif well_name:
+            # If no source_file but we have well, just use well
+            source_well = well_name
+        elif source_filename:
+            # If no well but we have source_file, use source_file base name
+            source_base = source_filename
+            for ext in ['.ome.tif', '.tif', '.mcd']:
+                if source_base.lower().endswith(ext):
+                    source_base = source_base[:-len(ext)]
+                    break
+            source_well = source_base
+        
         # Use pd.concat instead of multiple insert() calls to avoid DataFrame fragmentation
         metadata_df = pd.DataFrame({
             "acquisition_id": [acq_id] * len(morph_df),
             "acquisition_label": [acq_label] * len(morph_df),
-            "source_file": [source_filename] * len(morph_df)
+            "source_file": [source_filename] * len(morph_df),
+            "source_well": [source_well] * len(morph_df)
         })
         morph_df = pd.concat([metadata_df, morph_df], axis=1)
 

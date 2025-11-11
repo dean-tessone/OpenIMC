@@ -708,9 +708,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.cluster_annotation_map = {}
             self.cluster_backend_names = {}
             # Clear LLM phenotype cache when re-clustering
-            print(f"[DEBUG] Clearing LLM cache before re-clustering. Previous cache had {len(self.llm_phenotype_cache)} entries")
             self.llm_phenotype_cache = {}
-            print("[DEBUG] LLM cache cleared")
             
             # Clear any existing cluster phenotype data
             if hasattr(self, 'clustered_data') and self.clustered_data is not None and 'cluster_phenotype' in self.clustered_data.columns:
@@ -791,9 +789,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 
                 # Update cluster assignments for the clustered cells
                 self.feature_dataframe.loc[self.clustered_data.index, 'cluster'] = self.clustered_data['cluster'].values
-                print(f"[DEBUG] Added cluster column to feature dataframe with {len(self.clustered_data)} cells")
             else:
-                print(f"[DEBUG] Warning: Clustering completed but no cluster column found in results")
+                pass
             
             # Log clustering operation
             logger = get_logger()
@@ -5204,7 +5201,6 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
         # Ensure the current suggestions are cached for future use
         if self._cache_dict is not None and self._suggestions:
             self._cache_dict.update(self._suggestions)
-            print(f"[DEBUG] Preserved cache on close for clusters: {list(self._suggestions.keys())}")
         event.accept()
 
     def _reset_progress_bar(self):
@@ -5231,11 +5227,6 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
             elif cid_int in self._cache_dict:
                 cached_results[cid] = self._cache_dict[cid_int]
         
-        # Debug: Print cache status
-        print(f"[DEBUG] Cache check: {len(cached_results)}/{len(self._cluster_ids)} clusters cached")
-        print(f"[DEBUG] Current cluster IDs: {self._cluster_ids}")
-        print(f"[DEBUG] Cached cluster IDs: {list(self._cache_dict.keys())}")
-        
         # If we have cached results for all clusters, display them
         if cached_results and len(cached_results) == len(self._cluster_ids):
             # Store the cached results in _suggestions so they can be applied
@@ -5245,9 +5236,8 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
             # Disable the run button since we already have results
             self.run_btn.setEnabled(False)
             self.run_btn.setText("Results Cached - Re-run to refresh")
-            print("[DEBUG] Displaying cached results")
         else:
-            print("[DEBUG] No cached results found or incomplete cache")
+            pass
 
     def _apply(self):
         display_name_map = {}
@@ -5296,33 +5286,27 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
             ok = True
             # Basic keys
             if not isinstance(payload, dict):
-                print("[DEBUG] Payload is not a dict")
                 return False
             if 'input' not in payload:
-                print("[DEBUG] Payload missing 'input'")
                 ok = False
             if 'model' not in payload:
-                print("[DEBUG] Payload missing 'model'")
                 ok = False
             # Input structure
             msgs = payload.get('input')
             if not isinstance(msgs, list) or len(msgs) < 2:
-                print("[DEBUG] Payload 'input' is not a list of at least 2 messages")
                 ok = False
             else:
                 # Check roles and content types
                 roles = [m.get('role') for m in msgs if isinstance(m, dict)]
                 if roles[:2] != ['system', 'user']:
-                    print(f"[DEBUG] Unexpected roles in messages: {roles}")
+                    pass
                 for m in msgs:
                     content = m.get('content') if isinstance(m, dict) else None
                     if not isinstance(content, list):
-                        print("[DEBUG] Message 'content' is not a list")
                         ok = False
                         break
                     for block in content:
                         if not isinstance(block, dict) or block.get('type') != 'input_text' or 'text' not in block:
-                            print("[DEBUG] Content block missing type='input_text' or 'text'")
                             ok = False
                             break
             # Ensure user context JSON parses back
@@ -5332,11 +5316,9 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
                 if user_texts:
                     json.loads(user_texts[0])
             except Exception as e:
-                print(f"[DEBUG] User context JSON failed to parse: {e}")
                 ok = False
             return ok
         except Exception as e:
-            print(f"[DEBUG] Exception during payload validation: {e}")
             return False
 
     def _run(self):
@@ -5400,8 +5382,6 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
                 # Cache the results
                 if self._cache_dict is not None:
                     self._cache_dict.update(results)
-                    print(f"[DEBUG] Cached results for clusters: {list(results.keys())}")
-                    print(f"[DEBUG] Total cached clusters: {list(self._cache_dict.keys())}")
                 self._render_choices(results)
                 self.apply_btn.setEnabled(True)
         except Exception as e:
@@ -5694,17 +5674,14 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
             pass
         # Responses API call
         try:
-            print(f"[DEBUG] Making OpenAI API call to model: {data.get('model', 'gpt-5')}")
             resp = client.responses.create(
                 model=data.get('model', 'gpt-5'),
                 max_output_tokens=data.get('max_tokens', 2000),
                 input=input_payload,
                 reasoning={'effort': 'low'}
             )
-            print("[DEBUG] OpenAI API call successful")
         except Exception as e:
             error_msg = str(e)
-            print(f"[DEBUG] OpenAI API call failed: {error_msg}")
             
             # Provide more specific error information
             if "connection" in error_msg.lower() or "timeout" in error_msg.lower():

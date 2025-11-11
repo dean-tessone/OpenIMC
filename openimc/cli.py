@@ -150,9 +150,11 @@ def preprocess_command(args):
             processed_stack = np.stack(processed_channels, axis=0)
             
             # Save as OME-TIFF
-            output_filename = f"{acq.name}.ome.tif"
+            # Use well name if available, otherwise use acquisition name
             if acq.well:
-                output_filename = f"{acq.name}_well_{acq.well}.ome.tif"
+                output_filename = f"{acq.well}.ome.tif"
+            else:
+                output_filename = f"{acq.name}.ome.tif"
             output_path = output_dir / output_filename
             
             # Create OME metadata
@@ -477,9 +479,11 @@ def segment_command(args):
                 raise ValueError(f"Unknown segmentation method: {args.method}")
             
             # Save mask
-            output_filename = f"{acq.name}_segmentation.tif"
+            # Use well name if available, otherwise use acquisition name
             if acq.well:
-                output_filename = f"{acq.name}_well_{acq.well}_segmentation.tif"
+                output_filename = f"{acq.well}_segmentation.tif"
+            else:
+                output_filename = f"{acq.name}_segmentation.tif"
             output_path = output_dir / output_filename
             
             print(f"  Saving segmentation mask to: {output_path}")
@@ -519,17 +523,31 @@ def extract_features_command(args):
             # Directory of masks - load masks for each acquisition
             print(f"Loading masks from directory: {mask_path}")
             for mask_file in sorted(mask_path.glob('*.tif')) + sorted(mask_path.glob('*.tiff')) + sorted(mask_path.glob('*.npy')):
-                # Try to match mask filename to acquisition name
+                # Try to match mask filename to acquisition
+                # First try well name, then fall back to acquisition name
                 mask_name = mask_file.stem
-                # Try to find matching acquisition
+                matched = False
+                # Try to find matching acquisition by well name first
                 for acq in acquisitions:
-                    if acq.name in mask_name or acq.id in mask_name:
+                    if acq.well and acq.well in mask_name:
                         if mask_file.suffix == '.npy':
                             masks_dict[acq.id] = np.load(str(mask_file))
                         else:
                             masks_dict[acq.id] = tifffile.imread(str(mask_file))
-                        print(f"  Loaded mask for {acq.name}: {mask_file.name}")
+                        print(f"  Loaded mask for {acq.well} (well name): {mask_file.name}")
+                        matched = True
                         break
+                
+                # If no match by well name, try acquisition name
+                if not matched:
+                    for acq in acquisitions:
+                        if acq.name in mask_name or acq.id in mask_name:
+                            if mask_file.suffix == '.npy':
+                                masks_dict[acq.id] = np.load(str(mask_file))
+                            else:
+                                masks_dict[acq.id] = tifffile.imread(str(mask_file))
+                            print(f"  Loaded mask for {acq.name} (acquisition name): {mask_file.name}")
+                            break
         else:
             # Single mask file - use for all acquisitions
             print(f"Loading mask from: {mask_path}")
@@ -602,16 +620,19 @@ def extract_features_command(args):
             acq_info = {
                 'channels': channels,
                 'channel_metals': acq.channel_metals,
-                'channel_labels': acq.channel_labels
+                'channel_labels': acq.channel_labels,
+                'well': acq.well  # Include well for source_well column creation
             }
             
             # Extract features
+            # Use well name for acquisition label if available, otherwise use acquisition name
+            acq_label = acq.well if acq.well else acq.name
             features_df = extract_features_for_acquisition(
                 acq.id,
                 mask,
                 selected_features,
                 acq_info,
-                acq.name,
+                acq_label,
                 img_stack,
                 args.arcsinh,
                 args.arcsinh_cofactor if args.arcsinh else 10.0,
