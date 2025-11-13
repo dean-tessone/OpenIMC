@@ -1,0 +1,197 @@
+# OpenIMC Workflow Configuration File
+# This file defines a complete analysis workflow that can be executed via CLI
+# Usage: openimc workflow example_workflow_config.yaml
+
+# Base configuration (optional - steps can override)
+input: "path/to/input.mcd"  # or path to OME-TIFF directory
+output: "workflow_output"    # Base output directory
+channel_format: "CHW"        # Channel format: "CHW" or "HWC"
+
+# ============================================================================
+# PREPROCESSING
+# ============================================================================
+# Denoise and export images to OME-TIFF format
+preprocessing:
+  enabled: false
+  # input: "path/to/input.mcd"  # Optional: override base input
+  # output: "preprocessed"        # Optional: override default output location
+  channel_format: "CHW"         # Optional: override base channel_format
+  denoise_settings:              # Optional: JSON file path or inline dict
+    # Example inline dict:
+    # "Channel1": {"method": "gaussian", "sigma": 1.0}
+    # "Channel2": {"method": "median", "size": 3}
+  # Or path to JSON file:
+  # denoise_settings: "denoise_config.json"
+
+# ============================================================================
+# DECONVOLUTION
+# ============================================================================
+# High resolution deconvolution using Richardson-Lucy algorithm
+deconvolution:
+  enabled: false
+  # input: "path/to/input.mcd"  # Optional: uses preprocessing output if not specified
+  # output: "deconvolved"        # Optional: override default output location
+  acquisition: null              # Optional: specific acquisition ID/name, or null for all
+  x0: 7.0                        # Parameter for kernel calculation
+  iterations: 4                  # Number of Richardson-Lucy iterations
+  output_format: "float"         # Output format: "float" or "uint16"
+
+# ============================================================================
+# SEGMENTATION
+# ============================================================================
+# Cell segmentation using CellSAM, Cellpose, or Watershed
+segmentation:
+  enabled: true
+  # input: "path/to/input.mcd"  # Optional: uses previous step output if not specified
+  # output: "segmentation"       # Optional: override default output location
+  method: "cellsam"              # Options: "cellsam", "cellpose", "watershed"
+  acquisition: null              # Optional: specific acquisition ID/name
+  
+  # Channel selection (required)
+  nuclear_channels:
+    - "DNA1_Ir191"
+    - "DNA2_Ir193"
+  cytoplasm_channels:            # Optional for CellSAM/Cellpose, required for Watershed
+    - "CD3_1841"
+    - "CD4_2293"
+  
+  # Channel fusion methods
+  nuclear_fusion_method: "mean"  # Options: "single", "mean", "weighted", "max", "pca1"
+  cyto_fusion_method: "mean"
+  nuclear_weights: null          # Optional: [0.5, 0.3, 0.2] for weighted fusion
+  cyto_weights: null
+  
+  # CellSAM parameters
+  deepcell_api_key: null         # Optional: uses DEEPCELL_ACCESS_TOKEN env var if not set
+  bbox_threshold: 0.4            # Lower for faint cells (0.01-0.1)
+  use_wsi: false                 # Use WSI mode for ROIs with >500 cells
+  low_contrast_enhancement: false
+  gauge_cell_size: false
+  
+  # Cellpose parameters
+  model: "cyto3"                 # Options: "cyto3", "nuclei"
+  diameter: null                 # Optional: cell diameter in pixels
+  flow_threshold: 0.4
+  cellprob_threshold: 0.0
+  gpu_id: null                   # Optional: GPU ID to use
+  
+  # Watershed parameters
+  min_cell_area: 100
+  max_cell_area: 10000
+  compactness: 0.01
+  
+  # Preprocessing for segmentation
+  arcsinh: false                 # Apply arcsinh normalization before segmentation
+  arcsinh_cofactor: 10.0
+  denoise_settings: null         # Optional: same format as preprocessing
+
+# ============================================================================
+# FEATURE EXTRACTION
+# ============================================================================
+# Extract morphological and intensity features from segmented cells
+feature_extraction:
+  enabled: true
+  # input: "path/to/input.mcd"  # Optional: uses previous step output if not specified
+  # output: "features.csv"       # Optional: override default output location
+  # mask: "path/to/masks/"       # Optional: uses segmentation output if not specified
+  acquisition: null              # Optional: specific acquisition ID/name
+  
+  morphological: true             # Extract morphological features
+  intensity: true                 # Extract intensity features
+  
+  # Arcsinh transformation (applied to extracted intensity features, not raw images)
+  arcsinh: false
+  arcsinh_cofactor: 10.0
+  
+  # Denoising
+  denoise_settings: null         # Optional: same format as preprocessing
+  
+  # Spillover correction
+  spillover_correction:
+    enabled: false
+    matrix_file: "path/to/spillover_matrix.csv"  # Required if enabled
+    method: "nnls"                # Options: "nnls", "pgd"
+
+# ============================================================================
+# BATCH CORRECTION
+# ============================================================================
+# Correct batch effects using Harmony or ComBat
+batch_correction:
+  enabled: false
+  # input_features: "path/to/features.csv"  # Optional: uses feature extraction output if not specified
+  # output: "features_batch_corrected.csv"  # Optional: override default output location
+  method: "harmony"               # Options: "harmony", "combat"
+  batch_variable: null           # Optional: auto-detected if not specified (source_file or acquisition_id)
+  features: null                 # Optional: list of feature columns, auto-detected if not specified
+  
+  # Harmony parameters
+  n_clusters: 30
+  sigma: 0.1
+  theta: 2.0
+  lambda_reg: 1.0
+  max_iter: 10
+  pca_variance: 0.9               # Proportion of variance to retain in PCA
+  
+  # ComBat parameters
+  covariates: null                # Optional: list of covariate column names
+
+# ============================================================================
+# PIXEL CORRELATION
+# ============================================================================
+# Pixel-level correlation analysis between markers
+pixel_correlation:
+  enabled: false
+  # input: "path/to/input.mcd"  # Optional: uses previous step output if not specified
+  # output: "pixel_correlation.csv"  # Optional: override default output location
+  # Note: Full CLI implementation pending
+
+# ============================================================================
+# QC ANALYSIS
+# ============================================================================
+# Quality control analysis (SNR, coverage, etc.)
+qc_analysis:
+  enabled: false
+  # input: "path/to/input.mcd"  # Optional: uses previous step output if not specified
+  # output: "qc_analysis.csv"    # Optional: override default output location
+  # mask: "path/to/masks/"       # Optional: for cell-level QC
+  # Note: Full CLI implementation pending
+
+# ============================================================================
+# CLUSTERING
+# ============================================================================
+# Cell clustering using Leiden, Hierarchical, or HDBSCAN
+clustering:
+  enabled: false
+  # input_features: "path/to/features.csv"  # Optional: uses batch correction or feature extraction output
+  # output: "clustered_features.csv"        # Optional: override default output location
+  method: "leiden"                # Options: "leiden", "hierarchical", "hdbscan"
+  columns: null                    # Optional: list of feature columns, auto-detected if not specified
+  scaling: "zscore"               # Options: "none", "zscore", "mad"
+  
+  # Leiden parameters
+  resolution: 1.0
+  
+  # Hierarchical parameters
+  n_clusters: null                 # Required for hierarchical
+  linkage: "ward"                  # Options: "ward", "complete", "average"
+  
+  # HDBSCAN parameters
+  min_cluster_size: 10
+  min_samples: 5
+  
+  seed: 42                         # Random seed for reproducibility
+
+# ============================================================================
+# SPATIAL ANALYSIS
+# ============================================================================
+# Spatial graph construction and community detection
+spatial_analysis:
+  enabled: false
+  # input_features: "path/to/features.csv"  # Optional: uses batch correction or feature extraction output
+  # output: "spatial_edges.csv"             # Optional: override default output location
+  radius: 50.0                    # Required: maximum distance for edges (pixels)
+  k_neighbors: 10                  # k for k-nearest neighbors
+  pixel_size_um: 1.0               # Pixel size in micrometers
+  detect_communities: false        # Also detect spatial communities
+  seed: 42                         # Random seed for reproducibility
+

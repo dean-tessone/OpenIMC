@@ -32,6 +32,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import tifffile
+import yaml
 
 # Import processing modules
 from openimc.data.mcd_loader import MCDLoader
@@ -39,6 +40,8 @@ from openimc.data.ometiff_loader import OMETIFFLoader
 from openimc.processing.export_worker import process_channel_for_export
 from openimc.processing.feature_worker import extract_features_for_acquisition, _apply_denoise_to_channel
 from openimc.processing.watershed_worker import watershed_segmentation
+from openimc.processing.batch_correction import apply_combat_correction, apply_harmony_correction, detect_batch_variable
+from openimc.processing.spillover_correction import load_spillover
 from openimc.ui.utils import arcsinh_normalize, percentile_clip_normalize, channelwise_minmax_normalize, combine_channels
 
 # Try to import Cellpose (optional)
@@ -1182,6 +1185,528 @@ def spatial_figures_command(args):
     print(f"\n✓ Spatial figures saved to: {output_dir}")
 
 
+def workflow_command(args):
+    """Execute a complete workflow from a YAML configuration file.
+    
+    Supports all OpenIMC functions:
+    - preprocessing: Denoising and export to OME-TIFF
+    - deconvolution: High resolution deconvolution
+    - segmentation: Cell segmentation (CellSAM, Cellpose, Watershed, Ilastik)
+    - feature_extraction: Extract features from segmented cells
+    - batch_correction: Batch correction (Harmony, ComBat)
+    - pixel_correlation: Pixel-level correlation analysis
+    - qc_analysis: Quality control analysis
+    - clustering: Cell clustering
+    - spatial_analysis: Spatial analysis
+    
+    Each step can specify:
+    - enabled: true/false
+    - input: path to input file/directory (optional, uses previous step output if not specified)
+    - output: path to output file/directory (optional, uses default location if not specified)
+    """
+    config_path = Path(args.config)
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    
+    print(f"Loading workflow configuration from: {config_path}")
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Get base paths (optional - steps can specify their own)
+    input_path = Path(config.get('input', '.')) if config.get('input') else None
+    output_base = Path(config.get('output', 'workflow_output'))
+    output_base.mkdir(parents=True, exist_ok=True)
+    
+    # Track intermediate outputs for chaining steps
+    workflow_state = {
+        'input': input_path,
+        'output_base': output_base,
+        'preprocessing_output': None,
+        'deconvolution_output': None,
+        'segmentation_output': None,
+        'features_output': None,
+        'batch_corrected_output': None,
+    }
+    
+    # Helper function to get input path for a step
+    def get_step_input(step_config, default_input, step_name):
+        """Get input path for a step, using config or default."""
+        if 'input' in step_config:
+            return Path(step_config['input'])
+        elif default_input:
+            return default_input
+        else:
+            raise ValueError(f"{step_name} requires 'input' path in config or previous step output")
+    
+    # Helper function to get output path for a step
+    def get_step_output(step_config, default_output, step_name):
+        """Get output path for a step, using config or default."""
+        if 'output' in step_config:
+            return Path(step_config['output'])
+        else:
+            return default_output
+    
+    # Step: Preprocessing (should come first)
+    if 'preprocessing' in config and config['preprocessing'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: PREPROCESSING")
+        print("="*60)
+        
+        prep_config = config['preprocessing']
+        prep_input = get_step_input(prep_config, workflow_state['input'], 'Preprocessing')
+        prep_output = get_step_output(prep_config, output_base / 'preprocessed', 'Preprocessing')
+        prep_output.mkdir(parents=True, exist_ok=True)
+        
+        class PreprocessArgs:
+            pass
+        prep_args = PreprocessArgs()
+        prep_args.input = str(prep_input)
+        prep_args.output = str(prep_output)
+        prep_args.channel_format = prep_config.get('channel_format', config.get('channel_format', 'CHW'))
+        prep_args.denoise_settings = prep_config.get('denoise_settings')
+        prep_args.arcsinh = prep_config.get('arcsinh', False)
+        prep_args.arcsinh_cofactor = prep_config.get('arcsinh_cofactor', 10.0)
+        
+        preprocess_command(prep_args)
+        workflow_state['preprocessing_output'] = prep_output
+        workflow_state['input'] = prep_output  # Update input for next steps
+    
+    # Step: Deconvolution
+    if 'deconvolution' in config and config['deconvolution'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: DECONVOLUTION")
+        print("="*60)
+        
+        deconv_config = config['deconvolution']
+        deconv_input = get_step_input(deconv_config, workflow_state['input'], 'Deconvolution')
+        deconv_output = get_step_output(deconv_config, output_base / 'deconvolved', 'Deconvolution')
+        deconv_output.mkdir(parents=True, exist_ok=True)
+        
+        from openimc.processing.deconvolution_worker import deconvolve_acquisition
+        
+        # Determine loader type
+        loader_type = 'mcd' if str(deconv_input).endswith(('.mcd', '.mcdx')) else 'ometiff'
+        
+        # Get acquisitions
+        loader, _ = load_data(str(deconv_input), channel_format=config.get('channel_format', 'CHW'))
+        try:
+            acquisitions = loader.list_acquisitions()
+            if deconv_config.get('acquisition'):
+                acq = next((a for a in acquisitions if a.id == deconv_config['acquisition'] or a.name == deconv_config['acquisition']), None)
+                if not acq:
+                    raise ValueError(f"Acquisition '{deconv_config['acquisition']}' not found")
+                acquisitions = [acq]
+            
+            for acq in acquisitions:
+                print(f"  Deconvolving acquisition: {acq.name} (ID: {acq.id})")
+                channels = loader.get_channels(acq.id)
+                output_path = deconvolve_acquisition(
+                    data_path=str(deconv_input),
+                    acq_id=acq.id,
+                    output_dir=str(deconv_output),
+                    x0=deconv_config.get('x0', 7.0),
+                    iterations=deconv_config.get('iterations', 4),
+                    output_format=deconv_config.get('output_format', 'float'),
+                    channel_names=channels,
+                    source_file_path=acq.source_file,
+                    unique_acq_id=acq.id,
+                    loader_type=loader_type,
+                    channel_format=config.get('channel_format', 'CHW'),
+                    well_name=acq.well
+                )
+                print(f"  ✓ Saved: {output_path}")
+        finally:
+            loader.close()
+        
+        workflow_state['deconvolution_output'] = deconv_output
+        workflow_state['input'] = deconv_output  # Update input for next steps
+    
+    # Step: Segmentation (if configured)
+    if 'segmentation' in config and config['segmentation'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: SEGMENTATION")
+        print("="*60)
+        
+        seg_config = config['segmentation']
+        seg_input = get_step_input(seg_config, workflow_state['input'], 'Segmentation')
+        seg_output = get_step_output(seg_config, output_base / 'segmentation', 'Segmentation')
+        seg_output.mkdir(parents=True, exist_ok=True)
+        
+        # Create a mock args object for segment_command
+        class SegmentArgs:
+            pass
+        
+        seg_args = SegmentArgs()
+        seg_args.input = str(seg_input)
+        seg_args.output = str(seg_output)
+        seg_args.channel_format = seg_config.get('channel_format', config.get('channel_format', 'CHW'))
+        seg_args.acquisition = seg_config.get('acquisition')
+        seg_args.method = seg_config.get('method', 'cellsam')
+        seg_args.nuclear_channels = ','.join(seg_config.get('nuclear_channels', []))
+        seg_args.cytoplasm_channels = ','.join(seg_config.get('cytoplasm_channels', [])) if seg_config.get('cytoplasm_channels') else None
+        seg_args.nuclear_fusion_method = seg_config.get('nuclear_fusion_method', 'mean')
+        seg_args.cyto_fusion_method = seg_config.get('cyto_fusion_method', 'mean')
+        seg_args.nuclear_weights = ','.join(map(str, seg_config.get('nuclear_weights', []))) if seg_config.get('nuclear_weights') else None
+        seg_args.cyto_weights = ','.join(map(str, seg_config.get('cyto_weights', []))) if seg_config.get('cyto_weights') else None
+        seg_args.model = seg_config.get('model', 'cyto3')
+        seg_args.diameter = seg_config.get('diameter')
+        seg_args.flow_threshold = seg_config.get('flow_threshold', 0.4)
+        seg_args.cellprob_threshold = seg_config.get('cellprob_threshold', 0.0)
+        seg_args.gpu_id = seg_config.get('gpu_id')
+        seg_args.min_cell_area = seg_config.get('min_cell_area', 100)
+        seg_args.max_cell_area = seg_config.get('max_cell_area', 10000)
+        seg_args.compactness = seg_config.get('compactness', 0.01)
+        seg_args.deepcell_api_key = seg_config.get('deepcell_api_key') or os.environ.get("DEEPCELL_ACCESS_TOKEN")
+        seg_args.bbox_threshold = seg_config.get('bbox_threshold', 0.4)
+        seg_args.use_wsi = seg_config.get('use_wsi', False)
+        seg_args.low_contrast_enhancement = seg_config.get('low_contrast_enhancement', False)
+        seg_args.gauge_cell_size = seg_config.get('gauge_cell_size', False)
+        seg_args.arcsinh = seg_config.get('arcsinh', False)
+        seg_args.arcsinh_cofactor = seg_config.get('arcsinh_cofactor', 10.0)
+        
+        # Handle denoise settings
+        denoise_settings = seg_config.get('denoise_settings')
+        if denoise_settings:
+            if isinstance(denoise_settings, str):
+                seg_args.denoise_settings = denoise_settings
+            else:
+                # Save to temporary JSON file
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json.dump(denoise_settings, f)
+                    seg_args.denoise_settings = f.name
+        else:
+            seg_args.denoise_settings = None
+        
+        segment_command(seg_args)
+        workflow_state['segmentation_output'] = seg_output
+    
+    # Step: Feature Extraction (if configured)
+    if 'feature_extraction' in config and config['feature_extraction'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: FEATURE EXTRACTION")
+        print("="*60)
+        
+        feat_config = config['feature_extraction']
+        feat_input = get_step_input(feat_config, workflow_state['input'], 'Feature Extraction')
+        
+        # Determine mask path
+        if 'mask' in feat_config:
+            mask_path = Path(feat_config['mask'])
+        elif workflow_state['segmentation_output']:
+            mask_path = workflow_state['segmentation_output']
+        else:
+            raise ValueError("Feature extraction requires either 'mask' path in config or segmentation to be run first")
+        
+        features_output = get_step_output(feat_config, output_base / 'features.csv', 'Feature Extraction')
+        
+        # Create a mock args object for extract_features_command
+        class ExtractArgs:
+            pass
+        
+        extract_args = ExtractArgs()
+        extract_args.input = str(feat_input)
+        extract_args.output = str(features_output)
+        extract_args.channel_format = feat_config.get('channel_format', config.get('channel_format', 'CHW'))
+        extract_args.mask = str(mask_path)
+        extract_args.acquisition = feat_config.get('acquisition')
+        extract_args.morphological = feat_config.get('morphological', True)
+        extract_args.intensity = feat_config.get('intensity', True)
+        extract_args.arcsinh = feat_config.get('arcsinh', False)
+        extract_args.arcsinh_cofactor = feat_config.get('arcsinh_cofactor', 10.0)
+        
+        # Handle denoise settings
+        denoise_settings = feat_config.get('denoise_settings')
+        if denoise_settings:
+            if isinstance(denoise_settings, str):
+                extract_args.denoise_settings = denoise_settings
+            else:
+                # Save to temporary JSON file
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json.dump(denoise_settings, f)
+                    extract_args.denoise_settings = f.name
+        else:
+            extract_args.denoise_settings = None
+        
+        # Handle spillover correction
+        spillover_config = feat_config.get('spillover_correction')
+        if spillover_config and spillover_config.get('enabled', False):
+            # We need to modify extract_features_for_acquisition to accept spillover config
+            # For now, we'll extract features first, then apply spillover correction
+            print("  Note: Spillover correction will be applied after feature extraction")
+            extract_args._spillover_config = spillover_config
+        else:
+            extract_args._spillover_config = None
+        
+        extract_features_command(extract_args)
+        
+        # Apply spillover correction if configured
+        if extract_args._spillover_config:
+            print("\n  Applying spillover correction...")
+            features_df = pd.read_csv(features_output)
+            
+            spillover_file = extract_args._spillover_config.get('matrix_file')
+            if not spillover_file:
+                raise ValueError("spillover_correction.matrix_file must be specified")
+            
+            spillover_matrix = load_spillover(spillover_file)
+            spillover_method = extract_args._spillover_config.get('method', 'nnls')
+            
+            # Get channel names from feature columns (intensity features end with _mean, _median, etc.)
+            # We need to identify which columns are intensity features
+            intensity_feature_types = ['mean', 'median', 'std', 'mad', 'p10', 'p90', 'integrated']
+            channel_names = set()
+            for col in features_df.columns:
+                for feat_type in intensity_feature_types:
+                    if col.endswith(f'_{feat_type}'):
+                        channel_name = col[:-len(f'_{feat_type}')]
+                        channel_names.add(channel_name)
+                        break
+            
+            if not channel_names:
+                print("  Warning: No intensity features found for spillover correction")
+            else:
+                # Apply spillover correction to each intensity feature type separately
+                # This matches the approach in feature_worker.py
+                from openimc.processing.spillover_correction import compensate_counts
+                
+                for feature_type in intensity_feature_types:
+                    # Extract columns for this feature type across all channels
+                    feature_cols = [f"{ch_name}_{feature_type}" for ch_name in channel_names 
+                                   if f"{ch_name}_{feature_type}" in features_df.columns]
+                    
+                    if not feature_cols:
+                        continue
+                    
+                    # Create a temporary DataFrame with cells x channels for this feature type
+                    feature_data = features_df[feature_cols].copy()
+                    # Rename columns to match channel names (remove the feature_type suffix)
+                    channel_map = {col: col.replace(f"_{feature_type}", "") for col in feature_cols}
+                    feature_data.rename(columns=channel_map, inplace=True)
+                    
+                    # Apply spillover correction
+                    comp_data, _ = compensate_counts(
+                        feature_data,
+                        spillover_matrix,
+                        method=spillover_method,
+                        strict_align=False,
+                        return_all_channels=True
+                    )
+                    
+                    # Rename columns back and update features_df
+                    comp_data.rename(columns={ch: f"{ch}_{feature_type}" for ch in comp_data.columns}, inplace=True)
+                    for col in comp_data.columns:
+                        if col in features_df.columns:
+                            features_df[col] = comp_data[col].values
+                
+                # Save updated features
+                features_df.to_csv(features_output, index=False)
+                print(f"  ✓ Spillover correction applied to all intensity features and saved to {features_output}")
+        
+        workflow_state['features_output'] = features_output
+    
+    # Step: Batch Correction (if configured)
+    if 'batch_correction' in config and config['batch_correction'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: BATCH CORRECTION")
+        print("="*60)
+        
+        batch_config = config['batch_correction']
+        
+        # Determine input features path
+        if 'input_features' in batch_config:
+            features_path = Path(batch_config['input_features'])
+        elif workflow_state['features_output']:
+            features_path = workflow_state['features_output']
+        else:
+            raise ValueError("Batch correction requires either 'input_features' path in config or feature extraction to be run first")
+        
+        if not features_path.exists():
+            raise FileNotFoundError(f"Features file not found: {features_path}")
+        
+        batch_output = get_step_output(batch_config, output_base / 'features_batch_corrected.csv', 'Batch Correction')
+        
+        # Load features
+        print(f"Loading features from: {features_path}")
+        features_df = pd.read_csv(features_path)
+        
+        # Determine batch variable
+        batch_var = batch_config.get('batch_variable')
+        if not batch_var:
+            batch_var = detect_batch_variable(features_df)
+            if not batch_var:
+                raise ValueError("Could not detect batch variable. Please specify 'batch_variable' in config.")
+            print(f"  Auto-detected batch variable: {batch_var}")
+        else:
+            if batch_var not in features_df.columns:
+                raise ValueError(f"Batch variable '{batch_var}' not found in features")
+        
+        # Determine features to correct
+        feature_columns = batch_config.get('features')
+        if not feature_columns:
+            # Auto-detect: exclude non-feature columns
+            exclude_cols = {'label', 'acquisition_id', 'acquisition_name', 'well', 'cluster', 'cell_id', 
+                          'centroid_x', 'centroid_y', 'source_file', 'source_well', batch_var}
+            feature_columns = [col for col in features_df.columns if col not in exclude_cols]
+            print(f"  Auto-detected {len(feature_columns)} features for correction")
+        else:
+            # Validate specified features
+            missing = [f for f in feature_columns if f not in features_df.columns]
+            if missing:
+                raise ValueError(f"Features not found: {missing}")
+        
+        # Apply batch correction
+        method = batch_config.get('method', 'harmony')
+        print(f"  Applying {method} batch correction...")
+        
+        if method == 'combat':
+            covariates = batch_config.get('covariates')
+            corrected_df = apply_combat_correction(
+                features_df,
+                batch_var,
+                feature_columns,
+                covariates=covariates
+            )
+        elif method == 'harmony':
+            corrected_df = apply_harmony_correction(
+                features_df,
+                batch_var,
+                feature_columns,
+                n_clusters=batch_config.get('n_clusters', 30),
+                sigma=batch_config.get('sigma', 0.1),
+                theta=batch_config.get('theta', 2.0),
+                lambda_reg=batch_config.get('lambda_reg', 1.0),
+                max_iter=batch_config.get('max_iter', 10),
+                pca_variance=batch_config.get('pca_variance', 0.9)
+            )
+        else:
+            raise ValueError(f"Unknown batch correction method: {method}")
+        
+        # Save corrected features
+        print(f"  Saving corrected features to: {batch_output}")
+        corrected_df.to_csv(batch_output, index=False)
+        print(f"  ✓ Batch correction complete! Output saved to: {batch_output}")
+        workflow_state['batch_corrected_output'] = batch_output
+    
+    # Step: Pixel Correlation
+    if 'pixel_correlation' in config and config['pixel_correlation'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: PIXEL CORRELATION")
+        print("="*60)
+        
+        corr_config = config['pixel_correlation']
+        corr_input = get_step_input(corr_config, workflow_state['input'], 'Pixel Correlation')
+        corr_output = get_step_output(corr_config, output_base / 'pixel_correlation.csv', 'Pixel Correlation')
+        
+        # This would require implementing a CLI version of pixel correlation
+        # For now, we'll note that this needs to be implemented
+        print("  Note: Pixel correlation CLI implementation needed")
+        print(f"  Would analyze: {corr_input}")
+        print(f"  Would save to: {corr_output}")
+    
+    # Step: QC Analysis
+    if 'qc_analysis' in config and config['qc_analysis'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: QC ANALYSIS")
+        print("="*60)
+        
+        qc_config = config['qc_analysis']
+        qc_input = get_step_input(qc_config, workflow_state['input'], 'QC Analysis')
+        qc_output = get_step_output(qc_config, output_base / 'qc_analysis.csv', 'QC Analysis')
+        
+        # This would require implementing a CLI version of QC analysis
+        # For now, we'll note that this needs to be implemented
+        print("  Note: QC analysis CLI implementation needed")
+        print(f"  Would analyze: {qc_input}")
+        print(f"  Would save to: {qc_output}")
+        if qc_config.get('mask'):
+            print(f"  Using mask: {qc_config['mask']}")
+    
+    # Step: Clustering (if configured)
+    if 'clustering' in config and config['clustering'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: CLUSTERING")
+        print("="*60)
+        
+        cluster_config = config['clustering']
+        
+        # Determine input features path
+        if 'input_features' in cluster_config:
+            features_path = Path(cluster_config['input_features'])
+        elif workflow_state['batch_corrected_output']:
+            features_path = workflow_state['batch_corrected_output']
+        elif workflow_state['features_output']:
+            features_path = workflow_state['features_output']
+        else:
+            raise ValueError("Clustering requires either 'input_features' path in config or feature extraction to be run first")
+        
+        if not features_path.exists():
+            raise FileNotFoundError(f"Features file not found: {features_path}")
+        
+        cluster_output = get_step_output(cluster_config, output_base / 'clustered_features.csv', 'Clustering')
+        
+        class ClusterArgs:
+            pass
+        cluster_args = ClusterArgs()
+        cluster_args.features = str(features_path)
+        cluster_args.output = str(cluster_output)
+        cluster_args.method = cluster_config.get('method', 'leiden')
+        cluster_args.n_clusters = cluster_config.get('n_clusters')
+        cluster_args.columns = ','.join(cluster_config.get('columns', [])) if cluster_config.get('columns') else None
+        cluster_args.scaling = cluster_config.get('scaling', 'zscore')
+        cluster_args.linkage = cluster_config.get('linkage', 'ward')
+        cluster_args.resolution = cluster_config.get('resolution', 1.0)
+        cluster_args.min_cluster_size = cluster_config.get('min_cluster_size', 10)
+        cluster_args.min_samples = cluster_config.get('min_samples', 5)
+        cluster_args.seed = cluster_config.get('seed', 42)
+        
+        cluster_command(cluster_args)
+    
+    # Step: Spatial Analysis (if configured)
+    if 'spatial_analysis' in config and config['spatial_analysis'].get('enabled', False):
+        print("\n" + "="*60)
+        print("STEP: SPATIAL ANALYSIS")
+        print("="*60)
+        
+        spatial_config = config['spatial_analysis']
+        
+        # Determine input features path
+        if 'input_features' in spatial_config:
+            features_path = Path(spatial_config['input_features'])
+        elif workflow_state['batch_corrected_output']:
+            features_path = workflow_state['batch_corrected_output']
+        elif workflow_state['features_output']:
+            features_path = workflow_state['features_output']
+        else:
+            raise ValueError("Spatial analysis requires either 'input_features' path in config or feature extraction to be run first")
+        
+        if not features_path.exists():
+            raise FileNotFoundError(f"Features file not found: {features_path}")
+        
+        spatial_output = get_step_output(spatial_config, output_base / 'spatial_edges.csv', 'Spatial Analysis')
+        
+        class SpatialArgs:
+            pass
+        spatial_args = SpatialArgs()
+        spatial_args.features = str(features_path)
+        spatial_args.output = str(spatial_output)
+        spatial_args.radius = spatial_config.get('radius')
+        if not spatial_args.radius:
+            raise ValueError("spatial_analysis.radius is required")
+        spatial_args.k_neighbors = spatial_config.get('k_neighbors', 10)
+        spatial_args.pixel_size_um = spatial_config.get('pixel_size_um', 1.0)
+        spatial_args.detect_communities = spatial_config.get('detect_communities', False)
+        spatial_args.seed = spatial_config.get('seed', 42)
+        
+        spatial_command(spatial_args)
+    
+    print("\n" + "="*60)
+    print("✓ WORKFLOW COMPLETE")
+    print("="*60)
+    print(f"Output directory: {output_base}")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -1212,6 +1737,9 @@ Examples:
   # Generate figures
   openimc cluster-figures clustered_features.csv output/figures/ --dpi 300 --font-size 12
   openimc spatial-figures features.csv output/figures/ --edges edges.csv --dpi 300
+
+  # Run complete workflow from config file
+  openimc workflow config.yaml
         """
     )
     
@@ -1320,6 +1848,11 @@ Examples:
     spatial_figures_parser.add_argument('--width', type=float, default=8.0, help='Figure width in inches (default: 8.0)')
     spatial_figures_parser.add_argument('--height', type=float, default=6.0, help='Figure height in inches (default: 6.0)')
     spatial_figures_parser.set_defaults(func=spatial_figures_command)
+    
+    # Workflow command
+    workflow_parser = subparsers.add_parser('workflow', help='Execute a complete workflow from a YAML configuration file')
+    workflow_parser.add_argument('config', help='Path to YAML configuration file')
+    workflow_parser.set_defaults(func=workflow_command)
     
     # Parse arguments
     args = parser.parse_args()

@@ -535,7 +535,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.denoise_enable_chk.toggled.connect(self._on_denoise_toggled)
         self.denoise_frame = QtWidgets.QFrame()
         self.denoise_frame.setFrameStyle(QtWidgets.QFrame.Box)
-        self.denoise_frame.setMaximumWidth(400)  # Fit within scrollable panel
         denoise_layout = QtWidgets.QVBoxLayout(self.denoise_frame)
         denoise_layout.addWidget(QtWidgets.QLabel("Denoising (apply per selected channel):"))
 
@@ -639,13 +638,15 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
         
+        # Initialize RGB combination method early (before UI setup that uses it)
+        self.rgb_combination_method = "raw_addition"  # Options: "raw_addition", "minmax_scaled_mean", "raw_mean", "max"
+        
         # Custom scaling controls
         self.custom_scaling_chk = QtWidgets.QCheckBox("Custom scaling")
         self.custom_scaling_chk.toggled.connect(self._on_custom_scaling_toggled)
         
         self.scaling_frame = QtWidgets.QFrame()
         self.scaling_frame.setFrameStyle(QtWidgets.QFrame.Box)
-        self.scaling_frame.setMaximumWidth(400)  # Fit within scrollable panel
         scaling_layout = QtWidgets.QVBoxLayout(self.scaling_frame)
         scaling_layout.addWidget(QtWidgets.QLabel("Custom Intensity Range:"))
         
@@ -699,6 +700,33 @@ class MainWindow(QtWidgets.QMainWindow):
         
         scaling_layout.addLayout(input_layout)
         
+        # RGB combination method selection (only visible in RGB mode)
+        self.rgb_combination_frame = QtWidgets.QFrame()
+        self.rgb_combination_frame.setFrameStyle(QtWidgets.QFrame.Box)
+        rgb_combination_layout = QtWidgets.QVBoxLayout(self.rgb_combination_frame)
+        rgb_combination_layout.addWidget(QtWidgets.QLabel("RGB Channel Combination:"))
+        
+        self.rgb_combination_combo = QtWidgets.QComboBox()
+        self.rgb_combination_combo.addItems([
+            "Raw Addition (sum per pixel)",
+            "Min/Max Scaled Mean (normalize each channel then mean)",
+            "Raw Mean (mean per pixel)",
+            "Max (maximum per pixel)"
+        ])
+        # Map stored method to combo text
+        method_to_text = {
+            "raw_addition": "Raw Addition (sum per pixel)",
+            "minmax_scaled_mean": "Min/Max Scaled Mean (normalize each channel then mean)",
+            "raw_mean": "Raw Mean (mean per pixel)",
+            "max": "Max (maximum per pixel)"
+        }
+        initial_text = method_to_text.get(self.rgb_combination_method, "Raw Addition (sum per pixel)")
+        self.rgb_combination_combo.setCurrentText(initial_text)
+        self.rgb_combination_combo.currentTextChanged.connect(self._on_rgb_combination_changed)
+        rgb_combination_layout.addWidget(self.rgb_combination_combo)
+        self.rgb_combination_frame.setVisible(False)  # Hidden by default, shown in RGB mode
+        scaling_layout.addWidget(self.rgb_combination_frame)
+        
         # Arcsinh normalization controls
         arcsinh_layout = QtWidgets.QHBoxLayout()
         arcsinh_layout.addWidget(QtWidgets.QLabel("Arcsinh Co-factor:"))
@@ -736,7 +764,6 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.spillover_frame = QtWidgets.QFrame()
         self.spillover_frame.setFrameStyle(QtWidgets.QFrame.Box)
-        self.spillover_frame.setMaximumWidth(400)  # Fit within scrollable panel
         spillover_layout = QtWidgets.QVBoxLayout(self.spillover_frame)
         spillover_layout.addWidget(QtWidgets.QLabel("Spillover Matrix:"))
         
@@ -775,6 +802,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Store per-channel scaling values
         self.channel_scaling = {}  # {channel_name: {'min': value, 'max': value}}
         
+        # Store RGB color scaling values (for RGB mode)
+        self.rgb_color_scaling = {}  # {'Red': {'min': value, 'max': value}, 'Green': {...}, 'Blue': {...}}
+        
         # Arcsinh normalization state
         self.arcsinh_enabled = False
         # Per-channel normalization config: {channel: {"method": str, "cofactor": float}}
@@ -807,39 +837,47 @@ class MainWindow(QtWidgets.QMainWindow):
         # Color assignment for RGB composite
         self.color_assignment_frame = QtWidgets.QFrame()
         self.color_assignment_frame.setFrameStyle(QtWidgets.QFrame.Box)
-        self.color_assignment_frame.setMaximumWidth(320)  # Fit within scrollable panel
         color_layout = QtWidgets.QVBoxLayout(self.color_assignment_frame)
         color_layout.addWidget(QtWidgets.QLabel("Color Assignment (for RGB composite):"))
         
-        # Red channel selection
-        red_layout = QtWidgets.QHBoxLayout()
-        red_layout.addWidget(QtWidgets.QLabel("Red:"))
+        # Red channel selection with search
+        red_block = QtWidgets.QVBoxLayout()
+        red_block.addWidget(QtWidgets.QLabel("Red:"))
+        self.red_search = QtWidgets.QLineEdit()
+        self.red_search.setPlaceholderText("Search red channels...")
+        self.red_search.textChanged.connect(self._filter_red_channels)
+        red_block.addWidget(self.red_search)
         self.red_list = QtWidgets.QListWidget()
         self.red_list.setMaximumHeight(80)
-        self.red_list.setMaximumWidth(200)
         self.red_list.itemChanged.connect(lambda _i: self._on_rgb_list_changed())
-        red_layout.addWidget(self.red_list)
-        color_layout.addLayout(red_layout)
+        red_block.addWidget(self.red_list)
+        color_layout.addLayout(red_block)
         
-        # Green channel selection
-        green_layout = QtWidgets.QHBoxLayout()
-        green_layout.addWidget(QtWidgets.QLabel("Green:"))
+        # Green channel selection with search
+        green_block = QtWidgets.QVBoxLayout()
+        green_block.addWidget(QtWidgets.QLabel("Green:"))
+        self.green_search = QtWidgets.QLineEdit()
+        self.green_search.setPlaceholderText("Search green channels...")
+        self.green_search.textChanged.connect(self._filter_green_channels)
+        green_block.addWidget(self.green_search)
         self.green_list = QtWidgets.QListWidget()
         self.green_list.setMaximumHeight(80)
-        self.green_list.setMaximumWidth(200)
         self.green_list.itemChanged.connect(lambda _i: self._on_rgb_list_changed())
-        green_layout.addWidget(self.green_list)
-        color_layout.addLayout(green_layout)
+        green_block.addWidget(self.green_list)
+        color_layout.addLayout(green_block)
         
-        # Blue channel selection
-        blue_layout = QtWidgets.QHBoxLayout()
-        blue_layout.addWidget(QtWidgets.QLabel("Blue:"))
+        # Blue channel selection with search
+        blue_block = QtWidgets.QVBoxLayout()
+        blue_block.addWidget(QtWidgets.QLabel("Blue:"))
+        self.blue_search = QtWidgets.QLineEdit()
+        self.blue_search.setPlaceholderText("Search blue channels...")
+        self.blue_search.textChanged.connect(self._filter_blue_channels)
+        blue_block.addWidget(self.blue_search)
         self.blue_list = QtWidgets.QListWidget()
         self.blue_list.setMaximumHeight(80)
-        self.blue_list.setMaximumWidth(200)
         self.blue_list.itemChanged.connect(lambda _i: self._on_rgb_list_changed())
-        blue_layout.addWidget(self.blue_list)
-        color_layout.addLayout(blue_layout)
+        blue_block.addWidget(self.blue_list)
+        color_layout.addLayout(blue_block)
 
         # Metadata display (more compact for smaller screens)
         self.metadata_text = QtWidgets.QTextEdit()
@@ -920,13 +958,19 @@ class MainWindow(QtWidgets.QMainWindow):
         # Splitter with scrollable left panel for smaller screens
         splitter = QtWidgets.QSplitter(Qt.Horizontal)
         
-        # Create scrollable left panel with fixed width
+        # Create scrollable left panel with resizable width
         left_scroll = QtWidgets.QScrollArea()
         left_scroll.setWidget(controls)
         left_scroll.setWidgetResizable(True)
-        left_scroll.setFixedWidth(420)  # Fixed width, wider for better readability
+        # Set minimum width to 420px, but allow expansion up to 30% of window width
+        left_scroll.setMinimumWidth(420)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Store references for resize handling
+        self.left_scroll = left_scroll
+        self.splitter = splitter
+        self.sidebar_min_width = 420
         
         splitter.addWidget(left_scroll)
         # Right pane with toolbar + canvas
@@ -937,7 +981,14 @@ class MainWindow(QtWidgets.QMainWindow):
         right_layout.addWidget(self.canvas, 1)
         splitter.addWidget(rightw)
         splitter.setStretchFactor(1, 1)
+        
+        # Connect splitter moved signal to enforce maximum width constraint
+        splitter.splitterMoved.connect(self._on_splitter_moved)
+        
         self.setCentralWidget(splitter)
+        
+        # Set initial maximum width after window is set up
+        QTimer.singleShot(0, self._update_sidebar_max_width)
 
         # Menu
         file_menu = self.menuBar().addMenu("&File")
@@ -1564,6 +1615,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 item = lst.item(i)
                 if item.text() not in selected_channels:
                     item.setCheckState(Qt.Unchecked)
+    def _filter_red_channels(self):
+        """Filter red channel list based on search text."""
+        text = self.red_search.text().lower()
+        for i in range(self.red_list.count()):
+            item = self.red_list.item(i)
+            item.setHidden(text not in item.text().lower())
+    
+    def _filter_green_channels(self):
+        """Filter green channel list based on search text."""
+        text = self.green_search.text().lower()
+        for i in range(self.green_list.count()):
+            item = self.green_list.item(i)
+            item.setHidden(text not in item.text().lower())
+    
+    def _filter_blue_channels(self):
+        """Filter blue channel list based on search text."""
+        text = self.blue_search.text().lower()
+        for i in range(self.blue_list.count()):
+            item = self.blue_list.item(i)
+            item.setHidden(text not in item.text().lower())
+    
     def _on_rgb_list_changed(self):
         # Ensure lists only keep checks for currently selected channels
         selected_channels = self._selected_channels()
@@ -1590,6 +1662,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Show/hide "Show all channels" button based on grid view state
         if hasattr(self, 'show_all_channels_btn'):
             self.show_all_channels_btn.setVisible(self.grid_view_chk.isChecked())
+        
+        # Update RGB combination frame visibility
+        if hasattr(self, 'rgb_combination_frame'):
+            self._update_rgb_combination_visibility()
+        
+        # Update scaling channel combo when switching modes
+        if hasattr(self, 'custom_scaling_chk') and self.custom_scaling_chk.isChecked():
+            self._update_scaling_channel_combo()
+            self._load_channel_scaling()
         
         # Handle arcsinh state when switching between RGB and grid view
         if self.grid_view_chk.isChecked():
@@ -1692,8 +1773,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_channel_scaling()
             # Initialize controls state
             self._update_minmax_controls_state()
+        # Update RGB combination frame visibility (always check, even when disabled)
+        self._update_rgb_combination_visibility()
         # Auto-refresh when toggled (preserve zoom)
         self._view_selected()
+    
+    def _on_rgb_combination_changed(self):
+        """Handle changes to RGB channel combination method."""
+        method_text = self.rgb_combination_combo.currentText()
+        method_map = {
+            "Raw Addition (sum per pixel)": "raw_addition",
+            "Min/Max Scaled Mean (normalize each channel then mean)": "minmax_scaled_mean",
+            "Raw Mean (mean per pixel)": "raw_mean",
+            "Max (maximum per pixel)": "max"
+        }
+        self.rgb_combination_method = method_map.get(method_text, "raw_addition")
+        # Auto-refresh when changed
+        self.preserve_zoom = True
+        self._view_selected()
+    
+    def _update_rgb_combination_visibility(self):
+        """Update visibility of RGB combination method selector based on mode."""
+        is_rgb_mode = hasattr(self, 'grid_view_chk') and not self.grid_view_chk.isChecked()
+        self.rgb_combination_frame.setVisible(
+            self.custom_scaling_chk.isChecked() and is_rgb_mode
+        )
 
     def _update_scaling_channel_combo(self):
         """Update the scaling channel combo box with selected channels only."""
@@ -1701,10 +1805,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.current_acq_id is None:
             return
         
-        # Only show currently selected channels
-        selected_channels = self._selected_channels()
-        for channel in selected_channels:
-            self.scaling_channel_combo.addItem(channel)
+        # Check if we're in RGB mode (grid view is off)
+        is_rgb_mode = hasattr(self, 'grid_view_chk') and not self.grid_view_chk.isChecked()
+        
+        if is_rgb_mode:
+            # In RGB mode, show color names instead of individual channels
+            self.scaling_channel_combo.addItem("Red")
+            self.scaling_channel_combo.addItem("Green")
+            self.scaling_channel_combo.addItem("Blue")
+        else:
+            # Only show currently selected channels
+            selected_channels = self._selected_channels()
+            for channel in selected_channels:
+                self.scaling_channel_combo.addItem(channel)
         
         # Select first channel if available
         if self.scaling_channel_combo.count() > 0:
@@ -2620,51 +2733,114 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_minmax_controls_state()
 
     def _load_channel_scaling(self):
-        """Load scaling values for the currently selected channel."""
-        current_channel = self.scaling_channel_combo.currentText()
-        if not current_channel:
+        """Load scaling values for the currently selected channel or RGB color."""
+        current_selection = self.scaling_channel_combo.currentText()
+        if not current_selection:
             return
         
-        if current_channel in self.channel_scaling:
-            # Load saved values
-            min_val = self.channel_scaling[current_channel]['min']
-            max_val = self.channel_scaling[current_channel]['max']
-        else:
-            # Use default range (full image range)
-            if self.current_acq_id is None:
-                return
-            try:
-                loader = self._get_loader_for_acquisition(self.current_acq_id)
-                if loader is None:
+        # Check if we're in RGB mode (selection is a color name)
+        is_rgb_color = current_selection in ['Red', 'Green', 'Blue']
+        
+        if is_rgb_color:
+            # Load RGB color scaling
+            if current_selection in self.rgb_color_scaling:
+                # Load saved values
+                min_val = self.rgb_color_scaling[current_selection]['min']
+                max_val = self.rgb_color_scaling[current_selection]['max']
+            else:
+                # Use default range - compute from actual RGB composite
+                if self.current_acq_id is None:
                     return
-                img = loader.get_image(self.current_acq_id, current_channel)
-                min_val = float(np.min(img))
-                max_val = float(np.max(img))
-            except Exception as e:
-                print(f"Error loading channel scaling: {e}")
-                return
+                try:
+                    # Get the actual RGB channel values to compute default range
+                    def _checked(lst: QtWidgets.QListWidget) -> List[str]:
+                        vals: List[str] = []
+                        for i in range(lst.count()):
+                            item = lst.item(i)
+                            if item.checkState() == Qt.Checked:
+                                vals.append(item.text())
+                        return vals
+                    
+                    red_selection = _checked(self.red_list)
+                    green_selection = _checked(self.green_list)
+                    blue_selection = _checked(self.blue_list)
+                    
+                    color_selections = {'Red': red_selection, 'Green': green_selection, 'Blue': blue_selection}
+                    selected_channels = color_selections.get(current_selection, [])
+                    
+                    if selected_channels:
+                        # Compute combined channel to get range
+                        loader = self._get_loader_for_acquisition(self.current_acq_id)
+                        if loader is None:
+                            return
+                        
+                        # Get first channel to determine image size
+                        first_img = loader.get_image(self.current_acq_id, selected_channels[0])
+                        # Apply spillover correction if enabled
+                        corrected_images = {}
+                        if self.spillover_correction_enabled and self.spillover_matrix is not None:
+                            corrected_images = self._apply_spillover_correction_to_channels(self.current_acq_id, selected_channels)
+                        combined = self._combine_channels_for_rgb(selected_channels, first_img, corrected_images)
+                        min_val = float(np.min(combined))
+                        max_val = float(np.max(combined))
+                    else:
+                        # No channels selected, use default
+                        min_val = 0.0
+                        max_val = 1000.0
+                except Exception as e:
+                    print(f"Error loading RGB color scaling: {e}")
+                    min_val = 0.0
+                    max_val = 1000.0
+        else:
+            # Load channel scaling (non-RGB mode)
+            if current_selection in self.channel_scaling:
+                # Load saved values
+                min_val = self.channel_scaling[current_selection]['min']
+                max_val = self.channel_scaling[current_selection]['max']
+            else:
+                # Use default range (full image range)
+                if self.current_acq_id is None:
+                    return
+                try:
+                    loader = self._get_loader_for_acquisition(self.current_acq_id)
+                    if loader is None:
+                        return
+                    img = loader.get_image(self.current_acq_id, current_selection)
+                    min_val = float(np.min(img))
+                    max_val = float(np.max(img))
+                except Exception as e:
+                    print(f"Error loading channel scaling: {e}")
+                    return
         
         # Update spinboxes based on actual values
         self._update_spinboxes_from_values(min_val, max_val)
         
-        # Load per-channel arcsinh cofactor if available
-        if current_channel in self.channel_normalization:
-            norm_cfg = self.channel_normalization[current_channel]
+        # Load per-channel arcsinh cofactor if available (only for non-RGB mode)
+        if not is_rgb_color and current_selection in self.channel_normalization:
+            norm_cfg = self.channel_normalization[current_selection]
             if norm_cfg.get("method") == "arcsinh":
                 cofactor = norm_cfg.get("cofactor", 10.0)
                 self.cofactor_spinbox.setValue(float(cofactor))
 
     def _save_channel_scaling(self):
-        """Save current scaling values for the selected channel."""
-        current_channel = self.scaling_channel_combo.currentText()
-        if not current_channel:
+        """Save current scaling values for the selected channel or RGB color."""
+        current_selection = self.scaling_channel_combo.currentText()
+        if not current_selection:
             return
         
         # Get values directly from spinboxes
         min_val = self.min_spinbox.value()
         max_val = self.max_spinbox.value()
         
-        self.channel_scaling[current_channel] = {'min': min_val, 'max': max_val}
+        # Check if we're in RGB mode (selection is a color name)
+        is_rgb_color = current_selection in ['Red', 'Green', 'Blue']
+        
+        if is_rgb_color:
+            # Save RGB color scaling
+            self.rgb_color_scaling[current_selection] = {'min': min_val, 'max': max_val}
+        else:
+            # Save channel scaling
+            self.channel_scaling[current_selection] = {'min': min_val, 'max': max_val}
 
     def _update_spinboxes_from_values(self, min_val, max_val):
         """Update spinboxes based on actual min/max values."""
@@ -3183,6 +3359,71 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             print(f"Auto-load error: {e}")
 
+    def _combine_channels_for_rgb(self, channel_names: List[str], first_img: np.ndarray, corrected_images: dict = None) -> np.ndarray:
+        """Combine multiple channels into a single RGB color channel using the selected method.
+        
+        Args:
+            channel_names: List of channel names to combine
+            first_img: Reference image to determine output shape and dtype
+            corrected_images: Dictionary of corrected images (from spillover correction)
+        
+        Returns:
+            Combined channel image
+        """
+        if not channel_names:
+            return np.zeros_like(first_img)
+        
+        # Load all channel images
+        channel_images = []
+        for ch_name in channel_names:
+            try:
+                if corrected_images and ch_name in corrected_images:
+                    img = corrected_images[ch_name]
+                else:
+                    img = self._load_image_with_normalization(self.current_acq_id, ch_name)
+                channel_images.append(img.astype(np.float32))
+            except Exception:
+                channel_images.append(np.zeros_like(first_img, dtype=np.float32))
+        
+        if not channel_images:
+            return np.zeros_like(first_img)
+        
+        # Stack all channels
+        stacked = np.stack(channel_images, axis=0)  # Shape: (n_channels, H, W)
+        
+        # Apply combination method
+        if self.rgb_combination_method == "raw_addition":
+            # Sum all channels per pixel
+            combined = np.sum(stacked, axis=0)
+        elif self.rgb_combination_method == "minmax_scaled_mean":
+            # Normalize each channel to 0-1 range, then take mean
+            normalized_channels = []
+            for img in channel_images:
+                img_min = np.min(img)
+                img_max = np.max(img)
+                if img_max > img_min:
+                    normalized = (img - img_min) / (img_max - img_min)
+                else:
+                    normalized = img
+                normalized_channels.append(normalized)
+            normalized_stack = np.stack(normalized_channels, axis=0)
+            combined = np.mean(normalized_stack, axis=0)
+            # Scale back to original range (approximate)
+            combined = combined * (np.max(stacked) - np.min(stacked)) + np.min(stacked)
+        elif self.rgb_combination_method == "raw_mean":
+            # Mean of all channels per pixel
+            combined = np.mean(stacked, axis=0)
+        elif self.rgb_combination_method == "max":
+            # Maximum per pixel across all channels
+            combined = np.max(stacked, axis=0)
+        else:
+            # Default to raw addition
+            combined = np.sum(stacked, axis=0)
+        
+        # Clip to prevent overflow and convert back to original dtype
+        combined = np.clip(combined, 0, np.max(combined))
+        return combined.astype(first_img.dtype)
+
     def _show_rgb_composite(self, selected_channels: List[str], grayscale: bool):
         """Show RGB composite using user-selected color assignments."""
         # Get user-selected color assignments
@@ -3229,28 +3470,10 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, "No RGB channels", "Please select at least one channel for RGB composite.")
             return
         
-        # Always create 3 channels (R, G, B) even if some are empty
-        def _sum_channels(names: List[str]) -> np.ndarray:
-            if not names:
-                return np.zeros_like(first_img)
-            acc = np.zeros_like(first_img, dtype=np.float32)
-            for ch_name in names:
-                try:
-                    if ch_name in corrected_images:
-                        img = corrected_images[ch_name]
-                    else:
-                        img = self._load_image_with_normalization(self.current_acq_id, ch_name)
-                except Exception:
-                    img = np.zeros_like(first_img)
-                acc += img.astype(np.float32)
-            # Clip to max of original dtype range
-            acc = np.clip(acc, 0, np.max(acc))
-            return acc.astype(first_img.dtype)
-
-        # Build R, G, B channels by summing selections per color
-        r_img = _sum_channels(red_selection)
-        g_img = _sum_channels(green_selection)
-        b_img = _sum_channels(blue_selection)
+        # Build R, G, B channels using the selected combination method
+        r_img = self._combine_channels_for_rgb(red_selection, first_img, corrected_images)
+        g_img = self._combine_channels_for_rgb(green_selection, first_img, corrected_images)
+        b_img = self._combine_channels_for_rgb(blue_selection, first_img, corrected_images)
 
         rgb_channels.append(r_img)
         raw_channels.append(r_img)
@@ -3270,10 +3493,10 @@ class MainWindow(QtWidgets.QMainWindow):
             raw_channels.append(np.zeros_like(first_img))
             rgb_titles.append(f"None ({['Red', 'Green', 'Blue'][len(rgb_channels)-1]})")
         
-        # Apply per-channel custom scaling before stacking (for RGB display)
+        # Apply RGB color custom scaling before stacking (for RGB display)
         if self.custom_scaling_chk.isChecked():
             scaled_channels = []
-            color_selections = [red_selection, green_selection, blue_selection]
+            color_names = ['Red', 'Green', 'Blue']
             
             for i, ch_img in enumerate(rgb_channels):
                 # Skip empty channels (all zeros)
@@ -3281,44 +3504,26 @@ class MainWindow(QtWidgets.QMainWindow):
                     scaled_channels.append(ch_img)
                     continue
                 
-                # Get the channels assigned to this RGB color
-                assigned_channels = color_selections[i] if i < len(color_selections) else []
+                # Get the color name for this RGB channel
+                color_name = color_names[i] if i < len(color_names) else None
                 
-                # For custom scaling, we need to determine which channel's scaling to use
-                # If multiple channels are assigned to this color, we'll use the first one that has scaling
-                scaling_channel = None
-                for ch_name in assigned_channels:
-                    if ch_name in self.channel_scaling:
-                        scaling_channel = ch_name
-                        break
-                
-                if scaling_channel:
-                    vmin = self.channel_scaling[scaling_channel]['min']
-                    vmax = self.channel_scaling[scaling_channel]['max']
+                # Use RGB color scaling if available
+                if color_name and color_name in self.rgb_color_scaling:
+                    vmin = self.rgb_color_scaling[color_name]['min']
+                    vmax = self.rgb_color_scaling[color_name]['max']
                     if vmax <= vmin:
                         vmax = vmin + 1e-6
                     
-                    # For multiple channels with different arcsinh settings, we need to be more careful
-                    # about the scaling range. The summed result might have a different range than
-                    # any individual channel's scaling range.
-                    if len(assigned_channels) > 1:
-                        # When multiple channels are summed, use the actual range of the summed result
-                        # but still apply the custom scaling logic
-                        actual_min = float(np.min(ch_img))
-                        actual_max = float(np.max(ch_img))
-                        
-                        # If the custom range is within the actual range, use it
-                        if vmin >= actual_min and vmax <= actual_max:
-                            ch_img = np.clip((ch_img.astype(np.float32) - vmin) / (vmax - vmin), 0.0, 1.0)
-                        else:
-                            # Otherwise, use the actual range but still normalize to 0-1
-                            if actual_max > actual_min:
-                                ch_img = (ch_img.astype(np.float32) - actual_min) / (actual_max - actual_min)
-                            else:
-                                ch_img = np.zeros_like(ch_img)
+                    # Apply scaling to the whole color (combined channels)
+                    ch_img = np.clip((ch_img.astype(np.float32) - vmin) / (vmax - vmin), 0.0, 1.0)
+                else:
+                    # No custom scaling for this color, normalize to 0-1 based on actual range
+                    actual_min = float(np.min(ch_img))
+                    actual_max = float(np.max(ch_img))
+                    if actual_max > actual_min:
+                        ch_img = (ch_img.astype(np.float32) - actual_min) / (actual_max - actual_min)
                     else:
-                        # Single channel case - use the custom range directly
-                        ch_img = np.clip((ch_img.astype(np.float32) - vmin) / (vmax - vmin), 0.0, 1.0)
+                        ch_img = np.zeros_like(ch_img)
                 
                 scaled_channels.append(ch_img)
             rgb_channels = scaled_channels
@@ -3404,12 +3609,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     # This channel has data
                     raw_min, raw_max = np.min(raw_channels[i]), np.max(raw_channels[i])
                     
-                    # Check for per-channel scaling
-                    if self.custom_scaling_chk.isChecked() and selected_channels and i < len(selected_channels):
-                        channel = selected_channels[i]
-                        if channel in self.channel_scaling:
-                            raw_min = self.channel_scaling[channel]['min']
-                            raw_max = self.channel_scaling[channel]['max']
+                    # Check for RGB color scaling (in RGB mode)
+                    if self.custom_scaling_chk.isChecked() and color_name in self.rgb_color_scaling:
+                        raw_min = self.rgb_color_scaling[color_name]['min']
+                        raw_max = self.rgb_color_scaling[color_name]['max']
                     
                     if raw_max > raw_min:  # Valid data range
                         # Create a gradient for the colorbar
@@ -7028,6 +7231,49 @@ class MainWindow(QtWidgets.QMainWindow):
             "\n".join(message_parts)
         )
 
+    def _update_sidebar_max_width(self):
+        """Update the sidebar maximum width based on current window width."""
+        if hasattr(self, 'left_scroll') and hasattr(self, 'splitter'):
+            window_width = self.width()
+            # Maximum width is 30% of window width, but at least the minimum width
+            max_width = max(self.sidebar_min_width, int(window_width * 0.30))
+            # Update maximum width constraint
+            self.left_scroll.setMaximumWidth(max_width)
+    
+    def _on_splitter_moved(self, pos, index):
+        """Handle splitter movement to enforce maximum width constraint."""
+        if index == 0 and hasattr(self, 'left_scroll') and hasattr(self, 'splitter'):
+            window_width = self.width()
+            max_width = max(self.sidebar_min_width, int(window_width * 0.30))
+            current_width = self.left_scroll.width()
+            # If current width exceeds max, constrain it
+            if current_width > max_width:
+                sizes = self.splitter.sizes()
+                if len(sizes) >= 2:
+                    sizes[0] = max_width
+                    sizes[1] = window_width - max_width - self.splitter.handleWidth()
+                    self.splitter.setSizes(sizes)
+    
+    def resizeEvent(self, event):
+        """Handle window resize to update sidebar maximum width constraint."""
+        super().resizeEvent(event)
+        if hasattr(self, 'left_scroll') and hasattr(self, 'splitter'):
+            window_width = self.width()
+            # Maximum width is 30% of window width, but at least the minimum width
+            max_width = max(self.sidebar_min_width, int(window_width * 0.30))
+            current_width = self.left_scroll.width()
+            # If current width exceeds max, constrain it
+            if current_width > max_width:
+                # Get current splitter sizes
+                sizes = self.splitter.sizes()
+                if len(sizes) >= 2:
+                    # Constrain the left panel to max_width
+                    sizes[0] = max_width
+                    sizes[1] = window_width - max_width - self.splitter.handleWidth()
+                    self.splitter.setSizes(sizes)
+            # Update maximum width constraint
+            self.left_scroll.setMaximumWidth(max_width)
+    
     def closeEvent(self, event):
         """Clean up when closing the application."""
         if self.loader:

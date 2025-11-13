@@ -19,6 +19,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import sys
+import platform
 from PyQt5 import QtWidgets, QtGui
 
 
@@ -26,9 +27,13 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
 
     # Set consistent font size across all windows for readability on small and large screens
-    # 10pt is a good default that scales well with DPI
+    # Use pixel size for better cross-platform consistency, especially on Windows
     font = QtGui.QFont()
-    font.setPointSize(10)
+    # Windows typically needs larger pixel size to match Mac/Linux point size appearance
+    if platform.system() == 'Windows':
+        font.setPixelSize(13)  # Slightly larger pixel size for Windows
+    else:
+        font.setPointSize(10)  # Point size works well on Mac/Linux
     app.setFont(font)
 
     # Import modular MainWindow wrapper
