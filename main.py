@@ -26,14 +26,23 @@ from PyQt5 import QtWidgets, QtGui
 def main():
     app = QtWidgets.QApplication(sys.argv)
 
+    # Load font size preference or use default
+    from openimc.ui.dialogs.display_settings_dialog import (
+        get_font_size_preference,
+        get_default_font_size
+    )
+    
+    saved_font_size = get_font_size_preference()
+    default_font_size = get_default_font_size()
+    font_size = saved_font_size if saved_font_size is not None else default_font_size
+    
     # Set consistent font size across all windows for readability on small and large screens
     # Use pixel size for better cross-platform consistency, especially on Windows
     font = QtGui.QFont()
-    # Windows typically needs larger pixel size to match Mac/Linux point size appearance
     if platform.system() == 'Windows':
-        font.setPixelSize(13)  # Slightly larger pixel size for Windows
+        font.setPixelSize(font_size)  # Pixel size for Windows
     else:
-        font.setPointSize(10)  # Point size works well on Mac/Linux
+        font.setPointSize(font_size)  # Point size for Mac/Linux
     app.setFont(font)
 
     # Import modular MainWindow wrapper

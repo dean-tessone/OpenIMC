@@ -994,6 +994,8 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         act_about = file_menu.addAction("About…")
         act_about.triggered.connect(self._show_about_dialog)
+        act_display_settings = file_menu.addAction("Display Settings…")
+        act_display_settings.triggered.connect(self._show_display_settings)
         file_menu.addSeparator()
         act_open = file_menu.addAction("Open File/Folder…")
         act_open.triggered.connect(self._open_dialog)
@@ -1080,6 +1082,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "OpenIMC © 2025 University of Southern California — Licensed under GPL v3 or later\n\n"
             "NO WARRANTY. See LICENSE for details."
         )
+    
+    # ---------- Display settings ----------
+    def _show_display_settings(self):
+        """Show the Display Settings dialog."""
+        from openimc.ui.dialogs.display_settings_dialog import DisplaySettingsDialog
+        dialog = DisplaySettingsDialog(self)
+        dialog.exec_()
 
     # ---------- File open ----------
     def _open_dialog(self):
