@@ -224,6 +224,20 @@ class PlotConfigDialog(QtWidgets.QDialog):
         self.patient_annotate_btn.clicked.connect(self._open_patient_annotation_dialog)
         self.patient_annotate_btn.setEnabled(False)
         patient_annotation_group_layout.addWidget(self.patient_annotate_btn)
+        
+        # Legend label customization
+        legend_label_layout = QtWidgets.QHBoxLayout()
+        self.legend_label_label = QtWidgets.QLabel("Legend label:")
+        legend_label_layout.addWidget(self.legend_label_label)
+        self.legend_label_edit = QtWidgets.QLineEdit()
+        self.legend_label_edit.setToolTip("Custom label for the patient/source annotation legend (e.g., 'Patient', 'Sample', 'Source')")
+        self.legend_label_edit.setEnabled(False)
+        legend_label_layout.addWidget(self.legend_label_edit)
+        legend_label_layout.addStretch()
+        patient_annotation_group_layout.addLayout(legend_label_layout)
+        
+        self.patient_annotation_checkbox.stateChanged.connect(lambda state: self.legend_label_edit.setEnabled(state == 2))
+        
         self.patient_annotation_group.setLayout(patient_annotation_group_layout)
         content_layout.addWidget(self.patient_annotation_group)
         
@@ -413,28 +427,45 @@ class PlotConfigDialog(QtWidgets.QDialog):
         self.patient_annotation_checkbox.blockSignals(True)
         self.patient_annotation_column_combo.blockSignals(True)
         
-        # First, update parent's column options if needed
-        if hasattr(self.parent_dialog, '_update_patient_annotation_columns'):
-            self.parent_dialog._update_patient_annotation_columns()
-        
-        # Populate column combo from parent
-        if hasattr(self.parent_dialog, 'patient_annotation_column_combo'):
-            self.patient_annotation_column_combo.clear()
-            for i in range(self.parent_dialog.patient_annotation_column_combo.count()):
-                text = self.parent_dialog.patient_annotation_column_combo.itemText(i)
-                data = self.parent_dialog.patient_annotation_column_combo.itemData(i)
-                self.patient_annotation_column_combo.addItem(text, data)
-            if self.parent_dialog.patient_annotation_column_combo.count() > 0:
-                self.patient_annotation_column_combo.setCurrentIndex(self.parent_dialog.patient_annotation_column_combo.currentIndex())
+        # Populate column combo directly from dataframe
+        self.patient_annotation_column_combo.clear()
+        if hasattr(self.parent_dialog, 'feature_dataframe') and self.parent_dialog.feature_dataframe is not None:
+            # Priority order: source_file, batch_group, source_well
+            available_columns = []
+            for col in ['source_file', 'batch_group', 'source_well']:
+                if col in self.parent_dialog.feature_dataframe.columns:
+                    available_columns.append(col)
+            
+            # Add available columns to combo
+            for col in available_columns:
+                self.patient_annotation_column_combo.addItem(col, col)
+            
+            # Set default selection (first available, or use stored value if exists)
+            if available_columns:
+                # Check if parent has a stored column selection
+                stored_column = getattr(self.parent_dialog, 'patient_annotation_column', None)
+                if stored_column and stored_column in available_columns:
+                    index = available_columns.index(stored_column)
+                    self.patient_annotation_column_combo.setCurrentIndex(index)
+                else:
+                    # Default to first available (source_file if present)
+                    self.patient_annotation_column_combo.setCurrentIndex(0)
         
         # Set checkbox state and update enabled state
+        # Get state from parent's enabled flag (since checkbox might not exist in parent)
+        is_checked = getattr(self.parent_dialog, 'patient_annotation_enabled', False)
         if hasattr(self.parent_dialog, 'patient_annotation_checkbox'):
             is_checked = self.parent_dialog.patient_annotation_checkbox.isChecked()
-            self.patient_annotation_checkbox.setChecked(is_checked)
-            # Manually update enabled state without triggering signals
-            self.patient_annotation_column_label.setEnabled(is_checked)
-            self.patient_annotation_column_combo.setEnabled(is_checked)
-            self.patient_annotate_btn.setEnabled(is_checked)
+        self.patient_annotation_checkbox.setChecked(is_checked)
+        # Manually update enabled state without triggering signals
+        self.patient_annotation_column_label.setEnabled(is_checked)
+        self.patient_annotation_column_combo.setEnabled(is_checked)
+        self.patient_annotate_btn.setEnabled(is_checked)
+        self.legend_label_edit.setEnabled(is_checked)
+        
+        # Populate legend label
+        if hasattr(self.parent_dialog, 'patient_legend_label'):
+            self.legend_label_edit.setText(self.parent_dialog.patient_legend_label)
         
         self.patient_annotation_checkbox.blockSignals(False)
         self.patient_annotation_column_combo.blockSignals(False)
@@ -539,16 +570,24 @@ class PlotConfigDialog(QtWidgets.QDialog):
             self.parent_dialog.feature_tick_fontsize = self.feature_fontsize_spinbox.value()
         
         # Patient annotation
+        # Update the enabled state in parent dialog
+        is_checked = self.patient_annotation_checkbox.isChecked()
+        self.parent_dialog.patient_annotation_enabled = is_checked
         if hasattr(self.parent_dialog, 'patient_annotation_checkbox'):
-            self.parent_dialog.patient_annotation_checkbox.setChecked(self.patient_annotation_checkbox.isChecked())
+            self.parent_dialog.patient_annotation_checkbox.setChecked(is_checked)
             if hasattr(self.parent_dialog, '_on_patient_annotation_changed'):
                 self.parent_dialog._on_patient_annotation_changed(
                     self.parent_dialog.patient_annotation_checkbox.checkState()
                 )
-        if hasattr(self.parent_dialog, 'patient_annotation_column_combo'):
-            self.parent_dialog.patient_annotation_column_combo.setCurrentIndex(self.patient_annotation_column_combo.currentIndex())
-            if hasattr(self.parent_dialog, '_on_patient_annotation_column_changed'):
-                self.parent_dialog._on_patient_annotation_column_changed(self.patient_annotation_column_combo.currentText())
+        # Save selected patient annotation column
+        if self.patient_annotation_column_combo.count() > 0:
+            selected_column = self.patient_annotation_column_combo.currentData()
+            if selected_column:
+                self.parent_dialog.patient_annotation_column = selected_column
+        
+        # Legend label
+        if hasattr(self.parent_dialog, 'patient_legend_label'):
+            self.parent_dialog.patient_legend_label = self.legend_label_edit.text().strip() or 'Patient/Source'
         
         # Top N
         if hasattr(self.parent_dialog, 'top_n_spinbox'):

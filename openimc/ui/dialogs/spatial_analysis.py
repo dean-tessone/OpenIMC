@@ -674,15 +674,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.spatial_color_combo.setToolTip("Search and select feature for color encoding")
         spatial_viz_controls.addWidget(self.spatial_color_combo)
         
-        spatial_viz_controls.addWidget(QtWidgets.QLabel("Size by:"))
-        self.spatial_size_combo = QtWidgets.QComboBox()
-        self.spatial_size_combo.setEditable(True)
-        self.spatial_size_combo.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
-        self.spatial_size_combo.completer().setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
-        self.spatial_size_combo.addItem("None")
-        self.spatial_size_combo.setToolTip("Search and select feature for size encoding (optional)")
-        spatial_viz_controls.addWidget(self.spatial_size_combo)
-        
         # Point size multiplier control
         spatial_viz_controls.addWidget(QtWidgets.QLabel("Point Size:"))
         self.spatial_point_size_spin = QtWidgets.QDoubleSpinBox()
@@ -769,7 +760,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         self.faceted_plot_check.toggled.connect(self._on_faceted_plot_toggled)
         # Connect color/size/edge changes to regenerate plot
         self.spatial_color_combo.currentTextChanged.connect(self._on_spatial_viz_option_changed)
-        self.spatial_size_combo.currentTextChanged.connect(self._on_spatial_viz_option_changed)
         self.spatial_point_size_spin.valueChanged.connect(self._on_spatial_viz_option_changed)
         self.spatial_show_edges_check.toggled.connect(self._on_spatial_viz_option_changed)
         self.community_run_btn.clicked.connect(self._run_community_analysis)
@@ -786,7 +776,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Populate ROI combo box and color options
         self._populate_roi_combo()
         self._populate_spatial_color_options()
-        self._populate_spatial_size_options()
         self._populate_community_roi_combo()
         self._populate_exclude_clusters_list()
         
@@ -1448,32 +1437,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 self.spatial_color_combo.addItem(f"Marker: {marker_name}")
             
 
-    def _populate_spatial_size_options(self):
-        """Populate the spatial size combo box with available features (searchable)."""
-        if self.feature_dataframe is not None and not self.feature_dataframe.empty:
-            self.spatial_size_combo.clear()
-            self.spatial_size_combo.addItem("None")
-            
-            # Add morphometric features (good for size encoding)
-            morphometric_features = []
-            for col in self.feature_dataframe.columns:
-                if any(keyword in col.lower() for keyword in ['area', 'perimeter', 'diameter', 'eccentricity', 'solidity', 'extent', 'aspect_ratio', 'circularity']):
-                    morphometric_features.append(col)
-            
-            for feature in sorted(morphometric_features):
-                self.spatial_size_combo.addItem(f"Morphology: {feature}")
-            
-            # Add marker expression features (can also be used for size)
-            marker_features = []
-            for col in self.feature_dataframe.columns:
-                if '_mean' in col.lower():
-                    marker_features.append(col)
-            
-            for feature in sorted(marker_features):
-                marker_name = feature.replace('_mean', '').replace('_', ' ')
-                self.spatial_size_combo.addItem(f"Marker: {marker_name}")
-            
-
     def _populate_community_roi_combo(self):
         """Populate the community ROI combo box with available ROIs."""
         filtered_df = self._get_filtered_dataframe()
@@ -1631,9 +1594,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 'data_ylim': data_ylim
             }
         
-        # Get color and size options
+        # Get color option
         color_option = self.spatial_color_combo.currentText()
-        size_option = self.spatial_size_combo.currentText()
         
         # Clear the canvas only if forcing regeneration or not using cache
         if not use_cache:
@@ -1744,38 +1706,12 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Clear legend
         ax.legend_ = None
         
-        # Get color and size options
+        # Get color option and point size
         color_option = self.spatial_color_combo.currentText()
-        size_option = self.spatial_size_combo.currentText()
         point_size_multiplier = float(self.spatial_point_size_spin.value())
         
-        # Get size values if specified
-        size_values = None
-        size_feature_name = None
-        size_min_val = None
-        size_max_val = None
-        if size_option and size_option != "None":
-            if size_option.startswith("Morphology:"):
-                size_feature_name = size_option.replace("Morphology: ", "")
-            elif size_option.startswith("Marker:"):
-                marker_name = size_option.replace("Marker: ", "").replace(" ", "_")
-                size_feature_name = f"{marker_name}_mean"
-            
-            if size_feature_name and size_feature_name in roi_df.columns:
-                size_values = roi_df[size_feature_name].values
-                # Normalize sizes to reasonable range (20-200) * multiplier
-                valid_sizes = size_values[~np.isnan(size_values)]
-                if len(valid_sizes) > 0:
-                    size_min_val = valid_sizes.min()
-                    size_max_val = valid_sizes.max()
-                    if size_max_val > size_min_val:
-                        size_values = (20 + 180 * (size_values - size_min_val) / (size_max_val - size_min_val)) * point_size_multiplier
-                    else:
-                        size_values = np.full_like(size_values, 50 * point_size_multiplier)
-                else:
-                    size_values = None
-        else:
-            size_values = 20 * point_size_multiplier  # Default size
+        # Use uniform size for all points
+        size_values = 20 * point_size_multiplier  # Default size
         
         # Get all coordinates
         x_coords = roi_df['centroid_x'].values
@@ -1819,16 +1755,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     cluster_y = cluster_cells['centroid_y'].values
                     total_points += len(cluster_x)
                     
-                    # Get sizes for this cluster
-                    if isinstance(size_values, np.ndarray):
-                        cluster_sizes = size_values[cluster_mask]
-                    else:
-                        cluster_sizes = size_values
-                    
                     # Plot cells as points (limits already set, clip to axes)
                     ax.scatter(cluster_x, cluster_y, 
                               c=[cluster_color_map[cluster]], 
-                              s=cluster_sizes, alpha=0.8, edgecolors='black', linewidth=0.5,
+                              s=size_values, alpha=0.8, edgecolors='black', linewidth=0.5,
                               label=self._get_cluster_display_name(cluster),
                               zorder=2, clip_on=True)
             
@@ -1852,10 +1782,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                 )
             ax.legend(handles=legend_handles, bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
             
-            # Add size legend if size encoding is used
-            if size_option and size_option != "None" and size_min_val is not None and size_max_val is not None:
-                self._add_size_legend(ax, size_min_val, size_max_val, point_size_multiplier)
-            
         else:
             # Color by continuous feature (morphology or marker expression)
             feature_name = None
@@ -1877,16 +1803,10 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     valid_y = roi_df.loc[valid_mask, 'centroid_y'].values
                     valid_values = feature_values[valid_mask]
                     
-                    # Get sizes for valid points
-                    if isinstance(size_values, np.ndarray):
-                        valid_sizes = size_values[valid_mask]
-                    else:
-                        valid_sizes = size_values
-                    
                     # Create scatter plot with colorbar (limits already set, clip to axes)
                     scatter = ax.scatter(valid_x, valid_y, 
                                        c=valid_values, 
-                                       s=valid_sizes, alpha=0.8, edgecolors='black', linewidth=0.5,
+                                       s=size_values, alpha=0.8, edgecolors='black', linewidth=0.5,
                                        cmap='viridis', zorder=2, clip_on=True)
                     
                     
@@ -1897,10 +1817,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                     # Add colorbar
                     cbar = self.spatial_viz_canvas.figure.colorbar(scatter, ax=ax)
                     cbar.set_label(feature_name, rotation=270, labelpad=15)
-                    
-                    # Add size legend if size encoding is used
-                    if size_option and size_option != "None" and size_min_val is not None and size_max_val is not None:
-                        self._add_size_legend(ax, size_min_val, size_max_val, point_size_multiplier)
                 else:
                     return
             else:
@@ -1929,45 +1845,6 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
         # Get roi_edges from cache for debug message
         cache = self.spatial_viz_cache.get(roi_id, {})
         roi_edges = cache.get('roi_edges', pd.DataFrame())
-
-    def _add_size_legend(self, ax, min_val, max_val, multiplier):
-        """Add a legend showing point sizes and their corresponding values."""
-        # Create example sizes (min, mid, max)
-        example_sizes = [
-            (20 * multiplier, min_val),
-            (110 * multiplier, (min_val + max_val) / 2),
-            (200 * multiplier, max_val)
-        ]
-        
-        # Get the size feature name for display
-        size_option = self.spatial_size_combo.currentText()
-        if size_option.startswith("Morphology:"):
-            size_feature_name = size_option.replace("Morphology: ", "")
-        elif size_option.startswith("Marker:"):
-            size_feature_name = size_option.replace("Marker: ", "")
-        else:
-            size_feature_name = "Value"
-        
-        # Create legend handles
-        legend_elements = []
-        for size, val in example_sizes:
-            # Create a scatter point for the legend
-            legend_elements.append(
-                plt.Line2D([0], [0], marker='o', color='w', 
-                          markerfacecolor='gray', markeredgecolor='black',
-                          markersize=np.sqrt(size) / 2,  # Approximate marker size
-                          label=f'{size_feature_name}: {val:.2f}',
-                          linestyle='None')
-            )
-        
-        # Add legend to the right side of the plot
-        ax2 = ax.twinx()
-        ax2.set_ylim(ax.get_ylim())
-        ax2.set_xlim(ax.get_xlim())
-        ax2.axis('off')
-        legend = ax2.legend(handles=legend_elements, loc='lower right', 
-                           title='Point Size', fontsize=8, framealpha=0.9)
-        legend.get_title().set_fontsize(9)
 
     def _create_faceted_spatial_visualization(self, roi_ids):
         """Create faceted spatial visualization showing multiple ROIs side by side."""
@@ -2117,8 +1994,8 @@ class SpatialAnalysisDialog(QtWidgets.QDialog):
                                                  loc='upper right', bbox_to_anchor=(0.98, 0.98),
                                                  fontsize=8, ncol=min(3, len(labels)))
         
-        # Adjust layout
-        self.spatial_viz_canvas.figure.tight_layout(rect=[0, 0, 0.95, 1])  # Leave space for legend
+        # Adjust layout with reduced spacing between subplots
+        self.spatial_viz_canvas.figure.tight_layout(rect=[0, 0, 0.95, 1], hspace=0.1, wspace=0.1)  # Leave space for legend, reduce spacing
         self.spatial_viz_canvas.draw()
         
 

@@ -35,6 +35,7 @@ import json
 import math
 from openimc.utils.logger import get_logger
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
+from openimc.ui.dialogs.plot_config_dialog import PlotConfigDialog
 
 # Optional seaborn for enhanced clustering visualization
 try:
@@ -156,6 +157,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.cluster_annotation_map = {}
         self.cluster_backend_names = {}  # Store normalized names for CSV export
         self.patient_annotation_map = {}  # Store custom patient/source file labels
+        self.feature_label_map = {}  # Store custom feature labels for y-axis ticks (friendly names)
+        self.patient_legend_label = 'Patient/Source'  # Custom label for patient annotation legend
+        # Initialize patient annotation column with default priority (source_file, batch_group, source_well)
+        self.patient_annotation_column = None
+        if self.feature_dataframe is not None:
+            for col in ['source_file', 'batch_group', 'source_well']:
+                if col in self.feature_dataframe.columns:
+                    self.patient_annotation_column = col
+                    break
+        self.patient_annotation_enabled = False  # Track whether patient annotation is enabled
+        self.feature_tick_fontsize = 8  # Font size for feature labels on y-axis
         self.gating_rules = []  # list of dict: {name, logic, conditions: [{column, op, threshold}]}
         self.llm_phenotype_cache = {}  # Cache for LLM phenotype suggestions
         self.seed = 42  # Default seed for reproducibility
@@ -468,6 +480,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         viz_layout.addWidget(self.group_by_combo)
 
         # Colormap selector (for heatmaps and differential expression)
+        # Note: For Heatmap, colormap is also available in PlotConfigDialog
+        # But we keep it here for Differential Expression since Configure Plot only shows for Heatmap
         self.colormap_label = QtWidgets.QLabel("Colormap:")
         viz_layout.addWidget(self.colormap_label)
         self.colormap_combo = QtWidgets.QComboBox()
@@ -486,45 +500,22 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
         viz_layout.addWidget(self.colormap_combo)
 
-        # Heatmap source selector (Clusters vs Manual Gates)
-        self.heatmap_source_label = QtWidgets.QLabel("Heatmap of:")
-        viz_layout.addWidget(self.heatmap_source_label)
-        self.heatmap_source_combo = QtWidgets.QComboBox()
-        self.heatmap_source_combo.addItems(["Heatmap of:", "Clusters", "Manual Gates"])  # temporary to ensure widget exists
-        self.heatmap_source_combo.clear()
-        self.heatmap_source_combo.addItems(["Clusters", "Manual Gates"])
-        self.heatmap_source_combo.currentTextChanged.connect(self._on_heatmap_source_changed)
-        viz_layout.addWidget(self.heatmap_source_combo)
+        # Configure plot button (opens PlotConfigDialog)
+        # Note: Heatmap source, heatmap filter, heatmap scaling, patient annotation,
+        # and patient label customization are now available in PlotConfigDialog (Heatmap only)
+        self.configure_plot_btn = QtWidgets.QPushButton("Configure Plot...")
+        self.configure_plot_btn.setToolTip("Open plot configuration dialog to customize font sizes, labels, and other plot settings")
+        self.configure_plot_btn.clicked.connect(self._open_plot_config_dialog)
+        viz_layout.addWidget(self.configure_plot_btn)
 
-        # Heatmap filter button
-        self.heatmap_filter_btn = QtWidgets.QPushButton("Filter…")
-        self.heatmap_filter_btn.setToolTip("Filter which clusters/phenotypes appear in the heatmap")
-        self.heatmap_filter_btn.clicked.connect(self._open_heatmap_filter_dialog)
-        viz_layout.addWidget(self.heatmap_filter_btn)
-
-        # Heatmap scaling selector
-        self.heatmap_scaling_label = QtWidgets.QLabel("Heatmap scaling:")
-        viz_layout.addWidget(self.heatmap_scaling_label)
-        self.heatmap_scaling_combo = QtWidgets.QComboBox()
-        self.heatmap_scaling_combo.addItems(["Z-score", "MAD (Median Absolute Deviation)", "None (no scaling)"])
-        self.heatmap_scaling_combo.setCurrentText("Z-score")  # Default to Z-score
-        self.heatmap_scaling_combo.currentTextChanged.connect(self._on_heatmap_scaling_changed)
-        viz_layout.addWidget(self.heatmap_scaling_combo)
-
-        # Patient annotation controls (for heatmap only)
-        self.patient_annotation_checkbox = QtWidgets.QCheckBox("Show patient annotation")
-        self.patient_annotation_checkbox.setToolTip("Show patient/source file annotation bar above cell annotation in heatmap")
-        self.patient_annotation_checkbox.setChecked(False)
-        self.patient_annotation_checkbox.stateChanged.connect(self._on_patient_annotation_changed)
-        viz_layout.addWidget(self.patient_annotation_checkbox)
-        
-        self.patient_annotate_btn = QtWidgets.QPushButton("Customize Patient Labels...")
-        self.patient_annotate_btn.setToolTip("Customize labels for patient/source file annotation")
-        self.patient_annotate_btn.clicked.connect(self._open_patient_annotation_dialog)
-        self.patient_annotate_btn.setEnabled(False)
-        viz_layout.addWidget(self.patient_annotate_btn)
+        # Customize feature labels button (for Differential Expression, Stacked Bars, Boxplot/Violin Plot)
+        self.feature_labels_btn = QtWidgets.QPushButton("Customize Feature Labels...")
+        self.feature_labels_btn.setToolTip("Set custom display names for features in visualizations (e.g., 'Vimentin_mean' -> 'Mean Vimentin')")
+        self.feature_labels_btn.clicked.connect(self._open_feature_labels_dialog)
+        viz_layout.addWidget(self.feature_labels_btn)
 
         # Top N markers selector (for differential expression only)
+        # Note: Also available in PlotConfigDialog, but kept here for quick access
         self.top_n_label = QtWidgets.QLabel("Top N:")
         viz_layout.addWidget(self.top_n_label)
         self.top_n_spinbox = QtWidgets.QSpinBox()
@@ -534,6 +525,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         self.top_n_spinbox.valueChanged.connect(self._on_top_n_changed)
         viz_layout.addWidget(self.top_n_spinbox)
 
+        # Note: Marker selection, plot type, and statistical testing options
+        # are also available in PlotConfigDialog, but kept here for quick access
         # Marker selection for boxplot/violin plot
         self.marker_select_label = QtWidgets.QLabel("Markers:")
         viz_layout.addWidget(self.marker_select_label)
@@ -1302,11 +1295,22 @@ class CellClusteringDialog(QtWidgets.QDialog):
         source = self.heatmap_source_combo.currentText() if hasattr(self, 'heatmap_source_combo') else 'Clusters'
         data_to_plot = base_data.copy()
         
-        # Ensure source_file column is available for patient annotation
-        if 'source_file' not in data_to_plot.columns and 'source_file' in self.feature_dataframe.columns:
-            # Merge source_file from feature_dataframe by index
-            source_file_series = self.feature_dataframe['source_file'].reindex(data_to_plot.index)
-            data_to_plot['source_file'] = source_file_series.values
+        # Ensure patient annotation column is available
+        # Determine which column to use (selected or default priority)
+        patient_col = None
+        if hasattr(self, 'patient_annotation_column') and self.patient_annotation_column:
+            patient_col = self.patient_annotation_column
+        else:
+            # Default priority order
+            for col in ['source_file', 'batch_group', 'source_well']:
+                if col in self.feature_dataframe.columns:
+                    patient_col = col
+                    break
+        
+        if patient_col and patient_col not in data_to_plot.columns and patient_col in self.feature_dataframe.columns:
+            # Merge patient annotation column from feature_dataframe by index
+            patient_col_series = self.feature_dataframe[patient_col].reindex(data_to_plot.index)
+            data_to_plot[patient_col] = patient_col_series.values
         
         group_col = 'cluster'
         legend_labels = None
@@ -1426,20 +1430,31 @@ class CellClusteringDialog(QtWidgets.QDialog):
         cell_colors_rgb = [cluster_color_map[val] for val in group_values_reordered]
         
         # Check if patient annotation is enabled
-        show_patient_annotation = (hasattr(self, 'patient_annotation_checkbox') and 
-                                   self.patient_annotation_checkbox.isChecked() and
-                                   'source_file' in data_to_plot.columns)
+        # Determine which column to use for patient annotation
+        # Priority: selected column, or source_file, batch_group, source_well
+        patient_col = None
+        if hasattr(self, 'patient_annotation_column') and self.patient_annotation_column:
+            patient_col = self.patient_annotation_column
+        else:
+            # Default priority order
+            for col in ['source_file', 'batch_group', 'source_well']:
+                if col in data_to_plot.columns:
+                    patient_col = col
+                    break
+        
+        show_patient_annotation = (self.patient_annotation_enabled and
+                                   patient_col is not None and patient_col in data_to_plot.columns)
         
         # Prepare patient annotation data if enabled
         patient_values_reordered = None
         patient_color_map = {}
         if show_patient_annotation:
-            # Get source file values and reorder to match column clustering
-            patient_values = data_to_plot['source_file'].values
+            # Get patient annotation values from selected column and reorder to match column clustering
+            patient_values = data_to_plot[patient_col].values
             patient_values_reordered = patient_values[col_indices]
             
-            # Get unique source files
-            unique_patients = sorted([f for f in data_to_plot['source_file'].unique() if pd.notna(f)])
+            # Get unique patient values
+            unique_patients = sorted([f for f in data_to_plot[patient_col].unique() if pd.notna(f)])
             
             # Create color mapping for patients
             patient_colors_raw = _get_vivid_colors(len(unique_patients))
@@ -1537,11 +1552,13 @@ class CellClusteringDialog(QtWidgets.QDialog):
         # Set feature labels on y-axis with proper spacing
         n_features = len(feature_cols_reordered)
         ax_heatmap.set_yticks(np.arange(n_features))
-        ax_heatmap.set_yticklabels(feature_cols_reordered, fontsize=8, rotation=0)
+        # Use custom feature labels if available
+        feature_labels_display = [self._get_feature_display_name(f) for f in feature_cols_reordered]
+        ax_heatmap.set_yticklabels(feature_labels_display, fontsize=self.feature_tick_fontsize, rotation=0)
         ax_heatmap.set_ylabel('Features', fontsize=10, fontweight='bold')
         
         # Ensure all labels are visible
-        ax_heatmap.tick_params(axis='y', which='major', labelsize=8, pad=2)
+        ax_heatmap.tick_params(axis='y', which='major', labelsize=self.feature_tick_fontsize, pad=2)
         for label in ax_heatmap.get_yticklabels():
             label.set_visible(True)
         
@@ -1576,7 +1593,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             if patient_legend_elements:
                 ax_patient_legend.legend(handles=patient_legend_elements, loc='upper left', frameon=True, fontsize=8, 
-                                        title='Patient/Source', title_fontsize=9)
+                                        title=self.patient_legend_label, title_fontsize=9)
             
             # Cluster legend below
             ax_cluster_legend = self.figure.add_subplot(legend_gs[1])
@@ -1745,9 +1762,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
             
             # Ensure all feature labels are displayed - disable automatic tick limiting
             g.ax_heatmap.set_yticks(range(len(feature_names)))
-            g.ax_heatmap.set_yticklabels(feature_names, fontsize=6, minor=False)
+            # Use custom feature labels if available
+            feature_labels_display = [self._get_feature_display_name(f) for f in feature_names]
+            g.ax_heatmap.set_yticklabels(feature_labels_display, fontsize=self.feature_tick_fontsize, minor=False)
             # Prevent matplotlib from automatically hiding overlapping labels
-            g.ax_heatmap.tick_params(axis='y', which='major', labelsize=6)
+            g.ax_heatmap.tick_params(axis='y', which='major', labelsize=self.feature_tick_fontsize)
             # Ensure y-axis limits show all features
             g.ax_heatmap.set_ylim(-0.5, len(feature_names) - 0.5)
             # Force all labels to be visible
@@ -1862,9 +1881,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         ax_heatmap.set_ylabel('Features')
         # Ensure all feature labels are displayed - disable automatic tick limiting
         ax_heatmap.set_yticks(np.arange(len(feature_cols)))
-        ax_heatmap.set_yticklabels(feature_cols, fontsize=6, rotation=0)
+        # Use custom feature labels if available
+        feature_labels_display = [self._get_feature_display_name(f) for f in feature_cols]
+        ax_heatmap.set_yticklabels(feature_labels_display, fontsize=self.feature_tick_fontsize, rotation=0)
         # Prevent matplotlib from automatically hiding overlapping labels
-        ax_heatmap.tick_params(axis='y', which='major', labelsize=6)
+        ax_heatmap.tick_params(axis='y', which='major', labelsize=self.feature_tick_fontsize)
         # Force all labels to be visible
         for label in ax_heatmap.get_yticklabels():
             label.set_visible(True)
@@ -2220,7 +2241,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                         labels.append(self._get_patient_display_name(file_name))
                 # Place legend inside axes to avoid clipping - ensure it's visible
                 if handles and labels:
-                    legend = ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Patient/Source')
+                    legend = ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title=self.patient_legend_label)
                     legend.set_visible(True)
             else:
                 # Fallback if no source files
@@ -2425,6 +2446,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if hasattr(self, 'top_n_label'):
             self.top_n_label.setVisible(view == 'Differential Expression')
         self.top_n_spinbox.setVisible(view == 'Differential Expression')
+        # Feature labels button visible for Differential Expression, Stacked Bars, and Boxplot/Violin Plot
+        if hasattr(self, 'feature_labels_btn'):
+            self.feature_labels_btn.setVisible(view in ['Differential Expression', 'Stacked Bars', 'Boxplot/Violin Plot'])
         # Marker selection and plot type visible only for Boxplot/Violin Plot
         is_boxplot_violin = view == 'Boxplot/Violin Plot'
         if hasattr(self, 'marker_select_label'):
@@ -2463,6 +2487,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.patient_annotation_checkbox.setVisible(is_heatmap)
         if hasattr(self, 'patient_annotate_btn'):
             self.patient_annotate_btn.setVisible(is_heatmap)
+        # Configure plot button visible only for Heatmap
+        if hasattr(self, 'configure_plot_btn'):
+            self.configure_plot_btn.setVisible(is_heatmap)
     
     def _on_colormap_changed(self, _text: str):
         """Handle colormap selection change."""
@@ -2516,12 +2543,24 @@ class CellClusteringDialog(QtWidgets.QDialog):
     
     def _on_patient_annotation_changed(self, state: int):
         """Handle patient annotation checkbox state change."""
-        # Enable/disable the customize button (only if source_file data is available)
-        has_source_file = 'source_file' in self.feature_dataframe.columns
+        # Update enabled flag
+        self.patient_annotation_enabled = (state == 2)  # 2 = checked
+        
+        # Enable/disable the customize button (check if patient annotation column is available)
+        has_patient_col = False
+        if hasattr(self, 'patient_annotation_column') and self.patient_annotation_column:
+            has_patient_col = self.patient_annotation_column in self.feature_dataframe.columns
+        else:
+            # Check default priority columns
+            for col in ['source_file', 'batch_group', 'source_well']:
+                if col in self.feature_dataframe.columns:
+                    has_patient_col = True
+                    break
+        
         if hasattr(self, 'patient_annotate_btn'):
-            self.patient_annotate_btn.setEnabled(state == 2 and has_source_file)  # 2 = checked
+            self.patient_annotate_btn.setEnabled(state == 2 and has_patient_col)  # 2 = checked
         if hasattr(self, 'patient_annotate_btn2'):
-            self.patient_annotate_btn2.setEnabled(state == 2 and has_source_file)
+            self.patient_annotate_btn2.setEnabled(state == 2 and has_patient_col)
         # Refresh heatmap if it's the current view
         view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
         if view == 'Heatmap':
@@ -2539,9 +2578,15 @@ class CellClusteringDialog(QtWidgets.QDialog):
             return "Unknown"
         if isinstance(self.patient_annotation_map, dict) and source_file in self.patient_annotation_map and self.patient_annotation_map[source_file]:
             return self.patient_annotation_map[source_file]
-        # Use basename of file as default
+        # For source_file column, use basename of file as default
+        # For other columns (batch_group, source_well), use the value as-is
         import os
-        return os.path.basename(str(source_file))
+        # Check if it looks like a file path (contains path separators)
+        source_str = str(source_file)
+        if os.sep in source_str or '/' in source_str or '\\' in source_str:
+            return os.path.basename(source_str)
+        # Otherwise, return the value as-is (for batch_group, source_well, etc.)
+        return source_str
 
     def _get_manual_groups_series(self):
         """Compute grouping series for manual gates. Single named phenotype -> name vs Other; otherwise names with Unassigned for blanks."""
@@ -2680,7 +2725,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                         labels.append(self._get_patient_display_name(file_name))
                 # Place legend inside axes to avoid clipping - ensure it's visible
                 if handles and labels:
-                    legend = ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title='Patient/Source')
+                    legend = ax.legend(handles, labels, loc='best', frameon=True, fontsize=8, title=self.patient_legend_label)
                     legend.set_visible(True)
             else:
                 # Fallback if no source files
@@ -3014,7 +3059,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             ax.set_xticks(range(len(heatmap_data.index)))
             ax.set_xticklabels([self._get_cluster_display_name(i) for i in heatmap_data.index])
             ax.set_yticks(range(len(heatmap_data.columns)))
-            ax.set_yticklabels(heatmap_data.columns, rotation=0)
+            # Use custom feature labels if available
+            feature_labels_display = [self._get_feature_display_name(f) for f in heatmap_data.columns]
+            ax.set_yticklabels(feature_labels_display, rotation=0)
             
             # Add colorbar
             cbar = self.figure.colorbar(im, ax=ax, shrink=0.8)
@@ -3376,6 +3423,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.figure.clear()
             
             # Prepare data for plotting
+            # Store both original marker name (for filtering) and display name (for labels)
+            marker_display_map = {marker: self._get_feature_display_name(marker) for marker in available_markers}
             plot_data = []
             for marker in available_markers:
                 for cluster_id in sorted(self.clustered_data['cluster'].unique()):
@@ -3385,7 +3434,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     
                     for value in cluster_data:
                         plot_data.append({
-                            'Marker': marker,
+                            'Marker': marker,  # Keep original for filtering
+                            'MarkerDisplay': marker_display_map[marker],  # Custom label for display
                             'Cluster': self._get_cluster_display_name(cluster_id),
                             'Value': value
                         })
@@ -3460,6 +3510,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     
                     axes.append(ax)
                     marker_data = df_plot[df_plot['Marker'] == marker]
+                    
+                    # Get display name for this marker
+                    marker_display = marker_display_map[marker]
                     
                     # Create color palette ordered by cluster names in the plot
                     cluster_order = sorted(marker_data['Cluster'].unique())
@@ -3536,7 +3589,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                                    fontsize=7, verticalalignment='top', horizontalalignment='left',
                                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
                     
-                    ax.set_title(marker, fontsize=10)
+                    ax.set_title(marker_display, fontsize=10)
                     if row == n_rows - 1:  # Only show xlabel on bottom row
                         ax.set_xlabel('Cluster', fontsize=9)
                     else:
@@ -3555,6 +3608,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             elif _HAVE_SEABORN and len(available_markers) == 1:
                 # Single marker with seaborn
                 marker = available_markers[0]
+                marker_display = marker_display_map[marker]
                 marker_data = df_plot[df_plot['Marker'] == marker]
                 
                 ax = self.figure.add_subplot(111)
@@ -3634,7 +3688,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                                fontsize=7, verticalalignment='top', horizontalalignment='left',
                                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
                 
-                ax.set_title(marker, fontsize=12)
+                ax.set_title(marker_display, fontsize=12)
                 ax.set_xlabel('Cluster', fontsize=10)
                 ax.set_ylabel('Expression Value', fontsize=10)
                 ax.tick_params(axis='x', rotation=45, labelsize=9)
@@ -3648,6 +3702,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 
                 for idx, marker in enumerate(available_markers):
                     ax = self.figure.add_subplot(n_rows, n_cols, idx + 1)
+                    marker_display = marker_display_map[marker]
                     marker_data = df_plot[df_plot['Marker'] == marker]
                     
                     # Group data by cluster
@@ -3756,7 +3811,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     
                     ax.set_xticks(range(len(cluster_values)))
                     ax.set_xticklabels(cluster_names, rotation=45, ha='right')
-                    ax.set_title(marker, fontsize=10)
+                    ax.set_title(marker_display, fontsize=10)
                     ax.set_xlabel('Cluster', fontsize=9)
                     ax.set_ylabel('Expression Value', fontsize=9)
                 
@@ -4253,17 +4308,27 @@ class CellClusteringDialog(QtWidgets.QDialog):
 
     def _open_patient_annotation_dialog(self):
         """Open a dialog to customize patient/source file labels."""
-        # Check if source_file column exists
-        if 'source_file' not in self.feature_dataframe.columns:
-            QtWidgets.QMessageBox.warning(self, "No Source File Data", 
-                                          "Source file information is not available in the data.")
+        # Determine which column to use for patient annotation
+        patient_col = None
+        if hasattr(self, 'patient_annotation_column') and self.patient_annotation_column:
+            patient_col = self.patient_annotation_column
+        else:
+            # Default priority order
+            for col in ['source_file', 'batch_group', 'source_well']:
+                if col in self.feature_dataframe.columns:
+                    patient_col = col
+                    break
+        
+        if not patient_col or patient_col not in self.feature_dataframe.columns:
+            QtWidgets.QMessageBox.warning(self, "No Patient Annotation Data", 
+                                          "No patient annotation column (source_file, batch_group, or source_well) is available in the data.")
             return
         
-        # Get unique source files
-        unique_files = sorted([f for f in self.feature_dataframe['source_file'].unique() if pd.notna(f)])
-        if not unique_files:
-            QtWidgets.QMessageBox.warning(self, "No Source Files", 
-                                          "No source file information found in the data.")
+        # Get unique values from the selected column
+        unique_values = sorted([f for f in self.feature_dataframe[patient_col].unique() if pd.notna(f)])
+        if not unique_values:
+            QtWidgets.QMessageBox.warning(self, "No Values", 
+                                          f"No values found in {patient_col} column.")
             return
         
         # Build and show dialog
@@ -4272,23 +4337,31 @@ class CellClusteringDialog(QtWidgets.QDialog):
         v = QtWidgets.QVBoxLayout(dlg)
         
         # Add instruction label
-        instruction = QtWidgets.QLabel("Customize labels for each source file (patient). Leave blank to use original filename.")
+        instruction = QtWidgets.QLabel(f"Customize labels for each value in {patient_col}. Leave blank to use original value.")
         instruction.setWordWrap(True)
         v.addWidget(instruction)
         
         form = QtWidgets.QFormLayout()
         editors = {}
-        for source_file in unique_files:
+        for value in unique_values:
             le = QtWidgets.QLineEdit()
-            # Use custom label if available, otherwise use filename
-            if source_file in self.patient_annotation_map:
-                le.setText(self.patient_annotation_map[source_file])
+            # Use custom label if available, otherwise use the value
+            if value in self.patient_annotation_map:
+                le.setText(self.patient_annotation_map[value])
             else:
-                # Use basename of file as default display
-                default_label = os.path.basename(str(source_file))
+                # Use basename if it's a file path, otherwise use value as-is
+                if os.sep in str(value) or '/' in str(value) or '\\' in str(value):
+                    default_label = os.path.basename(str(value))
+                else:
+                    default_label = str(value)
                 le.setText(default_label)
-            form.addRow(f"Source file:\n{os.path.basename(str(source_file))}", le)
-            editors[source_file] = le
+            # Display label for the form row
+            if os.sep in str(value) or '/' in str(value) or '\\' in str(value):
+                display_name = os.path.basename(str(value))
+            else:
+                display_name = str(value)
+            form.addRow(f"{patient_col}:\n{display_name}", le)
+            editors[value] = le
         v.addLayout(form)
         
         btns = QtWidgets.QHBoxLayout()
@@ -4307,9 +4380,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             # Save mapping from editors
             self.patient_annotation_map = {
-                source_file: editors[source_file].text().strip() 
-                for source_file in unique_files 
-                if editors[source_file].text().strip()
+                value: editors[value].text().strip() 
+                for value in unique_values 
+                if editors[value].text().strip()
             }
             # Refresh current view if patient labels are used
             view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
@@ -4322,6 +4395,93 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 # Refresh t-SNE plot to update patient labels in legend
                 self._create_tsne_plot()
             QtWidgets.QMessageBox.information(self, "Labels Applied", "Patient labels have been applied.")
+
+    def _open_plot_config_dialog(self):
+        """Open the plot configuration dialog."""
+        dlg = PlotConfigDialog(self, parent=self)
+        dlg.exec_()
+
+    def _open_feature_labels_dialog(self):
+        """Open a dialog to customize feature labels (friendly names for y-axis ticks)."""
+        if self.clustered_data is None:
+            QtWidgets.QMessageBox.warning(self, "No Clustering", "Run clustering first to customize feature labels.")
+            return
+        
+        # Get feature columns from clustered data
+        feature_cols = [col for col in self.clustered_data.columns 
+                       if col not in ['cluster', 'cluster_phenotype', 'cell_id', 'acquisition_id', 
+                                     'source_file', 'source_well', 'manual_phenotype'] and 
+                       not col.startswith('centroid_')]
+        
+        if not feature_cols:
+            QtWidgets.QMessageBox.warning(self, "No Features", "No feature columns found in the data.")
+            return
+        
+        # Build and show dialog
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Customize Feature Labels")
+        dlg.resize(700, 600)
+        v = QtWidgets.QVBoxLayout(dlg)
+        
+        # Add instruction label
+        instruction = QtWidgets.QLabel("Set custom display names for features (e.g., 'Vimentin_mean' -> 'Mean Vimentin'). Leave blank to use original name.")
+        instruction.setWordWrap(True)
+        v.addWidget(instruction)
+        
+        # Create scroll area for many features
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QtWidgets.QWidget()
+        form = QtWidgets.QFormLayout(scroll_content)
+        
+        editors = {}
+        for feature_name in sorted(feature_cols):
+            le = QtWidgets.QLineEdit()
+            # Use custom label if available, otherwise use original name
+            if feature_name in self.feature_label_map:
+                le.setText(self.feature_label_map[feature_name])
+            else:
+                le.setText(feature_name)
+            form.addRow(feature_name, le)
+            editors[feature_name] = le
+        
+        scroll.setWidget(scroll_content)
+        v.addWidget(scroll)
+        
+        btns = QtWidgets.QHBoxLayout()
+        ok = QtWidgets.QPushButton("Apply")
+        cancel = QtWidgets.QPushButton("Cancel")
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        btns.addStretch()
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        v.addLayout(btns)
+
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            # Save mapping from editors (only non-empty custom labels)
+            self.feature_label_map = {
+                feature_name: editors[feature_name].text().strip() 
+                for feature_name in feature_cols 
+                if editors[feature_name].text().strip() and editors[feature_name].text().strip() != feature_name
+            }
+            # Refresh current view to apply new labels
+            view = self.view_combo.currentText() if hasattr(self, 'view_combo') else 'Heatmap'
+            if view == 'Heatmap':
+                self._show_heatmap()
+            elif view == 'Differential Expression':
+                self._show_differential_expression()
+            elif view == 'Stacked Bars':
+                self._show_stacked_bars()
+            elif view == 'Boxplot/Violin Plot':
+                self._show_boxplot_violin()
+            QtWidgets.QMessageBox.information(self, "Labels Applied", "Feature labels have been applied.")
+
+    def _get_feature_display_name(self, feature_name: str) -> str:
+        """Return display label for a feature, using custom label if available."""
+        if feature_name in self.feature_label_map:
+            return self.feature_label_map[feature_name]
+        return feature_name
 
     def _apply_cluster_annotations(self):
         """Apply current annotation map to clustered_data and feature_dataframe as 'cluster_phenotype'."""
@@ -4601,8 +4761,16 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         try:
             # Get parent window to access loader and segmentation masks
             parent_window = self.parent()
-            if not hasattr(parent_window, 'loader') or not hasattr(parent_window, 'segmentation_masks'):
+            if not hasattr(parent_window, 'segmentation_masks'):
                 QtWidgets.QMessageBox.warning(self, "No Data", "Cannot access image data. Please ensure segmentation masks are loaded.")
+                return
+            
+            # Check if we have any loaders available (single loader or multiple loaders)
+            has_loader = (hasattr(parent_window, 'loader') and parent_window.loader is not None) or \
+                        (hasattr(parent_window, 'mcd_loaders') and len(parent_window.mcd_loaders) > 0)
+            
+            if not has_loader:
+                QtWidgets.QMessageBox.warning(self, "No Data", "Cannot access image data. Please ensure data files are loaded.")
                 return
             
             # Clear previous images
@@ -4615,32 +4783,19 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
             # Get cell data for this cluster
             cluster_cells = self.current_cluster['cells']
             
-            # Filter cells by source_file if available (only show cells from open mcd file)
-            # This ensures explore clusters only works with the currently open .mcd file
-            filtered_cells = []
-            if 'source_file' in self.feature_dataframe.columns and parent_window.current_path:
-                current_source_file = os.path.basename(parent_window.current_path)
-                for cell_idx in cluster_cells:
-                    cell_data = self.feature_dataframe.iloc[cell_idx]
-                    cell_source_file = cell_data.get('source_file', '')
-                    # Match by basename to handle different path formats
-                    if os.path.basename(str(cell_source_file)) == current_source_file:
-                        filtered_cells.append(cell_idx)
-            else:
-                # If no source_file column or no current_path, use all cells
-                filtered_cells = cluster_cells
+            # Use all cells from the cluster (support multiple files)
+            filtered_cells = cluster_cells
             
             if not filtered_cells:
                 QtWidgets.QMessageBox.information(
                     self,
                     "No Cells Available",
-                    "No cells from the currently open .mcd file are in this cluster.\n"
-                    "Explore clusters only works with cells from the open .mcd file."
+                    "No cells available in this cluster."
                 )
                 return
             
-            # Limit to first 12 cells for performance
-            max_cells = min(12, len(filtered_cells))
+            # Limit to first 10 cells for performance
+            max_cells = min(10, len(filtered_cells))
             crop_size = 30  # 30x30 pixel crop
             
             for i, cell_idx in enumerate(filtered_cells[:max_cells]):
@@ -4677,9 +4832,18 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
                                 # Crop the cell mask
                                 cropped_mask = cell_mask[y_start:y_end, x_start:x_end]
                                 
+                                # Get the correct loader for this acquisition
+                                loader = parent_window._get_loader_for_acquisition(acq_id)
+                                if loader is None:
+                                    print(f"Warning: No loader found for acquisition {acq_id}, skipping cell {cell_id}")
+                                    continue
+                                
+                                # Get original acquisition ID (needed for multi-file support)
+                                original_acq_id = parent_window._get_original_acq_id(acq_id)
+                                
                                 if self.rgb_checkbox.isChecked():
                                     # Load RGB composite using user-selected channels
-                                    rgb_img = self._load_rgb_image(parent_window, acq_id)
+                                    rgb_img = self._load_rgb_image(parent_window, acq_id, loader, original_acq_id)
                                     if rgb_img is not None:
                                         # Crop RGB image
                                         cropped_rgb = rgb_img[y_start:y_end, x_start:x_end]
@@ -4698,8 +4862,8 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
                                             'image': cropped_rgb
                                         })
                                 else:
-                                    # Load single channel
-                                    channel_img = parent_window.loader.get_image(acq_id, channel)
+                                    # Load single channel using the correct loader and original acquisition ID
+                                    channel_img = loader.get_image(original_acq_id, channel)
                                     # Crop channel image
                                     cropped_channel = channel_img[y_start:y_end, x_start:x_end]
                                     # Apply mask
@@ -4727,9 +4891,17 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Error loading cell images: {str(e)}")
     
-    def _load_rgb_image(self, parent_window, acq_id):
+    def _load_rgb_image(self, parent_window, acq_id, loader=None, original_acq_id=None):
         """Load RGB composite image for an acquisition using user-selected channels."""
         try:
+            # Get loader and original acquisition ID if not provided
+            if loader is None:
+                loader = parent_window._get_loader_for_acquisition(acq_id)
+            if loader is None:
+                return None
+            if original_acq_id is None:
+                original_acq_id = parent_window._get_original_acq_id(acq_id)
+            
             # Use user-selected channels if RGB mode is enabled
             if self.rgb_checkbox.isChecked():
                 r_channel = self.rgb_r_combo.currentText()
@@ -4737,10 +4909,10 @@ class ClusterExplorerDialog(QtWidgets.QDialog):
                 b_channel = self.rgb_b_combo.currentText()
                 
                 if r_channel and g_channel and b_channel:
-                    # Load the three user-selected channels
-                    ch1 = parent_window.loader.get_image(acq_id, r_channel)
-                    ch2 = parent_window.loader.get_image(acq_id, g_channel)
-                    ch3 = parent_window.loader.get_image(acq_id, b_channel)
+                    # Load the three user-selected channels using the correct loader and original acquisition ID
+                    ch1 = loader.get_image(original_acq_id, r_channel)
+                    ch2 = loader.get_image(original_acq_id, g_channel)
+                    ch3 = loader.get_image(original_acq_id, b_channel)
                     
                     # Normalize each channel to 0-1 range
                     ch1_norm = (ch1 - ch1.min()) / (ch1.max() - ch1.min() + 1e-8)

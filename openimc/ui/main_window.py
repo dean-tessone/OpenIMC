@@ -3148,6 +3148,15 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         chans = self._selected_channels()
         if not chans:
+            # Check if we can show cluster mask only (no channel overlay)
+            overlay_mode = getattr(self, 'segmentation_overlay_mode', 'Mask')
+            if (self.segmentation_overlay and 
+                overlay_mode == "Cluster" and 
+                self.current_acq_id in self.segmentation_masks):
+                # Show cluster mask only (no channel overlay)
+                self._show_cluster_mask_only()
+                return
+            
             # Clear the canvas when no channels are selected
             self.canvas.fig.clear()
             self.canvas.draw()
@@ -6179,12 +6188,26 @@ class MainWindow(QtWidgets.QMainWindow):
         if acq_df.empty:
             return None
         
-        # Look for cluster columns (prefer cluster_phenotype, then cluster, then cluster_id)
+        # Look for cluster columns - prefer numeric cluster ID over phenotype label for overlay
+        # Use 'cluster' or 'cluster_id' for numeric IDs, not 'cluster_phenotype' which has custom labels
         cluster_col = None
-        for col in ['cluster_phenotype', 'cluster', 'cluster_id']:
+        for col in ['cluster', 'cluster_id']:
             if col in acq_df.columns:
                 cluster_col = col
                 break
+        
+        # Fallback to cluster_phenotype only if numeric columns don't exist
+        # In this case, we'll need to map phenotype labels back to numeric cluster IDs
+        # by creating a reverse mapping from the dataframe
+        if cluster_col is None and 'cluster_phenotype' in acq_df.columns:
+            # Try to find the original cluster column - it should exist if clustering was done
+            # If not, we'll create a mapping from unique phenotypes to numeric IDs
+            if 'cluster' in acq_df.columns:
+                cluster_col = 'cluster'
+            else:
+                # Create a mapping from phenotype to numeric ID for overlay purposes
+                # This is a fallback - normally 'cluster' should exist
+                cluster_col = 'cluster_phenotype'
         
         if cluster_col is None:
             return None
@@ -6388,6 +6411,105 @@ class MainWindow(QtWidgets.QMainWindow):
         blended = 0.7 * img_norm + 0.3 * overlay_norm
         
         return blended
+    
+    def _show_cluster_mask_only(self):
+        """Show cluster-colored mask without any channel overlay (only for cluster mode)."""
+        if (self.current_acq_id not in self.segmentation_masks or
+            not self.segmentation_overlay):
+            return
+        
+        mask = self.segmentation_masks[self.current_acq_id]
+        
+        # Get cluster assignments
+        cluster_map = self._get_cluster_assignments(self.current_acq_id)
+        if cluster_map is None or len(cluster_map) == 0:
+            # No cluster data available, show empty black image
+            self.canvas.fig.clear()
+            ax = self.canvas.fig.add_subplot(111)
+            black_img = np.zeros((*mask.shape, 3), dtype=np.float32)
+            ax.imshow(black_img, interpolation="nearest")
+            acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+            ax.set_title(acq_subtitle)
+            ax.axis("off")
+            self.canvas.draw()
+            return
+        
+        # Create cluster-colored overlay
+        overlay = np.zeros((*mask.shape, 3), dtype=np.float32)
+        
+        # Get unique clusters and generate colors
+        unique_clusters = sorted(set(cluster_map.values()))
+        
+        # Initialize cluster colors if not already set
+        if self.current_acq_id not in self.cluster_colors:
+            # Use a colormap to generate distinct colors
+            import matplotlib.cm as cm
+            import matplotlib.colors as mcolors
+            
+            # Use tab20 colormap for up to 20 clusters, otherwise use a larger colormap
+            if len(unique_clusters) <= 20:
+                cmap = cm.get_cmap('tab20')
+            else:
+                cmap = cm.get_cmap('tab20c')  # Has more colors
+            
+            cluster_colors_dict = {}
+            cluster_color_map_dict = {}
+            
+            for idx, cluster in enumerate(unique_clusters):
+                # Get color from colormap
+                color = cmap(idx % cmap.N)
+                # Convert to RGB (0-1 range)
+                cluster_colors_dict[cluster] = np.array(color[:3])
+                # Store display name
+                cluster_color_map_dict[cluster] = str(cluster)
+            
+            self.cluster_colors[self.current_acq_id] = cluster_colors_dict
+            self.cluster_color_map[self.current_acq_id] = cluster_color_map_dict
+        
+        cluster_colors = self.cluster_colors[self.current_acq_id]
+        
+        # Color each cell by its cluster
+        unique_labels = np.unique(mask)
+        for label in unique_labels:
+            if label == 0:  # Background
+                continue
+            
+            # Get cluster for this cell
+            cluster = cluster_map.get(label, 'Unassigned')
+            if cluster not in cluster_colors:
+                # Use gray for unassigned
+                color = np.array([0.5, 0.5, 0.5])
+            else:
+                color = cluster_colors[cluster]
+            
+            # Fill cell mask with cluster color
+            cell_mask = (mask == label)
+            overlay[cell_mask, :] = color
+        
+        # Normalize overlay to [0, 1]
+        overlay_norm = (overlay - overlay.min()) / (overlay.max() - overlay.min() + 1e-8)
+        
+        # Display on black background (no channel overlay)
+        self.canvas.fig.clear()
+        ax = self.canvas.fig.add_subplot(111)
+        ax.imshow(overlay_norm, interpolation="nearest")
+        
+        # Get acquisition subtitle (ROI title)
+        acq_subtitle = self._get_acquisition_subtitle(self.current_acq_id)
+        ax.set_title(acq_subtitle)
+        ax.axis("off")
+        
+        # Draw scale bar if enabled
+        if self.scale_bar_chk.isChecked():
+            pixel_size_um = self._get_pixel_size_um(self.current_acq_id)
+            if pixel_size_um > 0:
+                scale_bar_length_um = self.scale_bar_length_spin.value()
+                self.canvas._draw_scale_bar_on_axes(mask.shape, scale_bar_length_um, pixel_size_um, ax)
+        
+        self.canvas.draw()
+        
+        # Add cluster legend
+        self._add_cluster_legend()
     
     def _add_cluster_legend(self):
         """Add cluster legend to the canvas if cluster overlay mode is active."""
