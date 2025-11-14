@@ -123,38 +123,98 @@ class OMETIFFLoader:
                     channel_labels = []
                     
                     if ome_metadata is not None:
+                        # Extract namespace dynamically from root element
+                        root = ome_metadata
+                        if root.tag.startswith('{'):
+                            namespace = root.tag.split('}')[0].strip('{')
+                            ns = {'ome': namespace}
+                            has_namespace = True
+                        else:
+                            namespace = ''
+                            ns = {}
+                            has_namespace = False
+                        
                         # Try to extract channel names from OME metadata
-                        # Look for Channel elements in the Pixels section
-                        pixels_elem = ome_metadata.find('.//{http://www.openmicroscopy.org/Schemas/OME/2016-06}Pixels')
-                        if pixels_elem is not None:
-                            for channel in pixels_elem.findall('.//{http://www.openmicroscopy.org/Schemas/OME/2016-06}Channel'):
-                                channel_id = channel.get('ID', '')
-                                
-                                # Try to get channel name from Name attribute or element
-                                channel_name = channel.get('Name', '')
-                                if not channel_name:
-                                    # Try to find Name as a child element
-                                    name_elem = channel.find('.//{http://www.openmicroscopy.org/Schemas/OME/2016-06}Name')
-                                    if name_elem is not None:
-                                        channel_name = name_elem.text or ''
-                                
-                                # Fallback to channel ID if no name found
-                                if not channel_name:
-                                    channel_name = channel_id
-                                
-                                # Try to extract metal/label info if available
-                                metal = ''
-                                label = ''
+                        channel_elements = []
+                        
+                        # First, try finding Channel elements directly (works for external formats)
+                        if has_namespace:
+                            channel_elements = root.findall('.//ome:Channel', ns)
+                        
+                        # If no channels found with namespace, try without namespace
+                        if not channel_elements:
+                            channel_elements = root.findall('.//Channel')
+                        
+                        # If still no channels, try looking in Pixels section (works for our format)
+                        if not channel_elements:
+                            pixels_elem = None
+                            if has_namespace:
+                                pixels_elem = root.find('.//ome:Pixels', ns)
+                            if pixels_elem is None:
+                                pixels_elem = root.find('.//Pixels')
+                            
+                            if pixels_elem is not None:
+                                if has_namespace:
+                                    channel_elements = pixels_elem.findall('.//ome:Channel', ns)
+                                if not channel_elements:
+                                    channel_elements = pixels_elem.findall('.//Channel')
+                        
+                        # Process found channel elements
+                        for channel in channel_elements:
+                            channel_id = channel.get('ID', '')
+                            
+                            # Try to get channel name from Name attribute (preferred for external formats)
+                            channel_name = channel.get('Name', '')
+                            
+                            # If no Name attribute, try to find Name as a child element
+                            if not channel_name:
+                                if namespace:
+                                    name_elem = channel.find(f'.//{{{namespace}}}Name')
+                                else:
+                                    name_elem = channel.find('.//Name')
+                                if name_elem is not None:
+                                    channel_name = name_elem.text or ''
+                            
+                            # Fallback to channel ID if no name found
+                            if not channel_name:
+                                channel_name = channel_id if channel_id else 'N/A'
+                            
+                            # Try to extract Fluor attribute (available in external formats)
+                            channel_fluor = channel.get('Fluor', '')
+                            
+                            # Try to extract metal/label info
+                            metal = ''
+                            label = ''
+                            
+                            # If Fluor attribute is available, use it as metal
+                            if channel_fluor and channel_fluor != 'N/A':
+                                metal = channel_fluor
+                                # Try to extract label from channel name if it contains the metal
+                                if metal in channel_name:
+                                    # Find the position of the metal in the name
+                                    metal_pos = channel_name.find(metal)
+                                    if metal_pos > 0:
+                                        # Extract everything before the metal as label
+                                        label = channel_name[:metal_pos].rstrip('_')
+                                    else:
+                                        # Metal at start, try to extract after metal
+                                        after_metal = channel_name[metal_pos + len(metal):].lstrip('_')
+                                        label = after_metal if after_metal else channel_name
+                                else:
+                                    # Use channel name as label if it doesn't contain metal
+                                    label = channel_name
+                            else:
+                                # Fallback to parsing channel name (works for our format)
                                 if '_' in channel_name:
                                     parts = channel_name.split('_', 1)
                                     if len(parts) == 2:
                                         label, metal = parts
                                 else:
                                     metal = channel_name
-                                
-                                channels.append(channel_name)
-                                channel_metals.append(metal)
-                                channel_labels.append(label)
+                            
+                            channels.append(channel_name)
+                            channel_metals.append(metal)
+                            channel_labels.append(label)
                     
                     # If no channels found in metadata, infer from image dimensions
                     if not channels:
@@ -211,8 +271,23 @@ class OMETIFFLoader:
                     
                     metadata = {}
                     if ome_metadata is not None:
+                        # Extract namespace dynamically (reuse from above if available)
+                        root = ome_metadata
+                        if root.tag.startswith('{'):
+                            namespace = root.tag.split('}')[0].strip('{')
+                            ns = {'ome': namespace}
+                            has_namespace = True
+                        else:
+                            namespace = ''
+                            ns = {}
+                            has_namespace = False
+                        
                         # Try to extract well information
-                        well_elem = ome_metadata.find('.//{http://www.openmicroscopy.org/Schemas/OME/2016-06}Well')
+                        well_elem = None
+                        if has_namespace:
+                            well_elem = root.find('.//ome:Well', ns)
+                        if well_elem is None:
+                            well_elem = root.find('.//Well')
                         if well_elem is not None:
                             well_name = well_elem.get('ID', '')
                             metadata['Well'] = well_name
