@@ -940,7 +940,7 @@ class GenerateSpilloverMatrixDialog(QtWidgets.QDialog):
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save Spillover Matrix",
-            "",
+            "spillover_matrix.csv",
             "CSV Files (*.csv);;All Files (*)"
         )
         

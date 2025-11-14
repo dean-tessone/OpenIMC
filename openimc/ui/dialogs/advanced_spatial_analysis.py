@@ -769,6 +769,8 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
         roi_id = self._get_selected_roi(self.sq_cooccur_roi_combo)
         if roi_id and roi_id in self.anndata_cache:
             adata = self.anndata_cache[roi_id]
+            # Update reference cluster combo (even if no co-occurrence data yet)
+            self._update_cooccur_ref_cluster_combo(adata)
             # Check for co-occurrence data with alternative key names
             has_cooccur = False
             for key in adata.uns.keys():
@@ -776,10 +778,13 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                     has_cooccur = True
                     break
             if has_cooccur:
-                # Update reference cluster combo
-                self._update_cooccur_ref_cluster_combo(adata)
                 self._plot_sq_cooccurrence(adata)
                 self.sq_cooccur_save_btn.setEnabled(True)
+        elif roi_id is None:
+            # "All ROIs" selected - try to populate from first available ROI
+            if self.anndata_cache:
+                first_adata = list(self.anndata_cache.values())[0]
+                self._update_cooccur_ref_cluster_combo(first_adata)
     
     def _on_sq_cooccur_ref_cluster_changed(self):
         """Handle reference cluster change in co-occurrence tab."""
@@ -887,6 +892,25 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                 self.sq_cooccur_ref_cluster_combo.addItem(
                     self._get_cluster_display_name(cat), cat
                 )
+            
+            # Set default to "1" if it exists, otherwise use first cluster
+            default_cluster = None
+            # Try to find cluster "1" (as string or int)
+            for cat in categories:
+                if str(cat) == "1" or cat == 1:
+                    default_cluster = cat
+                    break
+            
+            # If "1" not found, use first cluster
+            if default_cluster is None and len(categories) > 0:
+                default_cluster = categories[0]
+            
+            # Set the default selection
+            if default_cluster is not None:
+                for i in range(self.sq_cooccur_ref_cluster_combo.count()):
+                    if self.sq_cooccur_ref_cluster_combo.itemData(i) == default_cluster:
+                        self.sq_cooccur_ref_cluster_combo.setCurrentIndex(i)
+                        break
     
     def _on_sq_autocorr_roi_changed(self):
         """Handle ROI change in autocorrelation tab."""
@@ -1024,6 +1048,13 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                         self.processed_rois[roi_id] = {}
                     self.processed_rois[roi_id]['graph_built'] = True
                 
+                # Populate reference cluster combo if we have data
+                if self.anndata_cache:
+                    first_adata = list(self.anndata_cache.values())[0]
+                    cluster_key = self.sq_cooccur_cluster_combo.currentText()
+                    if cluster_key in first_adata.obs.columns:
+                        self._update_cooccur_ref_cluster_combo(first_adata)
+                
                 self._update_button_states()
                 QtWidgets.QMessageBox.information(self, "Graph Created", 
                     f"Spatial graph created successfully for {success_count} ROI(s).")
@@ -1099,6 +1130,10 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             
             # Create temporary adata for aggregated plotting
             if results['aggregated'] is not None:
+                print(f"[DEBUG] Creating TempAnnData for aggregated results")
+                print(f"[DEBUG] Aggregated matrix type: {type(results['aggregated'])}, shape: {results['aggregated'].shape if hasattr(results['aggregated'], 'shape') else 'N/A'}")
+                print(f"[DEBUG] Cluster categories: {results['cluster_categories']}")
+                
                 class TempAnnData:
                     def __init__(self, matrix, cluster_key, obs):
                         self.uns = {'nhood_enrichment': {'zscore': matrix}}
@@ -1112,6 +1147,10 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                 obs_df[cluster_key] = obs_df[cluster_key].astype('category')
                 
                 temp_adata = TempAnnData(results['aggregated'], cluster_key, obs_df)
+                print(f"[DEBUG] TempAnnData created: uns keys={list(temp_adata.uns.keys())}, obs shape={obs_df.shape}")
+                print(f"[DEBUG] TempAnnData.uns['nhood_enrichment'] keys={list(temp_adata.uns['nhood_enrichment'].keys())}")
+                print(f"[DEBUG] TempAnnData.uns['nhood_enrichment']['zscore'] shape={temp_adata.uns['nhood_enrichment']['zscore'].shape}")
+                
                 self.aggregated_results['nhood_enrichment'] = temp_adata
                 
                 QtWidgets.QMessageBox.information(self, "Enrichment Complete", 
@@ -1119,12 +1158,17 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                     f"Aggregated using {agg_method}.")
                 
                 # Plot aggregated results
+                print(f"[DEBUG] Calling _plot_sq_nhood_enrichment with TempAnnData")
                 self._plot_sq_nhood_enrichment(temp_adata)
                 self.sq_nhood_save_btn.setEnabled(True)
             else:
                 # Plot first ROI result
                 if results['results']:
                     first_adata = list(results['results'].values())[0]
+                    print(f"[DEBUG] Plotting first ROI result (no aggregated result)")
+                    print(f"[DEBUG] First ROI adata.uns keys: {list(first_adata.uns.keys())}")
+                    if 'nhood_enrichment' in first_adata.uns:
+                        print(f"[DEBUG] First ROI nhood_enrichment keys: {list(first_adata.uns['nhood_enrichment'].keys()) if isinstance(first_adata.uns['nhood_enrichment'], dict) else 'N/A'}")
                     self._plot_sq_nhood_enrichment(first_adata)
                     self.sq_nhood_save_btn.setEnabled(True)
                     QtWidgets.QMessageBox.information(self, "Enrichment Complete", 
@@ -1137,7 +1181,21 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
     
     def _plot_sq_nhood_enrichment(self, adata: 'ad.AnnData'):
         """Plot neighborhood enrichment results."""
-        if adata is None or 'nhood_enrichment' not in adata.uns:
+        print(f"[DEBUG] _plot_sq_nhood_enrichment: Starting")
+        print(f"[DEBUG] adata: {adata}")
+        if adata is None:
+            print(f"[DEBUG] adata is None")
+            self.sq_nhood_canvas.figure.clear()
+            ax = self.sq_nhood_canvas.figure.add_subplot(111)
+            ax.text(0.5, 0.5, 'No data provided for plotting.', 
+                   ha='center', va='center', transform=ax.transAxes)
+            self.sq_nhood_canvas.draw()
+            return
+        
+        print(f"[DEBUG] adata.uns keys: {list(adata.uns.keys()) if hasattr(adata, 'uns') else 'N/A'}")
+        
+        if 'nhood_enrichment' not in adata.uns:
+            print(f"[DEBUG] 'nhood_enrichment' not found in adata.uns")
             self.sq_nhood_canvas.figure.clear()
             ax = self.sq_nhood_canvas.figure.add_subplot(111)
             ax.text(0.5, 0.5, 'No enrichment data found.\nPlease run enrichment analysis first.', 
@@ -1152,6 +1210,10 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
         enrichment_data = adata.uns['nhood_enrichment']
         cluster_key = self.sq_nhood_cluster_combo.currentText()
         
+        print(f"[DEBUG] enrichment_data type: {type(enrichment_data)}")
+        if isinstance(enrichment_data, dict):
+            print(f"[DEBUG] enrichment_data keys: {list(enrichment_data.keys())}")
+        
         # Convert to numpy array if needed
         matrix = None
         if isinstance(enrichment_data, dict):
@@ -1159,75 +1221,126 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             # Try common keys
             if 'zscore' in enrichment_data:
                 matrix = enrichment_data['zscore']
+                print(f"[DEBUG] Found 'zscore' key, shape: {matrix.shape if hasattr(matrix, 'shape') else 'N/A'}")
             elif 'count' in enrichment_data:
                 matrix = enrichment_data['count']
+                print(f"[DEBUG] Found 'count' key, shape: {matrix.shape if hasattr(matrix, 'shape') else 'N/A'}")
             elif 'stat' in enrichment_data:
                 matrix = enrichment_data['stat']
+                print(f"[DEBUG] Found 'stat' key, shape: {matrix.shape if hasattr(matrix, 'shape') else 'N/A'}")
             else:
                 # Try to find a matrix-like value
+                print(f"[DEBUG] Searching for matrix-like value in dict")
                 for key, value in enrichment_data.items():
+                    print(f"[DEBUG]   Checking key '{key}': type={type(value)}, ndim={getattr(value, 'ndim', 'N/A')}")
                     if isinstance(value, np.ndarray) and value.ndim == 2:
                         matrix = value
+                        print(f"[DEBUG]   Found matrix at key '{key}', shape: {matrix.shape}")
                         break
                 # If still not found, try first value
                 if matrix is None and len(enrichment_data) > 0:
                     first_val = list(enrichment_data.values())[0]
+                    print(f"[DEBUG] Trying first value: type={type(first_val)}, ndim={getattr(first_val, 'ndim', 'N/A')}")
                     if isinstance(first_val, np.ndarray) and first_val.ndim == 2:
                         matrix = first_val
+                        print(f"[DEBUG]   Using first value as matrix, shape: {matrix.shape}")
         elif isinstance(enrichment_data, np.ndarray):
             matrix = enrichment_data
+            print(f"[DEBUG] enrichment_data is numpy array, shape: {matrix.shape}")
+        
+        print(f"[DEBUG] Final matrix: {matrix is not None}, type: {type(matrix) if matrix is not None else 'None'}")
+        if matrix is not None:
+            print(f"[DEBUG] Matrix shape: {matrix.shape}, ndim: {matrix.ndim}, dtype: {matrix.dtype}")
         
         if matrix is not None and isinstance(matrix, np.ndarray) and matrix.ndim == 2:
-            # Handle NaN/inf values
-            if np.any(np.isnan(matrix)) or np.any(np.isinf(matrix)):
-                # Replace with 0 for display
-                matrix = np.nan_to_num(matrix, nan=0.0, posinf=3.0, neginf=-3.0)
-            
-            # Determine vmin/vmax from data if reasonable
-            vmin, vmax = -3, 3
-            if matrix.size > 0:
-                finite_vals = matrix[np.isfinite(matrix)]
-                if len(finite_vals) > 0:
-                    data_min, data_max = np.min(finite_vals), np.max(finite_vals)
-                    if abs(data_min) < 10 and abs(data_max) < 10:
-                        vmin, vmax = data_min, data_max
-                    else:
-                        # Use percentiles for extreme values
-                        vmin = np.percentile(finite_vals, 5)
-                        vmax = np.percentile(finite_vals, 95)
-            
-            im = ax.imshow(matrix, cmap='RdBu_r', aspect='auto', vmin=vmin, vmax=vmax)
-            self.sq_nhood_canvas.figure.colorbar(im, ax=ax, label='Z-Score')
+            print(f"[DEBUG] Plotting matrix with shape {matrix.shape}")
+            try:
+                # Handle NaN/inf values
+                if np.any(np.isnan(matrix)) or np.any(np.isinf(matrix)):
+                    print(f"[DEBUG] Found NaN/inf values, replacing")
+                    # Replace with 0 for display
+                    matrix = np.nan_to_num(matrix, nan=0.0, posinf=3.0, neginf=-3.0)
+                
+                # Determine vmin/vmax from data if reasonable
+                vmin, vmax = -3, 3
+                if matrix.size > 0:
+                    finite_vals = matrix[np.isfinite(matrix)]
+                    if len(finite_vals) > 0:
+                        data_min, data_max = np.min(finite_vals), np.max(finite_vals)
+                        print(f"[DEBUG] Matrix value range: [{data_min}, {data_max}]")
+                        if abs(data_min) < 10 and abs(data_max) < 10:
+                            vmin, vmax = data_min, data_max
+                        else:
+                            # Use percentiles for extreme values
+                            vmin = np.percentile(finite_vals, 5)
+                            vmax = np.percentile(finite_vals, 95)
+                        print(f"[DEBUG] Using vmin={vmin}, vmax={vmax}")
+                
+                im = ax.imshow(matrix, cmap='RdBu_r', aspect='auto', vmin=vmin, vmax=vmax)
+                self.sq_nhood_canvas.figure.colorbar(im, ax=ax, label='Z-Score')
+                print(f"[DEBUG] imshow and colorbar created successfully")
+            except Exception as e:
+                print(f"[DEBUG] Error during plotting: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
             
             # Add labels if available
-            if cluster_key in adata.obs.columns:
+            if hasattr(adata, 'obs') and cluster_key in adata.obs.columns:
                 if hasattr(adata.obs[cluster_key], 'cat'):
-                    categories = adata.obs[cluster_key].cat.categories
+                    categories = list(adata.obs[cluster_key].cat.categories)
                 else:
-                    categories = adata.obs[cluster_key].unique()
+                    categories = sorted(adata.obs[cluster_key].unique())
                 
+                print(f"[DEBUG] Found {len(categories)} categories: {categories[:5]}...")
                 n_cats = len(categories)
                 if matrix.shape[0] == n_cats and matrix.shape[1] == n_cats:
                     ax.set_xticks(np.arange(n_cats))
                     ax.set_yticks(np.arange(n_cats))
                     ax.set_xticklabels([self._get_cluster_display_name(c) for c in categories], rotation=45, ha='right')
                     ax.set_yticklabels([self._get_cluster_display_name(c) for c in categories])
+                    print(f"[DEBUG] Added cluster labels")
+                else:
+                    print(f"[DEBUG] Shape mismatch: matrix {matrix.shape} vs {n_cats} categories")
+                    # Still plot, but without labels
+                    ax.set_xticks(np.arange(min(matrix.shape[1], 10)))
+                    ax.set_yticks(np.arange(min(matrix.shape[0], 10)))
+            else:
+                print(f"[DEBUG] No cluster labels available (obs exists: {hasattr(adata, 'obs')}, cluster_key: {cluster_key})")
+                # Plot without labels
+                ax.set_xticks(np.arange(min(matrix.shape[1], 10)))
+                ax.set_yticks(np.arange(min(matrix.shape[0], 10)))
             
             ax.set_title("Neighborhood Enrichment")
             ax.set_xlabel("Neighbor Cluster")
             ax.set_ylabel("Cell Cluster")
+            print(f"[DEBUG] Plot completed successfully")
         else:
             # Debug: show what we got
+            print(f"[DEBUG] Failed to extract matrix for plotting")
             debug_info = f"Data type: {type(enrichment_data)}\n"
             if isinstance(enrichment_data, dict):
                 debug_info += f"Keys: {list(enrichment_data.keys())}\n"
                 for k, v in enrichment_data.items():
                     debug_info += f"  {k}: {type(v)}, shape: {getattr(v, 'shape', 'N/A')}\n"
+            else:
+                debug_info += f"Value: {enrichment_data}\n"
+            print(f"[DEBUG] Debug info:\n{debug_info}")
             ax.text(0.5, 0.5, f'Unable to plot enrichment data.\nData format not recognized.\n\n{debug_info}', 
                    ha='center', va='center', transform=ax.transAxes, fontsize=8)
         
-        self.sq_nhood_canvas.figure.tight_layout()
-        self.sq_nhood_canvas.draw()
+        try:
+            self.sq_nhood_canvas.figure.tight_layout()
+            print(f"[DEBUG] tight_layout completed")
+            self.sq_nhood_canvas.draw()
+            print(f"[DEBUG] Canvas draw completed")
+            # Force update
+            self.sq_nhood_canvas.update()
+            print(f"[DEBUG] Canvas update completed")
+        except Exception as e:
+            print(f"[DEBUG] Error during canvas update: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _save_sq_nhood_plot(self):
         """Save the neighborhood enrichment plot."""
@@ -1329,12 +1442,13 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             if results:
                 # Use first ROI for plotting and reference cluster combo
                 plot_adata = list(results.values())[0]
+                # Update reference cluster combo (this will set default to "1")
                 self._update_cooccur_ref_cluster_combo(plot_adata)
                 
                 QtWidgets.QMessageBox.information(self, "Co-occurrence Complete", 
                     f"Co-occurrence analysis completed for {len(results)} ROI(s).")
                 
-                # Plot results
+                # Plot results (will use the default reference cluster "1")
                 self._plot_sq_cooccurrence(plot_adata)
                 self.sq_cooccur_save_btn.setEnabled(True)
             else:

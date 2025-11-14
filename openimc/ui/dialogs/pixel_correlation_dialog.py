@@ -1799,7 +1799,7 @@ class PixelCorrelationDialog(QtWidgets.QDialog):
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Export Results",
-            "",
+            "pixel_correlation_results.csv",
             "CSV Files (*.csv);;All Files (*)"
         )
         

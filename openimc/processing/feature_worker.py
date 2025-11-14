@@ -446,6 +446,12 @@ def load_and_extract_features(
         loader, _ = load_mcd(file_path, channel_format='CHW' if loader_type == 'ometiff' else 'CHW')
         
         try:
+            # Get metadata from loader or use default
+            metadata = acq_info.get('metadata')
+            if metadata is None:
+                # Try to get metadata from loader (like qc_analysis_worker does)
+                metadata = getattr(loader, '_acq_metadata', {}).get(acq_id, {})
+            
             # Create AcquisitionInfo
             acq_info_obj = AcquisitionInfo(
                 id=acq_id,
@@ -455,6 +461,7 @@ def load_and_extract_features(
                 channels=acq_info.get('channels', []),
                 channel_metals=acq_info.get('channel_metals', []),
                 channel_labels=acq_info.get('channel_labels', []),
+                metadata=metadata,
                 source_file=source_file
             )
             

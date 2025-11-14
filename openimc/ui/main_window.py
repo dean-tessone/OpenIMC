@@ -5215,13 +5215,11 @@ class MainWindow(QtWidgets.QMainWindow):
         progress_dlg.set_maximum(total_acquisitions)
         progress_dlg.show()
         
-        # Watershed segmentation is not supported in batch mode yet
+        # Watershed batch processing: sequential (one at a time)
         if model == "Classical Watershed":
-            progress_dlg.close()
-            QtWidgets.QMessageBox.warning(
-                self, "Batch Watershed Not Supported", 
-                "Batch segmentation is not yet supported for Classical Watershed.\n"
-                "Please run watershed segmentation on individual acquisitions."
+            self._perform_watershed_batch_segmentation(
+                preprocessing_config, denoise_source, custom_denoise_settings, 
+                save_masks, masks_directory, dlg, progress_dlg, total_acquisitions
             )
             return
         
@@ -5519,6 +5517,168 @@ class MainWindow(QtWidgets.QMainWindow):
                         successful_segmentations,
                         f"Completed {acq_name}",
                         f"Segmented {acq_name} ({successful_segmentations}/{total_acquisitions} completed)"
+                    )
+                    
+                except Exception as e:
+                    print(f"Error segmenting acquisition {acq_name} ({acq_id}): {e}")
+                    # Continue with next acquisition
+                    continue
+            
+            progress_dlg.update_progress(
+                total_acquisitions, 
+                "Batch segmentation complete", 
+                f"Successfully segmented {successful_segmentations}/{total_acquisitions} acquisitions"
+            )
+            
+            # Show completion message
+            QtWidgets.QMessageBox.information(
+                self, "Batch Segmentation Complete",
+                f"Successfully segmented {successful_segmentations} out of {total_acquisitions} acquisitions.\n"
+                f"Segmentation masks are available for overlay display."
+            )
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, "Batch Segmentation Failed", 
+                f"Batch segmentation failed with error:\n{str(e)}"
+            )
+        finally:
+            progress_dlg.close()
+    
+    
+    def _perform_watershed_batch_segmentation(self, preprocessing_config: dict, denoise_source: str, 
+                                               custom_denoise_settings: dict, save_masks: bool, 
+                                               masks_directory: str, dlg, progress_dlg, total_acquisitions: int):
+        """Perform sequential batch segmentation for Classical Watershed (one acquisition at a time)."""
+        if dlg is None:
+            QtWidgets.QMessageBox.critical(
+                self, "Missing Dialog", 
+                "Dialog object is required for Classical Watershed segmentation."
+            )
+            progress_dlg.close()
+            return
+        
+        try:
+            # Get watershed parameters from dialog
+            nuclear_fusion_method = dlg.get_nuclear_fusion_method()
+            seed_threshold_method = dlg.get_seed_threshold_method()
+            min_seed_area = dlg.get_min_seed_area()
+            min_distance_peaks = dlg.get_min_distance_peaks()
+            membrane_fusion_method = dlg.get_membrane_fusion_method()
+            boundary_method = dlg.get_boundary_method()
+            boundary_sigma = dlg.get_boundary_sigma()
+            compactness = dlg.get_compactness()
+            min_cell_area = dlg.get_min_cell_area()
+            max_cell_area = dlg.get_max_cell_area()
+            tile_size = dlg.get_tile_size()
+            tile_overlap = dlg.get_tile_overlap()
+            rng_seed = dlg.get_rng_seed()
+            
+            # Get channel information from preprocessing config
+            nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+            cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+            nuclear_weights = preprocessing_config.get('nuclear_weights') if preprocessing_config else None
+            cyto_weights = preprocessing_config.get('cyto_weights') if preprocessing_config else None
+            
+            # Convert denoise_source to denoise_settings format
+            denoise_settings = None
+            if denoise_source == "viewer" and hasattr(self, 'channel_denoise'):
+                # Use viewer denoising settings
+                denoise_settings = self.channel_denoise.copy() if hasattr(self, 'channel_denoise') else {}
+            elif denoise_source == "custom" and custom_denoise_settings:
+                # Use custom denoise settings from dialog
+                denoise_settings = custom_denoise_settings.copy()
+            
+            # Process each acquisition sequentially
+            successful_segmentations = 0
+            
+            for acq_idx, acq in enumerate(self.acquisitions):
+                if progress_dlg.is_cancelled():
+                    break
+                
+                acq_id = acq.id
+                acq_name = acq.name
+                
+                progress_dlg.update_progress(
+                    successful_segmentations,
+                    f"Processing acquisition {acq_idx + 1}/{total_acquisitions}",
+                    f"Loading {acq_name}... ({successful_segmentations}/{total_acquisitions} completed)"
+                )
+                
+                try:
+                    # Get loader and acquisition info
+                    loader = self._get_loader_for_acquisition(acq_id)
+                    if loader is None:
+                        raise ValueError(f"No loader found for acquisition {acq_id}")
+                    
+                    acq_info = self._get_acquisition_info(acq_id)
+                    if acq_info is None:
+                        raise ValueError(f"Acquisition {acq_id} not found")
+                    
+                    # Get original acquisition ID if this is a unique ID
+                    original_acq_id = self._get_original_acq_id(acq_id)
+                    
+                    # Load image stack
+                    progress_dlg.update_progress(
+                        successful_segmentations,
+                        f"Loading {acq_name}",
+                        f"Loading image data... ({successful_segmentations}/{total_acquisitions} completed)"
+                    )
+                    
+                    img_stack = loader.get_all_channels(original_acq_id)
+                    channel_names = loader.get_channels(original_acq_id)
+                    
+                    # Run watershed segmentation
+                    progress_dlg.update_progress(
+                        successful_segmentations,
+                        f"Segmenting {acq_name}",
+                        f"Running watershed segmentation... ({successful_segmentations}/{total_acquisitions} completed)"
+                    )
+                    
+                    mask = watershed_segmentation(
+                        img_stack, channel_names, nuclear_channels, cyto_channels,
+                        denoise_settings=denoise_settings,
+                        nuclear_fusion_method=nuclear_fusion_method,
+                        nuclear_weights=nuclear_weights,
+                        seed_threshold_method=seed_threshold_method,
+                        min_seed_area=min_seed_area,
+                        min_distance_peaks=min_distance_peaks,
+                        membrane_fusion_method=membrane_fusion_method,
+                        membrane_weights=cyto_weights,
+                        boundary_method=boundary_method,
+                        boundary_sigma=boundary_sigma,
+                        compactness=compactness,
+                        min_cell_area=min_cell_area,
+                        max_cell_area=max_cell_area,
+                        tile_size=tile_size,
+                        tile_overlap=tile_overlap,
+                        rng_seed=rng_seed
+                    )
+                    
+                    # Store the mask
+                    if isinstance(mask, np.ndarray):
+                        mask = mask.copy()
+                    self.segmentation_masks[acq_id] = mask
+                    # Clear colors for this acquisition so they get regenerated
+                    if acq_id in self.segmentation_colors:
+                        del self.segmentation_colors[acq_id]
+                    if acq_id in self.cluster_colors:
+                        del self.cluster_colors[acq_id]
+                    if acq_id in self.cluster_color_map:
+                        del self.cluster_color_map[acq_id]
+                    
+                    successful_segmentations += 1
+                    
+                    # Save mask if requested
+                    if save_masks:
+                        self._save_segmentation_masks_for_acquisition_with_info(mask, acq_info, masks_directory)
+                    
+                    # Update progress
+                    n_cells = len(np.unique(mask)) - 1
+                    progress_dlg.update_progress(
+                        successful_segmentations,
+                        f"Completed {acq_name}",
+                        f"Segmented {acq_name} ({n_cells} cells, {successful_segmentations}/{total_acquisitions} completed)"
                     )
                     
                 except Exception as e:

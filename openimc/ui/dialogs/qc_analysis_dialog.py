@@ -1348,7 +1348,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Export QC Results",
-            "",
+            "qc_results.csv",
             "CSV Files (*.csv);;All Files (*)"
         )
         
