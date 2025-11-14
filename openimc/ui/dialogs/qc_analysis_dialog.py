@@ -37,6 +37,8 @@ import matplotlib.pyplot as plt
 from openimc.utils.logger import get_logger
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.progress_dialog import ProgressDialog
+from openimc.data.mcd_loader import AcquisitionInfo
+from openimc.core import qc_analysis
 import multiprocessing as mp
 import traceback
 
@@ -105,99 +107,8 @@ def _calculate_snr(signal_mean: float, background_mean: float, background_std: f
     return snr
 
 
-# Module-level worker function for multiprocessing (must be picklable)
-# This function is isolated to avoid conflicts with feature extraction workers
-def _qc_process_acquisition_worker(task_data):
-    """Process all channels for one acquisition for QC analysis. Returns list of metrics dicts.
-    
-    This is a separate worker function specifically for QC analysis to avoid conflicts
-    with feature extraction workers.
-    """
-    acq_id, acq_name, channels, analysis_mode, mask_path, loader_path, acq_to_file_map = task_data
-    results = []
-    
-    try:
-        # Recreate loader (can't pickle loader objects)
-        # Import inside function to ensure isolation
-        from openimc.data.mcd_loader import MCDLoader
-        from openimc.data.ometiff_loader import OMETIFFLoader
-        import os
-        
-        loader = None
-        if loader_path and os.path.exists(loader_path):
-            # Determine loader type: MCD files end with .mcd/.mcdx, OME-TIFF is a directory
-            if loader_path.lower().endswith(('.mcd', '.mcdx')):
-                # MCD file
-                loader = MCDLoader()
-                loader.open(loader_path)
-            elif os.path.isdir(loader_path):
-                # OME-TIFF directory
-                loader = OMETIFFLoader(channel_format='CHW')  # Default to CHW (matches export format)
-                loader.open(loader_path)
-            else:
-                # Try to determine from file extension or assume OME-TIFF directory
-                # This handles edge cases where path might not have extension
-                print(f"Warning: Unknown file type for {loader_path}, attempting OME-TIFF loader")
-                try:
-                    loader = OMETIFFLoader(channel_format='CHW')
-                    loader.open(loader_path)
-                except Exception:
-                    # If OME-TIFF fails, try MCD as fallback
-                    try:
-                        loader = MCDLoader()
-                        loader.open(loader_path)
-                    except Exception:
-                        pass
-        
-        if not loader:
-            return results
-        
-        # Load mask if needed (for cell-level analysis)
-        mask = None
-        if analysis_mode == "cell" and mask_path and os.path.exists(mask_path):
-            try:
-                import tifffile
-                mask = tifffile.imread(mask_path)
-            except Exception:
-                if hasattr(loader, 'close'):
-                    loader.close()
-                return results
-        
-        # Process each channel
-        for channel in channels:
-            try:
-                # Load image (raw pixel intensities)
-                img = loader.get_image(acq_id, channel)
-                if img is None:
-                    continue
-                
-                # Calculate metrics
-                if analysis_mode == "pixel":
-                    metrics = _qc_calculate_pixel_metrics_worker(img, channel)
-                else:
-                    if mask is not None:
-                        metrics = _qc_calculate_cell_metrics_worker(img, channel, mask)
-                    else:
-                        continue
-                
-                if metrics:
-                    metrics['acquisition_id'] = acq_id
-                    metrics['acquisition_name'] = acq_name
-                    metrics['channel'] = channel
-                    results.append(metrics)
-                        
-            except Exception:
-                continue
-        
-        # Close loader
-        if hasattr(loader, 'close'):
-            loader.close()
-        
-        return results
-        
-    except Exception:
-        return results
-
+# Import worker function from processing module
+from openimc.processing.qc_analysis_worker import qc_process_acquisition_worker as _qc_process_acquisition_worker
 
 def _qc_calculate_pixel_metrics_worker(img: np.ndarray, channel: str) -> Optional[Dict[str, Any]]:
     """Calculate pixel-level QC metrics using Otsu threshold (module-level for multiprocessing).
@@ -644,28 +555,49 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             
             for acq_info in acquisitions:
                 acq_id = acq_info.id
+                print(f"[QC DEBUG] Processing acquisition: {acq_id}, name: {acq_info.name}")
+                
+                # Get original acquisition ID for multiple MCD files
+                original_acq_id = acq_id
+                if (hasattr(self.parent_window, 'unique_acq_to_original') and 
+                    acq_id in self.parent_window.unique_acq_to_original):
+                    original_acq_id = self.parent_window.unique_acq_to_original[acq_id]
+                    print(f"[QC DEBUG] Mapped unique ID {acq_id} to original ID {original_acq_id}")
+                else:
+                    print(f"[QC DEBUG] No mapping found, using acq_id as original: {acq_id}")
                 
                 # Get channels
                 channels = acq_info.channels
                 if not channels:
+                    print(f"[QC DEBUG] No channels found for {acq_id}, skipping")
                     continue
+                print(f"[QC DEBUG] Found {len(channels)} channels: {channels[:5]}..." if len(channels) > 5 else f"[QC DEBUG] Found {len(channels)} channels: {channels}")
                 
                 # Get source file path for loader
                 source_file = None
                 if hasattr(acq_info, 'source_file') and acq_info.source_file:
                     source_file = acq_info.source_file
+                    print(f"[QC DEBUG] Using source_file from acq_info: {source_file}")
                 elif acq_id in self.parent_window.acq_to_file:
                     source_file = self.parent_window.acq_to_file[acq_id]
+                    print(f"[QC DEBUG] Using source_file from acq_to_file mapping: {source_file}")
                 else:
                     # Try to get from current_path
                     if hasattr(self.parent_window, 'current_path') and self.parent_window.current_path:
                         if self.parent_window.current_path.endswith('.mcd'):
                             source_file = self.parent_window.current_path
+                            print(f"[QC DEBUG] Using current_path: {source_file}")
                 
                 if not source_file:
+                    print(f"[QC DEBUG] ERROR: No source file found for {acq_id}, skipping")
+                    continue
+                
+                if not os.path.exists(source_file):
+                    print(f"[QC DEBUG] ERROR: Source file does not exist: {source_file}, skipping")
                     continue
                 
                 acq_to_file_map[acq_id] = source_file
+                print(f"[QC DEBUG] Successfully mapped {acq_id} to file: {source_file}")
                 
                 # Get mask path if cell-level analysis
                 mask_path = None
@@ -684,13 +616,18 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                         continue
                 
                 # Create one task per acquisition (all channels)
-                task = (acq_id, acq_info.name, channels, self.analysis_mode, mask_path, source_file, acq_to_file_map)
+                # Pass both unique ID (for results) and original ID (for loader)
+                task = (acq_id, original_acq_id, acq_info.name, channels, self.analysis_mode, mask_path, source_file, acq_to_file_map)
                 tasks.append(task)
+                print(f"[QC DEBUG] Created task for {acq_id} (original: {original_acq_id}), file: {os.path.basename(source_file)}, channels: {len(channels)}, mode: {self.analysis_mode}")
             
             if not tasks:
                 progress_dlg.close()
+                print("[QC DEBUG] ERROR: No tasks created")
                 QtWidgets.QMessageBox.warning(self, "Error", "No tasks to process.")
                 return
+            
+            print(f"[QC DEBUG] Created {len(tasks)} tasks for processing")
             
             # Process with multiprocessing
             results = []
@@ -723,9 +660,13 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                             if future.ready():
                                 try:
                                     acquisition_results = future.get(timeout=0.1)
+                                    print(f"[QC DEBUG] Got results from task {i}: {len(acquisition_results) if acquisition_results else 0} results")
                                     if acquisition_results:
                                         results.extend(acquisition_results)
                                         channels_processed += len(acquisition_results)
+                                        print(f"[QC DEBUG] Total results so far: {len(results)}")
+                                    else:
+                                        print(f"[QC DEBUG] WARNING: Task {i} returned no results")
                                     completed += 1
                                     processed_futures.add(i)
                                     
@@ -739,6 +680,9 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                                     QtWidgets.QApplication.processEvents()
                                 except Exception as e:
                                     # Handle errors
+                                    print(f"[QC DEBUG] ERROR getting results from task {i}: {e}")
+                                    import traceback
+                                    traceback.print_exc()
                                     completed += 1
                                     processed_futures.add(i)
                                     progress = int((completed / total_tasks) * 100)
@@ -801,11 +745,46 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                     QtWidgets.QApplication.processEvents()
             
             # Create DataFrame
+            print(f"[QC DEBUG] Total results collected: {len(results)}")
             if results:
                 self.qc_results = pd.DataFrame(results)
+                print(f"[QC DEBUG] Created DataFrame with {len(self.qc_results)} rows, columns: {list(self.qc_results.columns)}")
+                print(f"[QC DEBUG] Unique acquisition IDs in results: {self.qc_results['acquisition_id'].unique() if 'acquisition_id' in self.qc_results.columns else 'N/A'}")
+                
+                # Map column names from core.py format to dialog format
+                # core.py uses: intensity_mean, intensity_std, intensity_median, intensity_min, intensity_max, coverage
+                # dialog expects: mean_intensity, std_intensity, median_intensity, min_intensity, max_intensity, coverage_pct
+                column_mapping = {
+                    'intensity_mean': 'mean_intensity',
+                    'intensity_std': 'std_intensity',
+                    'intensity_median': 'median_intensity',
+                    'intensity_min': 'min_intensity',
+                    'intensity_max': 'max_intensity',
+                    'coverage': 'coverage_pct'
+                }
+                # Only rename columns that exist
+                existing_mappings = {k: v for k, v in column_mapping.items() if k in self.qc_results.columns}
+                if existing_mappings:
+                    self.qc_results = self.qc_results.rename(columns=existing_mappings)
+                    print(f"[QC DEBUG] Renamed columns: {existing_mappings}")
+                
+                # Convert coverage from fraction (0.0-1.0) to percentage (0-100)
+                if 'coverage_pct' in self.qc_results.columns:
+                    # Check if values are already in percentage range (> 1.0) or fraction range (<= 1.0)
+                    max_coverage = self.qc_results['coverage_pct'].max()
+                    if max_coverage <= 1.0:
+                        # Convert from fraction to percentage
+                        self.qc_results['coverage_pct'] = self.qc_results['coverage_pct'] * 100.0
+                        print(f"[QC DEBUG] Converted coverage from fraction to percentage (multiplied by 100)")
+                    else:
+                        print(f"[QC DEBUG] Coverage already in percentage format (max value: {max_coverage})")
+                
+                print(f"[QC DEBUG] Final columns after renaming: {list(self.qc_results.columns)}")
                 
                 # Aggregate results per channel across all ROIs
                 self._aggregate_results_by_channel()
+                if self.qc_results_aggregated is not None:
+                    print(f"[QC DEBUG] Aggregated results columns: {list(self.qc_results_aggregated.columns)}")
                 
                 # Cache results for persistence
                 self._save_results_to_cache()
@@ -867,6 +846,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                 QtWidgets.QApplication.processEvents()
                 QtCore.QTimer.singleShot(500, progress_dlg.close)
             else:
+                print(f"[QC DEBUG] ERROR: No results collected!")
                 progress_dlg.close()
                 QtWidgets.QMessageBox.warning(self, "Error", "No results generated. Check console for errors.")
                 
@@ -1383,16 +1363,16 @@ class QCAnalysisDialog(QtWidgets.QDialog):
     def _save_distribution_plot(self):
         """Save distribution plot."""
         fig = self.distribution_canvas.figure
-        save_figure_with_options(fig, self, "QC_Distributions")
+        save_figure_with_options(fig, "QC_Distributions", self)
     
     def _save_snr_intensity_plot(self):
         """Save SNR vs Intensity plot."""
         fig = self.snr_intensity_canvas.figure
-        save_figure_with_options(fig, self, "SNR_vs_Intensity")
+        save_figure_with_options(fig, "SNR_vs_Intensity", self)
     
     def _save_coverage_plot(self):
         """Save coverage plot."""
         fig = self.coverage_canvas.figure
-        save_figure_with_options(fig, self, "Coverage_Density")
+        save_figure_with_options(fig, "Coverage_Density", self)
 
 

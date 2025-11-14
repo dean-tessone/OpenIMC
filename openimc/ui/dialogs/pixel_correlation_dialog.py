@@ -37,8 +37,9 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from scipy.stats import spearmanr
 from statsmodels.stats.multitest import multipletests
-from openimc.data.mcd_loader import MCDLoader
+from openimc.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openimc.data.ometiff_loader import OMETIFFLoader
+from openimc.core import pixel_correlation
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.progress_dialog import ProgressDialog
 from openimc.utils.logger import get_logger
@@ -46,95 +47,8 @@ import tifffile
 import multiprocessing as mp
 
 
-# Module-level worker function for multiprocessing (must be picklable)
-def _correlation_process_roi_worker(task_data):
-    """Process a single ROI for correlation analysis. Returns list of correlation dicts.
-    
-    Args:
-        task_data: Tuple of (acq_id, acq_name, file_path, loader_type, selected_channels, 
-                            original_acq_id, analyze_within_masks, mask_path)
-    """
-    (acq_id, acq_name, file_path, loader_type, selected_channels, 
-     original_acq_id, analyze_within_masks, mask_path) = task_data
-    
-    correlations = []
-    
-    try:
-        # Recreate loader (can't pickle loader objects)
-        loader = None
-        if loader_type == "mcd":
-            loader = MCDLoader()
-            loader.open(file_path)
-        elif loader_type == "ometiff":
-            loader = OMETIFFLoader(channel_format='CHW')
-            loader.open(file_path)
-        else:
-            return correlations
-        
-        # Get channels using original acquisition ID
-        all_channels = loader.get_channels(original_acq_id)
-        
-        # Filter channels if specific channels were selected
-        if selected_channels:
-            # Only use channels that are both in the ROI and in the selected list
-            channels = [ch for ch in all_channels if ch in selected_channels]
-        else:
-            channels = all_channels
-        
-        if len(channels) < 2:
-            if hasattr(loader, 'close'):
-                loader.close()
-            return correlations
-        
-        # Load image stack using original acquisition ID
-        # Get all channels first, then filter to selected channels
-        img_stack_all = loader.get_all_channels(original_acq_id)
-        
-        # Filter image stack to only include selected channels
-        if selected_channels and len(selected_channels) < len(all_channels):
-            # Find indices of selected channels in the full channel list
-            channel_indices = []
-            for i, ch in enumerate(all_channels):
-                if ch in selected_channels:
-                    channel_indices.append(i)
-            
-            # Extract only the selected channels from the image stack
-            if img_stack_all.ndim == 3:
-                # HWC format: extract channels by index
-                img_stack = img_stack_all[:, :, channel_indices]
-            else:
-                img_stack = img_stack_all
-        else:
-            img_stack = img_stack_all
-        
-        # Load mask if needed
-        mask = None
-        if analyze_within_masks and mask_path and os.path.exists(mask_path):
-            try:
-                if mask_path.endswith('.npy'):
-                    mask = np.load(mask_path)
-                else:
-                    mask = tifffile.imread(mask_path)
-            except Exception:
-                pass
-        
-        # Compute correlations
-        correlations = _correlation_compute_correlations_worker(
-            img_stack, channels, mask, acq_id
-        )
-        
-        # Close loader
-        if hasattr(loader, 'close'):
-            loader.close()
-        
-        return correlations
-        
-    except Exception as e:
-        print(f"Error processing ROI {acq_name}: {e}")
-        import traceback
-        traceback.print_exc()
-        return correlations
-
+# Import worker function from processing module
+from openimc.processing.pixel_correlation_worker import correlation_process_roi_worker as _correlation_process_roi_worker
 
 def _correlation_compute_correlations_worker(img_stack: np.ndarray, channels: List[str], 
                                              mask: Optional[np.ndarray], acq_id: str) -> List[Dict]:

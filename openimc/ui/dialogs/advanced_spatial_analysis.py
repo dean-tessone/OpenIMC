@@ -38,10 +38,18 @@ from scipy.spatial import Delaunay
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.spatial_analysis import (
     SourceFileFilterDialog,
-    dataframe_to_anndata,
     _HAVE_SQUIDPY,
     _HAVE_SPARSE,
     _get_vivid_colors
+)
+from openimc.core import (
+    dataframe_to_anndata,
+    build_spatial_graph_anndata,
+    spatial_neighborhood_enrichment,
+    spatial_cooccurrence,
+    spatial_autocorrelation,
+    spatial_ripley,
+    export_anndata
 )
 
 try:
@@ -128,6 +136,18 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             df = df[df['source_file'].isin(self.selected_source_files)]
         return df
     
+    def _get_pixel_size_um(self, roi_id: str) -> float:
+        """Get pixel size in micrometers for a specific ROI."""
+        pixel_size_um = 1.0  # Default
+        parent = self.parent()
+        if parent is not None:
+            try:
+                if hasattr(parent, '_get_pixel_size_um'):
+                    pixel_size_um = float(parent._get_pixel_size_um(roi_id))
+            except Exception:
+                pass
+        return pixel_size_um
+    
     def _get_or_create_anndata(self, roi_id: str) -> Optional['ad.AnnData']:
         """Get or create AnnData object for a specific ROI."""
         print(f"[DEBUG] _get_or_create_anndata: roi_id={roi_id}")
@@ -141,11 +161,15 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
         print(f"[DEBUG] Filtered dataframe shape: {filtered_df.shape}")
         print(f"[DEBUG] Filtered dataframe columns: {list(filtered_df.columns)[:10]}...")
         
+        # Get pixel size
+        pixel_size_um = self._get_pixel_size_um(roi_id)
+        
+        # Use core function
         adata = dataframe_to_anndata(
             filtered_df,
             roi_id=roi_id,
             roi_column=roi_col,
-            parent=self.parent()
+            pixel_size_um=pixel_size_um
         )
         
         if adata is not None:
@@ -949,7 +973,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
         return sorted(filtered_df[roi_col].unique())
     
     def _create_spatial_graph(self):
-        """Create spatial graph for all ROIs - unified graph creation method."""
+        """Create spatial graph for all ROIs using core function."""
         print(f"[DEBUG] _create_spatial_graph: Starting")
         if not self._validate_data():
             print(f"[DEBUG] Data validation failed")
@@ -959,125 +983,46 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             method = self.graph_method_combo.currentText()
             k = int(self.graph_k_spin.value()) if method == "kNN" else None
             radius = float(self.graph_radius_spin.value()) if method == "Radius" else None
+            seed = int(self.seed_spinbox.value())
             print(f"[DEBUG] Graph method: {method}, k={k}, radius={radius}")
             
             roi_col = self._get_roi_column()
-            all_rois = self._get_all_rois()
-            print(f"[DEBUG] Found {len(all_rois)} ROIs: {all_rois}")
+            filtered_df = self._get_filtered_dataframe()
             
+            # Get pixel size (use first ROI as default)
+            all_rois = self._get_all_rois()
             if not all_rois:
-                print(f"[DEBUG] No ROIs found")
                 QtWidgets.QMessageBox.warning(self, "No ROIs", "No ROIs found in the data.")
                 return
             
-            # Build graph for all ROIs
-            success_count = 0
-            for roi_id in all_rois:
-                print(f"[DEBUG] Building graph for ROI: {roi_id}")
-                adata = self._get_or_create_anndata(roi_id)
-                if adata is None:
-                    print(f"[DEBUG] Failed to get/create AnnData for ROI {roi_id}")
-                    continue
-                print(f"[DEBUG] AnnData shape: {adata.shape}, spatial coords shape: {adata.obsm['spatial'].shape}")
-                coords = adata.obsm['spatial']
-                print(f"[DEBUG] Spatial coords (µm) range X: [{coords[:, 0].min():.2f}, {coords[:, 0].max():.2f}], "
-                      f"range Y: [{coords[:, 1].min():.2f}, {coords[:, 1].max():.2f}]")
-                
-                try:
-                    if method == "kNN":
-                        # Use squidpy for kNN
-                        # Coordinates are in micrometers, coord_type="generic" works with any units
-                        print(f"[DEBUG] Building kNN graph with k={k}")
-                        sq.gr.spatial_neighbors(adata, coord_type="generic", n_neighs=k, n_rings=1)
-                        # Verify graph was created
-                        if 'spatial_connectivities' in adata.obsp:
-                            n_edges = adata.obsp['spatial_connectivities'].nnz // 2  # Divide by 2 for undirected
-                            print(f"[DEBUG] kNN graph built successfully: {n_edges} edges")
-                            success_count += 1
-                        else:
-                            print(f"[DEBUG] ERROR: kNN graph not found in obsp after creation")
-                            continue
-                    elif method == "Radius":
-                        # Radius is in micrometers, coordinates are in micrometers
-                        # So we can use radius directly without conversion
-                        print(f"[DEBUG] Building Radius graph with radius={radius} µm")
-                        sq.gr.spatial_neighbors(adata, coord_type="generic", radius=radius, n_rings=1)
-                        # Verify graph was created
-                        if 'spatial_connectivities' in adata.obsp:
-                            n_edges = adata.obsp['spatial_connectivities'].nnz // 2  # Divide by 2 for undirected
-                            print(f"[DEBUG] Radius graph built successfully: {n_edges} edges")
-                            success_count += 1
-                        else:
-                            print(f"[DEBUG] ERROR: Radius graph not found in obsp after creation")
-                            continue
-                    elif method == "Delaunay":
-                        # Delaunay triangulation - manual implementation
-                        if sp is None:
-                            QtWidgets.QMessageBox.warning(self, "Missing Dependency", 
-                                "scipy.sparse is required for Delaunay triangulation.")
-                            continue
-                        
-                        print(f"[DEBUG] Building Delaunay graph")
-                        coords = adata.obsm['spatial']
-                        tri = Delaunay(coords)
-                        print(f"[DEBUG] Delaunay triangulation: {len(tri.simplices)} simplices")
-                        
-                        # Build connectivity matrix from Delaunay triangulation
-                        n_cells = len(coords)
-                        rows, cols = [], []
-                        for simplex in tri.simplices:
-                            # Each simplex has 3 vertices, create edges between all pairs
-                            for i in range(3):
-                                for j in range(i + 1, 3):
-                                    rows.extend([simplex[i], simplex[j]])
-                                    cols.extend([simplex[j], simplex[i]])
-                        
-                        # Create sparse matrix
-                        data = np.ones(len(rows))
-                        conn = sp.csr_matrix((data, (rows, cols)), shape=(n_cells, n_cells))
-                        
-                        # Store in AnnData format
-                        adata.obsp['spatial_connectivities'] = conn
-                        
-                        # Calculate distances
-                        coords_array = coords
-                        distances = []
-                        for i, j in zip(rows, cols):
-                            dist = np.linalg.norm(coords_array[i] - coords_array[j])
-                            distances.append(dist)
-                        dist_matrix = sp.csr_matrix((distances, (rows, cols)), shape=(n_cells, n_cells))
-                        adata.obsp['spatial_distances'] = dist_matrix
-                        
-                        # Verify graph was created
-                        if 'spatial_connectivities' in adata.obsp:
-                            n_edges = adata.obsp['spatial_connectivities'].nnz // 2  # Divide by 2 for undirected
-                            print(f"[DEBUG] Delaunay graph built successfully: {n_edges} edges")
-                            success_count += 1
-                        else:
-                            print(f"[DEBUG] ERROR: Delaunay graph not found in obsp after creation")
-                            continue
-                    else:
-                        QtWidgets.QMessageBox.warning(self, "Invalid Method", f"Unknown method: {method}")
-                        return
-                    
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    QtWidgets.QMessageBox.warning(self, "Graph Build Error", 
-                        f"Failed to build graph for ROI {roi_id}: {str(e)}")
-                    continue
+            pixel_size_um = self._get_pixel_size_um(all_rois[0])
             
-            if success_count > 0:
+            # Use core function to build graph
+            anndata_dict = build_spatial_graph_anndata(
+                features_df=filtered_df,
+                method=method,
+                k_neighbors=k if k else 20,
+                radius=radius,
+                pixel_size_um=pixel_size_um,
+                roi_column=roi_col,
+                roi_id=None,  # Process all ROIs
+                seed=seed
+            )
+            
+            if anndata_dict:
+                # Update cache with new AnnData objects
+                self.anndata_cache.update(anndata_dict)
                 self.spatial_graph_built = True
+                success_count = len(anndata_dict)
+                
                 self.graph_status_label.setText(f"Graph created for {success_count} ROI(s)")
                 self.graph_status_label.setStyleSheet("color: green;")
                 
                 # Update processed ROIs tracking
-                for roi_id in all_rois:
-                    if roi_id in self.anndata_cache and 'spatial_connectivities' in self.anndata_cache[roi_id].obsp:
-                        if roi_id not in self.processed_rois:
-                            self.processed_rois[roi_id] = {}
-                        self.processed_rois[roi_id]['graph_built'] = True
+                for roi_id in anndata_dict.keys():
+                    if roi_id not in self.processed_rois:
+                        self.processed_rois[roi_id] = {}
+                    self.processed_rois[roi_id]['graph_built'] = True
                 
                 self._update_button_states()
                 QtWidgets.QMessageBox.information(self, "Graph Created", 
@@ -1094,7 +1039,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", f"Error creating spatial graph: {str(e)}")
     
     def _run_sq_nhood_enrichment(self):
-        """Run neighborhood enrichment analysis using squidpy for all ROIs or selected ROI."""
+        """Run neighborhood enrichment analysis using core function."""
         print(f"[DEBUG] _run_sq_nhood_enrichment: Starting")
         if not self.spatial_graph_built:
             print(f"[DEBUG] Spatial graph not built")
@@ -1116,228 +1061,74 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                     f"Cluster column '{cluster_key}' not found in data.")
                 return
             
-            # Determine which ROIs to process
+            # Get AnnData dict - filter to selected ROI if needed
             if roi_id is None:
-                # Process all ROIs
-                all_rois = self._get_all_rois()
-                print(f"[DEBUG] Processing all ROIs: {all_rois}")
+                # Use all cached AnnData objects with graphs
+                anndata_dict = {rid: adata for rid, adata in self.anndata_cache.items() 
+                               if 'spatial_connectivities' in adata.obsp}
             else:
-                # Process single ROI
-                all_rois = [roi_id]
-                print(f"[DEBUG] Processing single ROI: {roi_id}")
-            
-            if not all_rois:
-                print(f"[DEBUG] No ROIs found")
-                QtWidgets.QMessageBox.warning(self, "No ROIs", "No ROIs found to process.")
-                return
-            
-            # Run enrichment for each ROI
-            enrichment_matrices = []  # List of (roi_id, matrix) tuples
-            success_count = 0
-            
-            for current_roi_id in all_rois:
-                print(f"[DEBUG] Processing ROI: {current_roi_id}")
-                adata = self.anndata_cache.get(current_roi_id)
-                if adata is None:
-                    print(f"[DEBUG] No AnnData cached for ROI {current_roi_id}, trying to create...")
-                    adata = self._get_or_create_anndata(current_roi_id)
-                
-                if adata is None:
-                    print(f"[DEBUG] Failed to get/create AnnData for ROI {current_roi_id}")
-                    continue
-                
-                if 'spatial_connectivities' not in adata.obsp:
-                    print(f"[DEBUG] No spatial_connectivities in obsp for ROI {current_roi_id}")
-                    continue
-                
-                if cluster_key not in adata.obs.columns:
-                    print(f"[DEBUG] Cluster key '{cluster_key}' not in obs.columns for ROI {current_roi_id}")
-                    continue
-                
-                if not hasattr(adata.obs[cluster_key], 'cat'):
-                    adata.obs[cluster_key] = adata.obs[cluster_key].astype('category')
-                
-                print(f"[DEBUG] Running nhood_enrichment for ROI {current_roi_id}, clusters: {list(adata.obs[cluster_key].cat.categories)}")
-                try:
-                    # Run neighborhood enrichment
-                    sq.gr.nhood_enrichment(adata, cluster_key=cluster_key)
-                    
-                    # Debug: Check what's in adata.uns
-                    print(f"[DEBUG] All keys in adata.uns: {list(adata.uns.keys())}")
-                    
-                    # Extract matrix - try different possible keys
-                    enrichment_data = adata.uns.get('nhood_enrichment', {})
-                    if not enrichment_data:
-                        # Try alternative key names
-                        for key in adata.uns.keys():
-                            if 'nhood' in key.lower() or 'enrichment' in key.lower():
-                                print(f"[DEBUG] Found potential key: {key}, type: {type(adata.uns[key])}")
-                                enrichment_data = adata.uns[key]
-                                break
-                    
-                    print(f"[DEBUG] Enrichment data type: {type(enrichment_data)}, keys: {list(enrichment_data.keys()) if isinstance(enrichment_data, dict) else 'N/A'}")
-                    if isinstance(enrichment_data, dict) and len(enrichment_data) > 0:
-                        print(f"[DEBUG] Enrichment data contents: {list(enrichment_data.items())[:3]}...")
-                    matrix = None
-                    if isinstance(enrichment_data, dict):
-                        if 'zscore' in enrichment_data:
-                            matrix = enrichment_data['zscore']
-                            print(f"[DEBUG] Found zscore matrix, shape: {matrix.shape}")
-                        elif 'count' in enrichment_data:
-                            matrix = enrichment_data['count']
-                            print(f"[DEBUG] Found count matrix, shape: {matrix.shape}")
-                        elif 'stat' in enrichment_data:
-                            matrix = enrichment_data['stat']
-                            print(f"[DEBUG] Found stat matrix, shape: {matrix.shape}")
-                        else:
-                            for value in enrichment_data.values():
-                                if isinstance(value, np.ndarray) and value.ndim == 2:
-                                    matrix = value
-                                    print(f"[DEBUG] Found matrix in dict values, shape: {matrix.shape}")
-                                    break
-                    elif isinstance(enrichment_data, np.ndarray):
-                        matrix = enrichment_data
-                        print(f"[DEBUG] Enrichment data is array, shape: {matrix.shape}")
-                    
-                    if matrix is not None and isinstance(matrix, np.ndarray) and matrix.ndim == 2:
-                        enrichment_matrices.append((current_roi_id, matrix))
-                        success_count += 1
-                        print(f"[DEBUG] Successfully extracted matrix for ROI {current_roi_id}, shape: {matrix.shape}")
-                        
-                        # Update status
-                        if current_roi_id not in self.analysis_status:
-                            self.analysis_status[current_roi_id] = {}
-                        self.analysis_status[current_roi_id]['nhood_enrichment'] = True
-                    else:
-                        print(f"[DEBUG] Failed to extract valid matrix from enrichment_data")
-                except Exception as e:
-                    print(f"[DEBUG] Exception in nhood_enrichment for ROI {current_roi_id}: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
-            
-            if success_count == 0:
-                QtWidgets.QMessageBox.warning(self, "Enrichment Failed", 
-                    "Failed to run neighborhood enrichment for any ROI.")
-                return
-            
-            # Aggregate results
-            if len(enrichment_matrices) > 1:
-                # Collect all cluster categories from all ROIs to create union
-                roi_cluster_map = {}  # Maps roi_id to its cluster categories
-                
-                for roi_id, matrix in enrichment_matrices:
-                    if roi_id in self.anndata_cache:
-                        adata = self.anndata_cache[roi_id]
-                        if cluster_key in adata.obs.columns:
-                            if hasattr(adata.obs[cluster_key], 'cat'):
-                                clusters = list(adata.obs[cluster_key].cat.categories)
-                            else:
-                                clusters = sorted(adata.obs[cluster_key].unique())
-                            roi_cluster_map[roi_id] = clusters
-                
-                # Get union of all clusters
-                all_cluster_sets = [set(clusters) for clusters in roi_cluster_map.values()]
-                all_clusters_union = sorted(set().union(*all_cluster_sets)) if all_cluster_sets else []
-                
-                if not all_clusters_union:
-                    aggregated_matrix = enrichment_matrices[0][1]  # Extract matrix from tuple
-                else:
-                    # Align all matrices to the union of clusters
-                    aligned_matrices = []
-                    n_clusters = len(all_clusters_union)
-                    
-                    for roi_id, matrix in enrichment_matrices:
-                        roi_clusters = roi_cluster_map.get(roi_id)
-                        
-                        if roi_clusters is not None:
-                            # Create aligned matrix
-                            aligned_matrix = np.full((n_clusters, n_clusters), np.nan)
-                            
-                            # Map old indices to new indices
-                            cluster_to_new_idx = {clust: idx for idx, clust in enumerate(all_clusters_union)}
-                            
-                            # Fill in values where clusters overlap
-                            for i, old_clust_i in enumerate(roi_clusters):
-                                if old_clust_i in cluster_to_new_idx:
-                                    new_i = cluster_to_new_idx[old_clust_i]
-                                    for j, old_clust_j in enumerate(roi_clusters):
-                                        if old_clust_j in cluster_to_new_idx:
-                                            new_j = cluster_to_new_idx[old_clust_j]
-                                            aligned_matrix[new_i, new_j] = matrix[i, j]
-                            
-                            aligned_matrices.append(aligned_matrix)
-                        else:
-                            # Fallback: if we can't align, use original matrix (will warn below)
-                            aligned_matrices.append(matrix)
-                    
-                    # Check if all matrices are now the same size
-                    shapes = [m.shape for m in aligned_matrices]
-                    if len(set(shapes)) == 1:
-                        # All same shape - aggregate
-                        stacked = np.stack(aligned_matrices, axis=0)
-                        if agg_method == 'mean':
-                            aggregated_matrix = np.nanmean(stacked, axis=0)
-                        else:  # sum
-                            aggregated_matrix = np.nansum(stacked, axis=0)
-                        print(f"[DEBUG] Aggregated {len(aligned_matrices)} matrices aligned to {n_clusters} clusters")
-                    else:
-                        # Still different shapes - use first one and warn
-                        aggregated_matrix = aligned_matrices[0]
-                        QtWidgets.QMessageBox.warning(self, "Shape Mismatch", 
-                            "ROIs have different cluster counts. Could not fully align matrices. Using first ROI result.")
-            else:
-                aggregated_matrix = enrichment_matrices[0][1]  # Extract matrix from tuple
-            
-            # Create a temporary adata-like object for plotting
-            class TempAnnData:
-                def __init__(self, matrix, cluster_key, obs):
-                    self.uns = {'nhood_enrichment': {'zscore': matrix}}
-                    self.obs = obs
-                    # Store cluster_key for plotting
-                    self._cluster_key = cluster_key
-            
-            # Get cluster categories - use union if available, otherwise from first ROI
-            if len(enrichment_matrices) > 1 and 'all_clusters_union' in locals() and all_clusters_union:
-                # Use the union of clusters we computed
-                cluster_categories = all_clusters_union
-            else:
-                # Get from first successful ROI
-                first_adata = None
-                for current_roi_id in all_rois:
-                    if current_roi_id in self.anndata_cache:
-                        first_adata = self.anndata_cache[current_roi_id]
-                        if cluster_key in first_adata.obs.columns:
-                            break
-                
-                if first_adata is None:
-                    QtWidgets.QMessageBox.warning(self, "No Data", "Could not find data for plotting.")
+                # Use only selected ROI
+                if roi_id not in self.anndata_cache:
+                    QtWidgets.QMessageBox.warning(self, "No Data", f"No data found for ROI {roi_id}.")
                     return
+                adata = self.anndata_cache[roi_id]
+                if 'spatial_connectivities' not in adata.obsp:
+                    QtWidgets.QMessageBox.warning(self, "No Graph", f"No spatial graph found for ROI {roi_id}.")
+                    return
+                anndata_dict = {roi_id: adata}
+            
+            if not anndata_dict:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No AnnData objects with spatial graphs found.")
+                return
+            
+            # Use core function
+            results = spatial_neighborhood_enrichment(
+                anndata_dict=anndata_dict,
+                cluster_key=cluster_key,
+                aggregation=agg_method
+            )
+            
+            # Update cache with results
+            self.anndata_cache.update(results['results'])
+            
+            # Update status
+            for roi_id in results['results'].keys():
+                if roi_id not in self.analysis_status:
+                    self.analysis_status[roi_id] = {}
+                self.analysis_status[roi_id]['nhood_enrichment'] = True
+            
+            # Create temporary adata for aggregated plotting
+            if results['aggregated'] is not None:
+                class TempAnnData:
+                    def __init__(self, matrix, cluster_key, obs):
+                        self.uns = {'nhood_enrichment': {'zscore': matrix}}
+                        self.obs = obs
+                        self._cluster_key = cluster_key
                 
-                if hasattr(first_adata.obs[cluster_key], 'cat'):
-                    cluster_categories = list(first_adata.obs[cluster_key].cat.categories)
-                else:
-                    cluster_categories = sorted(first_adata.obs[cluster_key].unique())
-            
-            # Create a minimal obs DataFrame with cluster categories for plotting
-            import pandas as pd
-            obs_df = pd.DataFrame({cluster_key: cluster_categories})
-            obs_df.index = [str(c) for c in cluster_categories]
-            # Make it categorical for plotting
-            obs_df[cluster_key] = obs_df[cluster_key].astype('category')
-            
-            temp_adata = TempAnnData(aggregated_matrix, cluster_key, obs_df)
-            
-            # Store aggregated result
-            self.aggregated_results['nhood_enrichment'] = temp_adata
-            
-            QtWidgets.QMessageBox.information(self, "Enrichment Complete", 
-                f"Neighborhood enrichment completed for {success_count} ROI(s). "
-                f"Aggregated using {agg_method}.")
-            
-            # Plot aggregated results
-            self._plot_sq_nhood_enrichment(temp_adata)
-            self.sq_nhood_save_btn.setEnabled(True)
+                import pandas as pd
+                cluster_categories = results['cluster_categories']
+                obs_df = pd.DataFrame({cluster_key: cluster_categories})
+                obs_df.index = [str(c) for c in cluster_categories]
+                obs_df[cluster_key] = obs_df[cluster_key].astype('category')
+                
+                temp_adata = TempAnnData(results['aggregated'], cluster_key, obs_df)
+                self.aggregated_results['nhood_enrichment'] = temp_adata
+                
+                QtWidgets.QMessageBox.information(self, "Enrichment Complete", 
+                    f"Neighborhood enrichment completed for {len(results['results'])} ROI(s). "
+                    f"Aggregated using {agg_method}.")
+                
+                # Plot aggregated results
+                self._plot_sq_nhood_enrichment(temp_adata)
+                self.sq_nhood_save_btn.setEnabled(True)
+            else:
+                # Plot first ROI result
+                if results['results']:
+                    first_adata = list(results['results'].values())[0]
+                    self._plot_sq_nhood_enrichment(first_adata)
+                    self.sq_nhood_save_btn.setEnabled(True)
+                    QtWidgets.QMessageBox.information(self, "Enrichment Complete", 
+                        f"Neighborhood enrichment completed for {len(results['results'])} ROI(s).")
                 
         except Exception as e:
             import traceback
@@ -1444,7 +1235,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
     
     def _run_sq_cooccurrence(self):
-        """Run co-occurrence analysis using squidpy for all ROIs or selected ROI."""
+        """Run co-occurrence analysis using core function."""
         print(f"[DEBUG] _run_sq_cooccurrence: Starting")
         if not self.spatial_graph_built:
             print(f"[DEBUG] Spatial graph not built")
@@ -1455,8 +1246,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
         try:
             cluster_key = self.sq_cooccur_cluster_combo.currentText()
             roi_id = self._get_selected_roi(self.sq_cooccur_roi_combo)
-            agg_method = self.sq_cooccur_agg_combo.currentText().lower()
-            print(f"[DEBUG] Cluster key: {cluster_key}, ROI: {roi_id}, Aggregation: {agg_method}")
+            print(f"[DEBUG] Cluster key: {cluster_key}, ROI: {roi_id}")
             
             # Parse neighborhood sizes
             sizes_str = self.sq_cooccur_sizes_edit.text().strip()
@@ -1468,7 +1258,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             
             try:
                 # Parse as comma-separated list
-                nhood_sizes = [int(x.strip()) for x in sizes_str.split(',') if x.strip()]
+                nhood_sizes = [float(x.strip()) for x in sizes_str.split(',') if x.strip()]
                 if len(nhood_sizes) < 2:
                     QtWidgets.QMessageBox.warning(self, "Invalid Input", 
                         f"Co-occurrence analysis requires at least 2 distances.\n"
@@ -1499,101 +1289,50 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                     f"Cluster column '{cluster_key}' not found in data.")
                 return
             
-            # Determine which ROIs to process
+            # Get AnnData dict - filter to selected ROI if needed
             if roi_id is None:
-                all_rois = self._get_all_rois()
-                print(f"[DEBUG] Processing all ROIs: {all_rois}")
+                # Use all cached AnnData objects with graphs
+                anndata_dict = {rid: adata for rid, adata in self.anndata_cache.items() 
+                               if 'spatial_connectivities' in adata.obsp}
             else:
-                all_rois = [roi_id]
-                print(f"[DEBUG] Processing single ROI: {roi_id}")
-            
-            if not all_rois:
-                print(f"[DEBUG] No ROIs found")
-                QtWidgets.QMessageBox.warning(self, "No ROIs", "No ROIs found to process.")
-                return
-            
-            # Run co-occurrence for each ROI
-            cooccur_results = []
-            success_count = 0
-            
-            for current_roi_id in all_rois:
-                print(f"[DEBUG] Processing ROI: {current_roi_id}")
-                adata = self.anndata_cache.get(current_roi_id)
-                if adata is None:
-                    print(f"[DEBUG] No AnnData cached for ROI {current_roi_id}, trying to create...")
-                    adata = self._get_or_create_anndata(current_roi_id)
-                
-                if adata is None:
-                    print(f"[DEBUG] Failed to get/create AnnData for ROI {current_roi_id}")
-                    continue
-                
+                # Use only selected ROI
+                if roi_id not in self.anndata_cache:
+                    QtWidgets.QMessageBox.warning(self, "No Data", f"No data found for ROI {roi_id}.")
+                    return
+                adata = self.anndata_cache[roi_id]
                 if 'spatial_connectivities' not in adata.obsp:
-                    print(f"[DEBUG] No spatial_connectivities in obsp for ROI {current_roi_id}")
-                    continue
-                
-                if cluster_key not in adata.obs.columns:
-                    print(f"[DEBUG] Cluster key '{cluster_key}' not in obs.columns for ROI {current_roi_id}")
-                    continue
-                
-                if not hasattr(adata.obs[cluster_key], 'cat'):
-                    adata.obs[cluster_key] = adata.obs[cluster_key].astype('category')
-                
-                print(f"[DEBUG] Running co_occurrence for ROI {current_roi_id}, clusters: {list(adata.obs[cluster_key].cat.categories)}")
-                try:
-                    # Run co-occurrence analysis (always use interval since we validated it)
-                    sq.gr.co_occurrence(adata, cluster_key=cluster_key, interval=nhood_sizes)
-                    
-                    # Debug: Check what was stored
-                    print(f"[DEBUG] All keys in adata.uns after co_occurrence: {list(adata.uns.keys())}")
-                    if 'co_occurrence' in adata.uns:
-                        cooccur_stored = adata.uns['co_occurrence']
-                        print(f"[DEBUG] Co-occurrence data type: {type(cooccur_stored)}")
-                        if isinstance(cooccur_stored, dict):
-                            print(f"[DEBUG] Co-occurrence keys: {list(cooccur_stored.keys())[:5]}...")
-                            # Check structure of first value
-                            if len(cooccur_stored) > 0:
-                                first_key = list(cooccur_stored.keys())[0]
-                                first_val = cooccur_stored[first_key]
-                                print(f"[DEBUG] First key: {first_key}, value type: {type(first_val)}")
-                                if isinstance(first_val, dict):
-                                    print(f"[DEBUG] First value keys: {list(first_val.keys())}")
-                    else:
-                        # Check for alternative key names
-                        for key in adata.uns.keys():
-                            if 'co' in key.lower() or 'occur' in key.lower():
-                                print(f"[DEBUG] Found potential co-occurrence key: {key}, type: {type(adata.uns[key])}")
-                    
-                    print(f"[DEBUG] Co-occurrence completed for ROI {current_roi_id}")
-                    cooccur_results.append(adata)
-                    success_count += 1
-                    
-                    if current_roi_id not in self.analysis_status:
-                        self.analysis_status[current_roi_id] = {}
-                    self.analysis_status[current_roi_id]['co_occurrence'] = True
-                except Exception as e:
-                    print(f"[DEBUG] Exception in co_occurrence for ROI {current_roi_id}: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
+                    QtWidgets.QMessageBox.warning(self, "No Graph", f"No spatial graph found for ROI {roi_id}.")
+                    return
+                anndata_dict = {roi_id: adata}
             
-            if success_count == 0:
-                QtWidgets.QMessageBox.warning(self, "Co-occurrence Failed", 
-                    "Failed to run co-occurrence for any ROI.")
+            if not anndata_dict:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No AnnData objects with spatial graphs found.")
                 return
             
-            # For co-occurrence, we'll plot the first ROI or aggregate if multiple
-            # Co-occurrence data structure is complex, so we'll use first result for now
-            # TODO: Implement proper aggregation for co-occurrence curves
-            if len(cooccur_results) > 0:
-                plot_adata = cooccur_results[0]
-                print(f"[DEBUG] Using first ROI result for plotting: {plot_adata}")
-                print(f"[DEBUG] Plot adata uns keys: {list(plot_adata.uns.keys())}")
-                
-                # Update reference cluster combo
+            # Use core function
+            results = spatial_cooccurrence(
+                anndata_dict=anndata_dict,
+                cluster_key=cluster_key,
+                interval=nhood_sizes,
+                reference_cluster=self.sq_cooccur_ref_cluster_combo.currentData()
+            )
+            
+            # Update cache with results
+            self.anndata_cache.update(results)
+            
+            # Update status
+            for roi_id in results.keys():
+                if roi_id not in self.analysis_status:
+                    self.analysis_status[roi_id] = {}
+                self.analysis_status[roi_id]['co_occurrence'] = True
+            
+            if results:
+                # Use first ROI for plotting and reference cluster combo
+                plot_adata = list(results.values())[0]
                 self._update_cooccur_ref_cluster_combo(plot_adata)
                 
                 QtWidgets.QMessageBox.information(self, "Co-occurrence Complete", 
-                    f"Co-occurrence analysis completed for {success_count} ROI(s).")
+                    f"Co-occurrence analysis completed for {len(results)} ROI(s).")
                 
                 # Plot results
                 self._plot_sq_cooccurrence(plot_adata)
@@ -1954,7 +1693,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
     
     def _run_sq_autocorrelation(self):
-        """Run spatial autocorrelation analysis using squidpy for all ROIs or selected ROI."""
+        """Run spatial autocorrelation analysis using core function."""
         print(f"[DEBUG] _run_sq_autocorrelation: Starting")
         if not self.spatial_graph_built:
             print(f"[DEBUG] Spatial graph not built")
@@ -1969,187 +1708,59 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             print(f"[DEBUG] Markers: {markers_str}, ROI: {roi_id}, Aggregation: {agg_method}")
             
             # Parse markers
-            if markers_str.lower() == 'all' or not markers_str:
-                genes = None  # Use all features
-            else:
-                genes = [m.strip() for m in markers_str.split(',')]
-            print(f"[DEBUG] Genes to analyze: {genes if genes else 'all'}")
+            markers = None
+            if markers_str.lower() != 'all' and markers_str:
+                markers = [m.strip() for m in markers_str.split(',')]
             
-            # Determine which ROIs to process
+            # Get AnnData dict - filter to selected ROI if needed
             if roi_id is None:
-                all_rois = self._get_all_rois()
-                print(f"[DEBUG] Processing all ROIs: {all_rois}")
+                # Use all cached AnnData objects with graphs
+                anndata_dict = {rid: adata for rid, adata in self.anndata_cache.items() 
+                               if 'spatial_connectivities' in adata.obsp}
             else:
-                all_rois = [roi_id]
-                print(f"[DEBUG] Processing single ROI: {roi_id}")
-            
-            if not all_rois:
-                print(f"[DEBUG] No ROIs found")
-                QtWidgets.QMessageBox.warning(self, "No ROIs", "No ROIs found to process.")
-                return
-            
-            # Run autocorrelation for each ROI
-            moran_results = []  # List of dicts with 'I' and 'var_names'
-            success_count = 0
-            all_genes = set()
-            
-            for current_roi_id in all_rois:
-                print(f"[DEBUG] Processing ROI: {current_roi_id}")
-                adata = self.anndata_cache.get(current_roi_id)
-                if adata is None:
-                    print(f"[DEBUG] No AnnData cached for ROI {current_roi_id}, trying to create...")
-                    adata = self._get_or_create_anndata(current_roi_id)
-                
-                if adata is None:
-                    print(f"[DEBUG] Failed to get/create AnnData for ROI {current_roi_id}")
-                    continue
-                
+                # Use only selected ROI
+                if roi_id not in self.anndata_cache:
+                    QtWidgets.QMessageBox.warning(self, "No Data", f"No data found for ROI {roi_id}.")
+                    return
+                adata = self.anndata_cache[roi_id]
                 if 'spatial_connectivities' not in adata.obsp:
-                    print(f"[DEBUG] No spatial_connectivities in obsp for ROI {current_roi_id}")
-                    continue
-                
-                print(f"[DEBUG] Available var_names: {list(adata.var_names)[:5]}...")
-                try:
-                    # Run spatial autocorrelation (Moran's I)
-                    if genes is not None:
-                        available_genes = [g for g in genes if g in adata.var_names]
-                        print(f"[DEBUG] Available genes from requested list: {available_genes}")
-                        if not available_genes:
-                            print(f"[DEBUG] No requested genes found in var_names")
-                            continue
-                        sq.gr.spatial_autocorr(adata, mode="moran", genes=available_genes)
-                        all_genes.update(available_genes)
-                    else:
-                        print(f"[DEBUG] Running autocorrelation for all {len(adata.var_names)} features")
-                        sq.gr.spatial_autocorr(adata, mode="moran")
-                        # Convert var_names to list to avoid DataFrame/Index issues
-                        var_names_list = list(adata.var_names) if hasattr(adata.var_names, '__iter__') else []
-                        all_genes.update(var_names_list)
-                    
-                    # Extract results
-                    print(f"[DEBUG] Checking adata.uns keys: {list(adata.uns.keys())}")
-                    moran_data = adata.uns.get('moranI', {})
-                    print(f"[DEBUG] moran_data type: {type(moran_data)}")
-                    
-                    # Check if moran_data is not empty (handle both dict and DataFrame)
-                    has_data = False
-                    if isinstance(moran_data, pd.DataFrame):
-                        has_data = not moran_data.empty
-                        if has_data:
-                            print(f"[DEBUG] moran_data DataFrame shape: {moran_data.shape}, columns: {list(moran_data.columns)}")
-                    elif isinstance(moran_data, dict):
-                        has_data = len(moran_data) > 0
-                        if has_data:
-                            print(f"[DEBUG] moran_data dict keys: {list(moran_data.keys())}")
-                    elif hasattr(moran_data, '__len__'):
-                        try:
-                            has_data = len(moran_data) > 0
-                        except (TypeError, ValueError):
-                            has_data = False
-                    else:
-                        # For other types, use explicit check
-                        has_data = moran_data is not None and moran_data != {}
-                    
-                    if has_data:
-                        print(f"[DEBUG] Extracted Moran's I data for ROI {current_roi_id}")
-                        moran_results.append({
-                            'adata': adata,
-                            'moranI': moran_data
-                        })
-                        success_count += 1
-                        
-                        if current_roi_id not in self.analysis_status:
-                            self.analysis_status[current_roi_id] = {}
-                        self.analysis_status[current_roi_id]['autocorrelation'] = True
-                    else:
-                        print(f"[DEBUG] No Moran's I data found in adata.uns for ROI {current_roi_id}")
-                except Exception as e:
-                    import traceback
-                    traceback.print_exc()
-                    continue
+                    QtWidgets.QMessageBox.warning(self, "No Graph", f"No spatial graph found for ROI {roi_id}.")
+                    return
+                anndata_dict = {roi_id: adata}
             
-            if success_count == 0:
-                QtWidgets.QMessageBox.warning(self, "Autocorrelation Failed", 
-                    "Failed to run autocorrelation for any ROI.")
+            if not anndata_dict:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No AnnData objects with spatial graphs found.")
                 return
             
-            # Aggregate results across ROIs
-            if len(moran_results) > 1:
-                # Get common genes across all ROIs
-                common_genes = sorted(all_genes)
-                I_values_agg = []
-                p_values_agg = []
-                
-                for gene in common_genes:
-                    I_vals = []
-                    p_vals = []
-                    for result in moran_results:
-                        moranI = result['moranI']
-                        
-                        # Handle DataFrame format
-                        if isinstance(moranI, pd.DataFrame):
-                            if gene in moranI.index:
-                                # DataFrame with genes as index
-                                I_val = moranI.loc[gene, 'I'] if 'I' in moranI.columns else None
-                                p_val = moranI.loc[gene, 'pval_norm'] if 'pval_norm' in moranI.columns else None
-                                if I_val is not None:
-                                    I_vals.append(float(I_val))
-                                if p_val is not None:
-                                    p_vals.append(float(p_val))
-                            elif 'var_names' in moranI.columns or 'var_names' in moranI.index:
-                                # DataFrame might have var_names column
-                                if 'var_names' in moranI.columns:
-                                    gene_rows = moranI[moranI['var_names'] == gene]
-                                else:
-                                    gene_rows = moranI[moranI.index == gene]
-                                if not gene_rows.empty:
-                                    I_val = gene_rows['I'].iloc[0] if 'I' in gene_rows.columns else None
-                                    p_val = gene_rows['pval_norm'].iloc[0] if 'pval_norm' in gene_rows.columns else None
-                                    if I_val is not None:
-                                        I_vals.append(float(I_val))
-                                    if p_val is not None:
-                                        p_vals.append(float(p_val))
-                        # Handle dict format
-                        elif isinstance(moranI, dict):
-                            if 'I' in moranI and 'var_names' in moranI:
-                                var_names = moranI.get('var_names', [])
-                                if gene in var_names:
-                                    idx = list(var_names).index(gene)
-                                    I_vals.append(moranI['I'][idx] if isinstance(moranI['I'], (list, np.ndarray)) else moranI['I'])
-                                    if 'pval_norm' in moranI:
-                                        p_vals.append(moranI['pval_norm'][idx] if isinstance(moranI['pval_norm'], (list, np.ndarray)) else moranI['pval_norm'])
-                    
-                    if I_vals:
-                        if agg_method == 'mean':
-                            I_values_agg.append(np.nanmean(I_vals))
-                        else:  # sum
-                            I_values_agg.append(np.nansum(I_vals))
-                        if p_vals:
-                            p_values_agg.append(np.nanmean(p_vals))
-                        else:
-                            p_values_agg.append(1.0)
-                
-                # Create aggregated result
-                class TempAnnData:
-                    def __init__(self, I_vals, p_vals, genes):
-                        self.uns = {
-                            'moranI': {
-                                'I': np.array(I_vals),
-                                'pval_norm': np.array(p_vals) if p_vals else None,
-                                'var_names': genes
-                            }
-                        }
-                
-                aggregated_adata = TempAnnData(I_values_agg, p_values_agg, common_genes)
-                plot_adata = aggregated_adata
-                # Store aggregated result
-                self.aggregated_results['autocorrelation'] = aggregated_adata
+            # Use core function
+            results = spatial_autocorrelation(
+                anndata_dict=anndata_dict,
+                markers=markers,
+                aggregation=agg_method
+            )
+            
+            # Update cache with results
+            self.anndata_cache.update(results['results'])
+            
+            # Update status
+            for roi_id in results['results'].keys():
+                if roi_id not in self.analysis_status:
+                    self.analysis_status[roi_id] = {}
+                self.analysis_status[roi_id]['autocorrelation'] = True
+            
+            # Store aggregated result if available
+            if results['aggregated'] is not None:
+                self.aggregated_results['autocorrelation'] = results['aggregated']
+                plot_adata = results['aggregated']
+            elif results['results']:
+                plot_adata = list(results['results'].values())[0]
             else:
-                plot_adata = moran_results[0]['adata']
+                QtWidgets.QMessageBox.warning(self, "No Results", "No autocorrelation results to plot.")
+                return
             
             QtWidgets.QMessageBox.information(self, "Autocorrelation Complete", 
-                f"Spatial autocorrelation completed for {success_count} ROI(s). "
-                f"{'Aggregated using ' + agg_method if len(moran_results) > 1 else ''}")
+                f"Spatial autocorrelation completed for {len(results['results'])} ROI(s). "
+                f"{'Aggregated using ' + agg_method if len(results['results']) > 1 else ''}")
             
             # Plot results
             self._plot_sq_autocorrelation(plot_adata)
@@ -2306,7 +1917,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
     
     def _run_sq_ripley(self):
-        """Run Ripley analysis using squidpy for all ROIs or selected ROI."""
+        """Run Ripley analysis using core function."""
         print(f"[DEBUG] _run_sq_ripley: Starting")
         if not self.spatial_graph_built:
             print(f"[DEBUG] Spatial graph not built")
@@ -2319,8 +1930,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             max_dist = float(self.sq_ripley_r_max_spin.value())
             cluster_key = self.sq_ripley_cluster_combo.currentText()
             roi_id = self._get_selected_roi(self.sq_ripley_roi_combo)
-            agg_method = self.sq_ripley_agg_combo.currentText().lower()
-            print(f"[DEBUG] Mode: {mode}, max_dist: {max_dist}, cluster_key: {cluster_key}, ROI: {roi_id}, Aggregation: {agg_method}")
+            print(f"[DEBUG] Mode: {mode}, max_dist: {max_dist}, cluster_key: {cluster_key}, ROI: {roi_id}")
             
             # Check if cluster column exists
             filtered_df = self._get_filtered_dataframe()
@@ -2330,133 +1940,57 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                     f"Cluster column '{cluster_key}' not found in data.")
                 return
             
-            # Determine which ROIs to process
+            # Get AnnData dict - filter to selected ROI if needed
             if roi_id is None:
-                all_rois = self._get_all_rois()
-                print(f"[DEBUG] Processing all ROIs: {all_rois}")
+                # Use all cached AnnData objects with graphs
+                anndata_dict = {rid: adata for rid, adata in self.anndata_cache.items() 
+                               if 'spatial_connectivities' in adata.obsp}
             else:
-                all_rois = [roi_id]
-                print(f"[DEBUG] Processing single ROI: {roi_id}")
-            
-            if not all_rois:
-                print(f"[DEBUG] No ROIs found")
-                QtWidgets.QMessageBox.warning(self, "No ROIs", "No ROIs found to process.")
-                return
-            
-            # Run Ripley for each ROI
-            ripley_results = []
-            success_count = 0
-            
-            for current_roi_id in all_rois:
-                print(f"[DEBUG] Processing ROI: {current_roi_id}")
-                adata = self.anndata_cache.get(current_roi_id)
-                if adata is None:
-                    print(f"[DEBUG] No AnnData cached for ROI {current_roi_id}, trying to create...")
-                    adata = self._get_or_create_anndata(current_roi_id)
-                
-                if adata is None:
-                    print(f"[DEBUG] Failed to get/create AnnData for ROI {current_roi_id}")
-                    continue
-                
+                # Use only selected ROI
+                if roi_id not in self.anndata_cache:
+                    QtWidgets.QMessageBox.warning(self, "No Data", f"No data found for ROI {roi_id}.")
+                    return
+                adata = self.anndata_cache[roi_id]
                 if 'spatial_connectivities' not in adata.obsp:
-                    print(f"[DEBUG] No spatial_connectivities in obsp for ROI {current_roi_id}")
-                    continue
-                
-                if cluster_key not in adata.obs.columns:
-                    print(f"[DEBUG] Cluster key '{cluster_key}' not in obs.columns for ROI {current_roi_id}")
-                    continue
-                
-                if not hasattr(adata.obs[cluster_key], 'cat'):
-                    adata.obs[cluster_key] = adata.obs[cluster_key].astype('category')
-                
-                # Check cluster sizes and filter out clusters with < 2 cells
-                cluster_counts = adata.obs[cluster_key].value_counts()
-                min_cluster_size = cluster_counts.min()
-                print(f"[DEBUG] Cluster counts: {dict(cluster_counts)}, min_size: {min_cluster_size}")
-                
-                # Filter out clusters with < 2 cells before running Ripley
-                valid_clusters = cluster_counts[cluster_counts >= 2].index.tolist()
-                if len(valid_clusters) == 0:
-                    print(f"[DEBUG] Skipping ROI {current_roi_id} - no clusters with >= 2 cells")
-                    continue  # Skip this ROI
-                
-                if len(valid_clusters) < len(cluster_counts):
-                    print(f"[DEBUG] Filtering out {len(cluster_counts) - len(valid_clusters)} clusters with < 2 cells. "
-                          f"Using {len(valid_clusters)} valid clusters: {valid_clusters}")
-                    # Filter adata to only include valid clusters
-                    adata_filtered = adata[adata.obs[cluster_key].isin(valid_clusters)].copy()
-                    if adata_filtered.n_obs == 0:
-                        print(f"[DEBUG] Skipping ROI {current_roi_id} - no cells after filtering")
-                        continue
-                    adata = adata_filtered
-                
-                print(f"[DEBUG] Running ripley for ROI {current_roi_id}, clusters: {list(adata.obs[cluster_key].cat.categories)}")
-                try:
-                    sq.gr.ripley(adata, cluster_key=cluster_key, mode=mode, max_dist=max_dist)
-                    
-                    # Debug: Check what was stored
-                    print(f"[DEBUG] All keys in adata.uns after ripley: {list(adata.uns.keys())}")
-                    if 'ripley' in adata.uns:
-                        ripley_stored = adata.uns['ripley']
-                        print(f"[DEBUG] Ripley data type: {type(ripley_stored)}")
-                        if isinstance(ripley_stored, dict):
-                            print(f"[DEBUG] Ripley keys: {list(ripley_stored.keys())[:10]}...")
-                            # Check structure of first value
-                            if len(ripley_stored) > 0:
-                                first_key = list(ripley_stored.keys())[0]
-                                first_val = ripley_stored[first_key]
-                                print(f"[DEBUG] First key: {first_key}, value type: {type(first_val)}")
-                                if isinstance(first_val, dict):
-                                    print(f"[DEBUG] First value keys: {list(first_val.keys())}")
-                        elif isinstance(ripley_stored, pd.DataFrame):
-                            print(f"[DEBUG] Ripley DataFrame shape: {ripley_stored.shape}, columns: {list(ripley_stored.columns)}")
-                    else:
-                        # Check for alternative key names
-                        for key in adata.uns.keys():
-                            if 'ripley' in key.lower():
-                                print(f"[DEBUG] Found potential ripley key: {key}, type: {type(adata.uns[key])}")
-                    
-                    print(f"[DEBUG] Ripley completed for ROI {current_roi_id}")
-                    ripley_results.append(adata)
-                    success_count += 1
-                    
-                    if current_roi_id not in self.analysis_status:
-                        self.analysis_status[current_roi_id] = {}
-                    self.analysis_status[current_roi_id]['ripley'] = True
-                except ValueError as e:
-                    if "n_neighbors" in str(e) or "n_samples_fit" in str(e):
-                        print(f"[DEBUG] Skipping ROI {current_roi_id} - insufficient samples: {e}")
-                        continue  # Skip this ROI
-                    else:
-                        raise
-                except Exception as e:
-                    print(f"[DEBUG] Exception in ripley for ROI {current_roi_id}: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
+                    QtWidgets.QMessageBox.warning(self, "No Graph", f"No spatial graph found for ROI {roi_id}.")
+                    return
+                anndata_dict = {roi_id: adata}
             
-            if success_count == 0:
-                QtWidgets.QMessageBox.warning(self, "Ripley Failed", 
-                    "Failed to run Ripley analysis for any ROI. "
-                    "This can happen when clusters are too small.")
+            if not anndata_dict:
+                QtWidgets.QMessageBox.warning(self, "No Data", "No AnnData objects with spatial graphs found.")
                 return
             
-            # For Ripley, we'll plot the first ROI for now
-            # TODO: Implement proper aggregation for Ripley curves
-            if len(ripley_results) > 0:
-                plot_adata = ripley_results[0]
-                print(f"[DEBUG] Using first ROI result for plotting: {plot_adata}")
-                print(f"[DEBUG] Plot adata uns keys: {list(plot_adata.uns.keys())}")
+            # Use core function
+            results = spatial_ripley(
+                anndata_dict=anndata_dict,
+                cluster_key=cluster_key,
+                mode=mode,
+                max_dist=max_dist
+            )
+            
+            # Update cache with results
+            self.anndata_cache.update(results)
+            
+            # Update status
+            for roi_id in results.keys():
+                if roi_id not in self.analysis_status:
+                    self.analysis_status[roi_id] = {}
+                self.analysis_status[roi_id]['ripley'] = True
+            
+            if results:
+                # Use first ROI for plotting
+                plot_adata = list(results.values())[0]
                 
                 QtWidgets.QMessageBox.information(self, "Ripley Complete", 
-                    f"Ripley analysis completed for {success_count} ROI(s).")
+                    f"Ripley analysis completed for {len(results)} ROI(s).")
                 
                 # Plot results
                 self._plot_sq_ripley(plot_adata, cluster_key)
                 self.sq_ripley_save_btn.setEnabled(True)
             else:
                 QtWidgets.QMessageBox.warning(self, "No Results", 
-                    "Ripley analysis completed but no results to plot.")
+                    "Ripley analysis completed but no results to plot. "
+                    "This can happen when clusters are too small.")
                 
         except Exception as e:
             import traceback
@@ -2771,7 +2305,7 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.information(self, "Success", "Plot saved successfully")
     
     def _export_to_anndata(self):
-        """Export data to AnnData format (combined or per-ROI)."""
+        """Export data to AnnData format using core function."""
         from PyQt5.QtWidgets import QFileDialog
         
         if not self.anndata_cache:
@@ -2801,15 +2335,8 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                 if not file_path:
                     return
                 
-                # Concatenate all AnnData objects
-                import anndata as ad
-                adata_list = list(self.anndata_cache.values())
-                if len(adata_list) == 1:
-                    combined_adata = adata_list[0]
-                else:
-                    combined_adata = ad.concat(adata_list, join='outer', index_unique='-')
-                
-                combined_adata.write(file_path)
+                # Use core function
+                export_anndata(self.anndata_cache, file_path, combined=True)
                 QtWidgets.QMessageBox.information(self, "Export Complete", 
                     f"Combined AnnData exported to:\n{file_path}")
             else:
@@ -2818,10 +2345,8 @@ class AdvancedSpatialAnalysisDialog(QtWidgets.QDialog):
                 if not export_dir:
                     return
                 
-                for roi_id, adata in self.anndata_cache.items():
-                    file_path = os.path.join(export_dir, f"anndata_roi_{roi_id}.h5ad")
-                    adata.write(file_path)
-                
+                # Use core function
+                export_anndata(self.anndata_cache, export_dir, combined=False)
                 QtWidgets.QMessageBox.information(self, "Export Complete", 
                     f"Exported {len(self.anndata_cache)} AnnData file(s) to:\n{export_dir}")
                 

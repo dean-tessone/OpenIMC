@@ -45,6 +45,7 @@ import random
 from collections import defaultdict
 from openimc.utils.logger import get_logger
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
+from openimc.core import spatial_enrichment, spatial_distance_distribution, build_spatial_graph
 from openimc.ui.dialogs.spatial_analysis import (
     SourceFileFilterDialog,
     _get_vivid_colors,
@@ -72,84 +73,13 @@ except ImportError:
     sns = None
 
 
-# Module-level worker function for multiprocessing (must be picklable)
-def _permutation_worker(args):
-    """
-    Worker function for computing permutations for a single cluster pair.
-    This function must be at module level to be picklable for multiprocessing.
-    
-    Args:
-        args: Tuple containing:
-            - roi_edges: DataFrame with edges for this ROI
-            - roi_df: DataFrame with cells for this ROI
-            - cluster_col: Name of cluster column
-            - cluster_a: First cluster ID
-            - cluster_b: Second cluster ID
-            - pair: Tuple of (cluster_a, cluster_b) in sorted order
-            - observed: Observed edge count for this pair
-            - n_perm: Number of permutations
-            - seed: Random seed
-            
-    Returns:
-        Dictionary with enrichment statistics for this cluster pair
-    """
-    roi_edges, roi_df, cluster_col, cluster_a, cluster_b, pair, observed, n_perm, seed = args
-    
-    # Convert roi_edges to list of tuples for faster iteration
-    edge_list = [(int(row['cell_id_A']), int(row['cell_id_B'])) 
-                 for _, row in roi_edges.iterrows()]
-    
-    # Get cluster values as array for shuffling
-    cluster_values = roi_df[cluster_col].values.copy()
-    cell_ids = roi_df['cell_id'].values
-    
-    permuted_counts = []
-    for perm_idx in range(n_perm):
-        # Use a different seed for each permutation to ensure reproducibility
-        np.random.seed(seed + perm_idx)
-        # Shuffle cluster labels
-        shuffled_clusters = cluster_values.copy()
-        np.random.shuffle(shuffled_clusters)
-        
-        # Create temporary mapping
-        temp_cell_to_cluster = dict(zip(cell_ids, shuffled_clusters))
-        
-        # Count edges for this permutation
-        perm_count = 0
-        for cell_a, cell_b in edge_list:
-            perm_cluster_a = temp_cell_to_cluster.get(cell_a)
-            perm_cluster_b = temp_cell_to_cluster.get(cell_b)
-            
-            if perm_cluster_a is not None and perm_cluster_b is not None:
-                perm_pair = tuple(sorted([perm_cluster_a, perm_cluster_b]))
-                if perm_pair == pair:
-                    perm_count += 1
-        
-        permuted_counts.append(perm_count)
-    
-    # Calculate statistics
-    expected_mean = np.mean(permuted_counts)
-    expected_std = np.std(permuted_counts)
-    
-    if expected_std > 0:
-        z_score = (observed - expected_mean) / expected_std
-        # Two-tailed p-value from permutation distribution
-        p_value = np.mean(np.abs(permuted_counts - expected_mean) >= abs(observed - expected_mean))
-    else:
-        z_score = 0.0
-        p_value = 1.0
-    
-    return {
-        'cluster_A': cluster_a,
-        'cluster_B': cluster_b,
-        'observed_edges': observed,
-        'expected_mean': expected_mean,
-        'expected_std': expected_std,
-        'z_score': z_score,
-        'p_value': p_value,
-        'n_permutations': n_perm
-    }
-
+# Import worker functions from processing module
+from openimc.processing.spatial_analysis_worker import (
+    permutation_worker as _permutation_worker,
+    distance_distribution_worker as _distance_distribution_worker,
+    neighborhood_composition_worker as _neighborhood_composition_worker,
+    ripley_worker as _ripley_worker
+)
 
 def _distance_distribution_worker(args):
     """
@@ -852,6 +782,9 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
         self.tabs.addTab(self.community_tab, "Spatial Communities")
         
         layout.addWidget(self.tabs, 1)
+        
+        # Set default tab to the leftmost tab (index 0)
+        self.tabs.setCurrentIndex(0)
 
         # Wire signals
         self.build_graph_btn.clicked.connect(self._on_build_graph_clicked)
@@ -1001,7 +934,7 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
     # TODO: Extract full method implementations from spatial_analysis.py
     
     def _build_spatial_graph(self):
-        """Build the spatial graph (edges and adjacency matrices)."""
+        """Build the spatial graph (edges and adjacency matrices) using core.build_spatial_graph."""
         if hasattr(self, 'edge_df') and self.edge_df is not None and not self.edge_df.empty:
             return True
         
@@ -1020,181 +953,88 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
             self.gid_to_cell_id = {}
             self.adj_matrices = {}
             
-            # Step 1: Build global cell ID mapping and per-ROI adjacency matrices
-            edge_records = []
-            global_id_counter = 0
-            
             parent = self.parent() if hasattr(self, 'parent') else None
 
             # Get filtered dataframe (respects source file filter)
             filtered_df = self._get_filtered_dataframe()
             
-            # Process per ROI/acquisition to respect ROI boundaries
+            # Get pixel size (use first ROI's pixel size as default)
+            pixel_size_um = 1.0
             roi_col = self._get_roi_column()
-            roi_groups = list(filtered_df.groupby(roi_col))
+            if roi_col and roi_col in filtered_df.columns:
+                first_roi = filtered_df[roi_col].iloc[0] if len(filtered_df) > 0 else None
+                if first_roi is not None and parent is not None and hasattr(parent, '_get_pixel_size_um'):
+                    try:
+                        pixel_size_um = float(parent._get_pixel_size_um(first_roi))
+                    except Exception:
+                        pixel_size_um = 1.0
             
-            for roi_idx, (roi_id, roi_df) in enumerate(roi_groups):
+            # Use core.build_spatial_graph to build edges
+            edges_df, _ = build_spatial_graph(
+                features_df=filtered_df,
+                method=mode,
+                k_neighbors=k,
+                radius=radius_um if mode == "Radius" else None,
+                pixel_size_um=pixel_size_um,
+                roi_column=roi_col,
+                detect_communities=False,  # We don't need communities here
+                community_seed=self.rng_seed,
+                output_path=None
+            )
+            
+            self.edge_df = edges_df
+            
+            # Build adjacency matrices from edges (GUI-specific for visualization)
+            if _HAVE_SPARSE and not self.edge_df.empty:
+                roi_groups = list(filtered_df.groupby(roi_col)) if roi_col and roi_col in filtered_df.columns else [(None, filtered_df)]
+                global_id_counter = 0
                 
-                roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])  # ensure valid coordinates
-                
-                if roi_df.empty:
-                    continue
+                for roi_id, roi_df in roi_groups:
+                    roi_id_str = str(roi_id) if roi_id is not None else "global"
+                    roi_edges = self.edge_df[self.edge_df['roi_id'] == roi_id_str] if 'roi_id' in self.edge_df.columns else self.edge_df
                     
-                coords_px = roi_df[["centroid_x", "centroid_y"]].to_numpy(dtype=float)
-                cell_ids = roi_df["cell_id"].astype(int).to_numpy()
-                
-                # Build global ID mapping for this ROI
-                roi_id_str = str(roi_id)
-                roi_cell_to_gid = {}
-                for i, cell_id in enumerate(cell_ids):
-                    gid = global_id_counter + i
-                    self.cell_id_to_gid[(roi_id_str, int(cell_id))] = gid
-                    self.gid_to_cell_id[gid] = (roi_id_str, int(cell_id))
-                    roi_cell_to_gid[int(cell_id)] = gid
-                
-                global_id_counter += len(cell_ids)
-                
-
-                # Get pixel size in µm for this ROI
-                pixel_size_um = 1.0
-                try:
-                    if parent is not None and hasattr(parent, '_get_pixel_size_um'):
-                        pixel_size_um = float(parent._get_pixel_size_um(roi_id))  # type: ignore[attr-defined]
-                except Exception as e:
-                    pixel_size_um = 1.0
-
-                tree = cKDTree(coords_px)
-
-                # Use set to deduplicate edges during construction
-                roi_edges_set = set()
-                roi_edges_list = []
-
-                if mode == "kNN":
-                    # Query k+1 (including self), exclude self idx 0
-                    query_k = min(k + 1, max(2, len(coords_px)))
+                    if roi_edges.empty:
+                        continue
                     
-                    try:
-                        dists, idxs = tree.query(coords_px, k=query_k)
-                        
-                        # Handle scalar case (when only 1 point or k=1)
-                        if np.isscalar(dists):
-                            dists = np.array([[dists]])
-                            idxs = np.array([[idxs]])
-                        # Ensure 2D for array case
-                        elif dists.ndim == 1:
-                            dists = dists[:, None]
-                            idxs = idxs[:, None]
-                        
-                        
-                        for i in range(len(coords_px)):
-                            src_cell_id = int(cell_ids[i])
-                            for j in range(1, min(dists.shape[1], k + 1)):
-                                nbr_idx = int(idxs[i, j])
-                                if nbr_idx < 0 or nbr_idx >= len(coords_px):
-                                    continue
-                                dst_cell_id = int(cell_ids[nbr_idx])
-                                
-                                # Create canonical edge (smaller cell_id first)
-                                edge_key = (min(src_cell_id, dst_cell_id), max(src_cell_id, dst_cell_id))
-                                if edge_key not in roi_edges_set:
-                                    roi_edges_set.add(edge_key)
-                                    dist_um = float(dists[i, j]) * pixel_size_um
-                                    roi_edges_list.append((src_cell_id, dst_cell_id, dist_um))
-                        
-                        
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
-                        raise
-                        
-                elif mode == "Radius":
-                    # Radius graph: convert radius µm to pixels
-                    radius_px = radius_um / max(pixel_size_um, 1e-12)
-                    
-                    try:
-                        pairs = tree.query_pairs(r=radius_px)
-                        
-                        for i, j in pairs:
-                            a_id = int(cell_ids[int(i)])
-                            b_id = int(cell_ids[int(j)])
-                            
-                            # Create canonical edge (smaller cell_id first)
-                            edge_key = (min(a_id, b_id), max(a_id, b_id))
-                            if edge_key not in roi_edges_set:
-                                roi_edges_set.add(edge_key)
-                                dist_um = float(np.linalg.norm(coords_px[int(i)] - coords_px[int(j)])) * pixel_size_um
-                                roi_edges_list.append((a_id, b_id, dist_um))
-                        
-                        
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
-                        raise
-                        
-                elif mode == "Delaunay":
-                    
-                    try:
-                        # Delaunay triangulation
-                        tri = Delaunay(coords_px)
-                        
-                        # Extract edges from simplices (triangles)
-                        edges_set = set()
-                        for simplex in tri.simplices:
-                            # Each simplex has 3 vertices, create edges between all pairs
-                            for i in range(3):
-                                for j in range(i+1, 3):
-                                    v1, v2 = simplex[i], simplex[j]
-                                    # Create canonical edge (smaller index first)
-                                    edge_key = (min(v1, v2), max(v1, v2))
-                                    if edge_key not in edges_set:
-                                        edges_set.add(edge_key)
-                                        a_id = int(cell_ids[v1])
-                                        b_id = int(cell_ids[v2])
-                                        dist_um = float(np.linalg.norm(coords_px[v1] - coords_px[v2])) * pixel_size_um
-                                        roi_edges_list.append((a_id, b_id, dist_um))
-                        
-                        
-                    except Exception as e:
-                        import traceback
-                        traceback.print_exc()
-                        raise
-                else:
-                    raise ValueError(f"Unknown graph construction mode: {mode}")
-
-                # Build per-ROI adjacency matrix
-                if _HAVE_SPARSE and len(roi_edges_list) > 0:
+                    # Get cell IDs for this ROI
+                    cell_ids = roi_df["cell_id"].astype(int).to_numpy() if 'cell_id' in roi_df.columns else roi_df.index.values
                     n_cells = len(cell_ids)
-                    rows, cols, data = [], [], []
                     
-                    for src_cell_id, dst_cell_id, _ in roi_edges_list:
-                        src_gid = roi_cell_to_gid[src_cell_id]
-                        dst_gid = roi_cell_to_gid[dst_cell_id]
+                    # Build global ID mapping for this ROI
+                    roi_cell_to_gid = {}
+                    for i, cell_id in enumerate(cell_ids):
+                        gid = global_id_counter + i
+                        self.cell_id_to_gid[(roi_id_str, int(cell_id))] = gid
+                        self.gid_to_cell_id[gid] = (roi_id_str, int(cell_id))
+                        roi_cell_to_gid[int(cell_id)] = gid
+                    
+                    global_id_counter += n_cells
+                    
+                    # Build adjacency matrix from edges
+                    rows, cols, data = [], [], []
+                    for _, edge in roi_edges.iterrows():
+                        src_cell_id = int(edge['cell_id_A'])
+                        dst_cell_id = int(edge['cell_id_B'])
                         
-                        # Convert global IDs to local indices for this ROI
-                        src_local = src_gid - (global_id_counter - n_cells)
-                        dst_local = dst_gid - (global_id_counter - n_cells)
-                        
-                        # Add both directions (undirected graph)
-                        rows.extend([src_local, dst_local])
-                        cols.extend([dst_local, src_local])
-                        data.extend([1.0, 1.0])
+                        if src_cell_id in roi_cell_to_gid and dst_cell_id in roi_cell_to_gid:
+                            src_gid = roi_cell_to_gid[src_cell_id]
+                            dst_gid = roi_cell_to_gid[dst_cell_id]
+                            
+                            # Convert global IDs to local indices for this ROI
+                            src_local = src_gid - (global_id_counter - n_cells)
+                            dst_local = dst_gid - (global_id_counter - n_cells)
+                            
+                            # Add both directions (undirected graph)
+                            rows.extend([src_local, dst_local])
+                            cols.extend([dst_local, src_local])
+                            data.extend([1.0, 1.0])
                     
                     if rows:
                         adj_matrix = sp.coo_matrix((data, (rows, cols)), shape=(n_cells, n_cells))
                         self.adj_matrices[roi_id_str] = adj_matrix.tocsr()
-                
-                # Add edges to global edge records
-                for src_cell_id, dst_cell_id, dist_um in roi_edges_list:
-                    edge_records.append((roi_id_str, src_cell_id, dst_cell_id, dist_um))
-
-
-            # Create edge dataframe (no need for drop_duplicates since we deduplicated during construction)
-            if edge_records:
-                self.edge_df = pd.DataFrame(edge_records, columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
-            else:
-                self.edge_df = pd.DataFrame(columns=["roi_id", "cell_id_A", "cell_id_B", "distance_um"])
 
             # Update metadata
+            roi_groups = list(filtered_df.groupby(roi_col)) if roi_col and roi_col in filtered_df.columns else [(None, filtered_df)]
             self.metadata.update({
                 "mode": mode,
                 "k": k,
@@ -1205,7 +1045,6 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
                 "pixel_size_um": pixel_size_um,
             })
 
-            
             # Log graph construction
             logger = get_logger()
             acquisitions = [roi_id for roi_id, _ in roi_groups] if roi_groups else []
@@ -1341,7 +1180,7 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Distance Analysis Error", f"Error: {str(e)}")
     
     def _compute_pairwise_enrichment(self, n_perm=100):
-        """Compute pairwise interaction enrichment analysis using permutation null with multiprocessing."""
+        """Compute pairwise interaction enrichment analysis using core function."""
         if self.edge_df is None or self.edge_df.empty:
             return
             
@@ -1363,159 +1202,53 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
         # Get filtered dataframe (respects source file filter)
         filtered_df = self._get_filtered_dataframe()
         
-        # Collect all tasks (cluster pairs) to process
-        tasks = []
+        # Get ROI column
         roi_col = self._get_roi_column()
         seed = self.seed_spinbox.value()
         
-        # Track unique ROIs for progress reporting
-        unique_rois = set()
-        
-        for roi_id, roi_df in filtered_df.groupby(roi_col):
-            roi_edges = self.edge_df[self.edge_df['roi_id'] == str(roi_id)]
-            
-            if roi_edges.empty:
-                continue
-                
-            # Get unique clusters in this ROI
-            unique_clusters = sorted(roi_df[cluster_col].unique())
-            n_clusters = len(unique_clusters)
-            
-            if n_clusters < 2:
-                continue  # Need at least 2 clusters for pairwise analysis
-            
-            # Create cell_id to cluster mapping for efficient lookup
-            cell_to_cluster = dict(zip(roi_df['cell_id'], roi_df[cluster_col]))
-            
-            # Count observed edges between cluster pairs
-            observed_edges = {}
-            for _, edge in roi_edges.iterrows():
-                cell_a, cell_b = int(edge['cell_id_A']), int(edge['cell_id_B'])
-                
-                cluster_a = cell_to_cluster.get(cell_a)
-                cluster_b = cell_to_cluster.get(cell_b)
-                
-                if cluster_a is not None and cluster_b is not None:
-                    # Create canonical pair (smaller cluster first)
-                    pair = tuple(sorted([cluster_a, cluster_b]))
-                    observed_edges[pair] = observed_edges.get(pair, 0) + 1
-            
-            # Create tasks for each cluster pair
-            for i, cluster_a in enumerate(unique_clusters):
-                for j, cluster_b in enumerate(unique_clusters):
-                    if j < i:  # Avoid duplicates
-                        continue
-                        
-                    pair = tuple(sorted([cluster_a, cluster_b]))
-                    observed = observed_edges.get(pair, 0)
-                    
-                    # Create task tuple for multiprocessing
-                    task = (roi_edges, roi_df, cluster_col, cluster_a, cluster_b, pair, observed, n_perm, seed)
-                    tasks.append((roi_id, task))
-                    unique_rois.add(roi_id)
-        
-        if not tasks:
-            self.enrichment_df = pd.DataFrame()
-            return
-        
-        total_rois = len(unique_rois)
-        
-        # Create progress dialog
+        # Show progress dialog
         progress_dlg = QtWidgets.QProgressDialog(
-            "Computing permutation tests...",
+            "Computing enrichment analysis...",
             "Cancel",
             0,
-            len(tasks),
+            0,
             self
         )
         progress_dlg.setWindowTitle("Enrichment Analysis")
         progress_dlg.setWindowModality(QtCore.Qt.WindowModal)
         progress_dlg.setMinimumDuration(0)
         progress_dlg.setValue(0)
-        
-        # Get number of workers from spinbox, but cap at reasonable limits
-        requested_workers = int(self.workers_spin.value())
-        try:
-            max_cpu = mp.cpu_count()
-        except (NotImplementedError, RuntimeError):
-            max_cpu = 4  # Fallback if cpu_count fails
-        num_workers = min(requested_workers, len(tasks), max_cpu)
-        
-        enrichment_data = []
+        QtWidgets.QApplication.processEvents()
         
         try:
-            # Use multiprocessing if we have multiple tasks and workers
-            if num_workers > 1 and len(tasks) > 1:
-                # Use spawn context to avoid issues with fork on some systems
-                ctx = mp.get_context('spawn')
-                with ctx.Pool(processes=num_workers) as pool:
-                    # Submit all tasks
-                    futures = []
-                    for roi_id, task in tasks:
-                        future = pool.apply_async(_permutation_worker, (task,))
-                        futures.append((roi_id, future))
-                    
-                    # Collect results as they complete
-                    completed = 0
-                    completed_rois = set()
-                    for roi_id, future in futures:
-                        if progress_dlg.wasCanceled():
-                            pool.terminate()
-                            pool.join()
-                            return
-                        
-                        try:
-                            result = future.get(timeout=300)  # 5 minute timeout per task
-                            result['roi_id'] = roi_id
-                            enrichment_data.append(result)
-                            completed_rois.add(roi_id)
-                        except Exception as e:
-                            print(f"Permutation test failed for ROI {roi_id}: {e}")
-                            import traceback
-                            traceback.print_exc()
-                            continue
-                        
-                        completed += 1
-                        progress_dlg.setValue(completed)
-                        progress_dlg.setLabelText(
-                            f"Computing permutation tests...\n"
-                            f"Completed {completed}/{len(tasks)} cluster pairs across {len(completed_rois)}/{total_rois} ROIs"
-                        )
-                        # Process events to update UI
-                        QtWidgets.QApplication.processEvents()
-            else:
-                # Fallback to sequential processing for small tasks
-                completed_rois = set()
-                for completed, (roi_id, task) in enumerate(tasks, 1):
-                    if progress_dlg.wasCanceled():
-                        break
-                    
-                    try:
-                        result = _permutation_worker(task)
-                        result['roi_id'] = roi_id
-                        enrichment_data.append(result)
-                        completed_rois.add(roi_id)
-                    except Exception as e:
-                        print(f"Permutation test failed for ROI {roi_id}: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        continue
-                    
-                    progress_dlg.setValue(completed)
-                    progress_dlg.setLabelText(
-                        f"Computing permutation tests...\n"
-                        f"Completed {completed}/{len(tasks)} cluster pairs across {len(completed_rois)}/{total_rois} ROIs"
-                    )
-                    QtWidgets.QApplication.processEvents()
-        
+            # Use core spatial_enrichment function
+            self.enrichment_df = spatial_enrichment(
+                features_df=filtered_df,
+                edges_df=self.edge_df,
+                cluster_column=cluster_col,
+                n_permutations=n_perm,
+                seed=seed,
+                roi_column=roi_col,
+                output_path=None  # Don't save, we'll use the dataframe directly
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Enrichment Analysis Error",
+                f"Error computing enrichment: {str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
+            self.enrichment_df = pd.DataFrame()
         finally:
             progress_dlg.close()
-        
-        self.enrichment_df = pd.DataFrame(enrichment_data)
     
     def _compute_distance_distributions(self):
-        """Compute distance distribution analysis using geometric nearest neighbor search with multiprocessing."""
+        """Compute distance distribution analysis using core function."""
         if self.feature_dataframe is None or self.feature_dataframe.empty:
+            return
+        
+        if self.edge_df is None or self.edge_df.empty:
             return
             
         # Use detected cluster column (already validated in _run_analysis)
@@ -1539,116 +1272,43 @@ class SimpleSpatialAnalysisDialog(QtWidgets.QDialog):
         # Get filtered dataframe (respects source file filter)
         filtered_df = self._get_filtered_dataframe()
         
-        # Collect all ROI tasks
-        tasks = []
+        # Get ROI column
         roi_col = self._get_roi_column()
-        for roi_id, roi_df in filtered_df.groupby(roi_col):
-            roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])
-            if roi_df.empty:
-                continue
-                
-            # Get pixel size for this ROI
-            pixel_size_um = 1.0
-            try:
-                if parent is not None and hasattr(parent, '_get_pixel_size_um'):
-                    pixel_size_um = float(parent._get_pixel_size_um(roi_id))  # type: ignore[attr-defined]
-            except Exception:
-                pixel_size_um = 1.0
-            
-            # Create task tuple for multiprocessing
-            task = (roi_id, roi_df, cluster_col, pixel_size_um)
-            tasks.append(task)
         
-        if not tasks:
-            self.distance_df = pd.DataFrame()
-            return
-        
-        # Create progress dialog
+        # Show progress dialog
         progress_dlg = QtWidgets.QProgressDialog(
             "Computing distance distributions...",
             "Cancel",
             0,
-            len(tasks),
+            0,
             self
         )
         progress_dlg.setWindowTitle("Distance Distribution Analysis")
         progress_dlg.setWindowModality(QtCore.Qt.WindowModal)
         progress_dlg.setMinimumDuration(0)
         progress_dlg.setValue(0)
-        
-        # Get number of workers from spinbox, but cap at reasonable limits
-        requested_workers = int(self.distance_workers_spin.value())
-        try:
-            max_cpu = mp.cpu_count()
-        except (NotImplementedError, RuntimeError):
-            max_cpu = 4  # Fallback if cpu_count fails
-        num_workers = min(requested_workers, len(tasks), max_cpu)
-        
-        distance_data = []
+        QtWidgets.QApplication.processEvents()
         
         try:
-            # Use multiprocessing if we have multiple tasks and workers
-            if num_workers > 1 and len(tasks) > 1:
-                # Use spawn context to avoid issues with fork on some systems
-                ctx = mp.get_context('spawn')
-                with ctx.Pool(processes=num_workers) as pool:
-                    # Submit all tasks
-                    futures = []
-                    for task in tasks:
-                        future = pool.apply_async(_distance_distribution_worker, (task,))
-                        futures.append(future)
-                    
-                    # Collect results as they complete
-                    completed = 0
-                    for future in futures:
-                        if progress_dlg.wasCanceled():
-                            pool.terminate()
-                            pool.join()
-                            return
-                        
-                        try:
-                            result = future.get(timeout=600)  # 10 minute timeout per ROI
-                            distance_data.extend(result)
-                        except Exception as e:
-                            print(f"Distance computation failed for a ROI: {e}")
-                            import traceback
-                            traceback.print_exc()
-                            continue
-                        
-                        completed += 1
-                        progress_dlg.setValue(completed)
-                        progress_dlg.setLabelText(
-                            f"Computing distance distributions...\n"
-                            f"Completed {completed}/{len(tasks)} ROIs"
-                        )
-                        # Process events to update UI
-                        QtWidgets.QApplication.processEvents()
-            else:
-                # Fallback to sequential processing for small tasks
-                for completed, task in enumerate(tasks, 1):
-                    if progress_dlg.wasCanceled():
-                        break
-                    
-                    try:
-                        result = _distance_distribution_worker(task)
-                        distance_data.extend(result)
-                    except Exception as e:
-                        print(f"Distance computation failed for a ROI: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        continue
-                    
-                    progress_dlg.setValue(completed)
-                    progress_dlg.setLabelText(
-                        f"Computing distance distributions...\n"
-                        f"Completed {completed}/{len(tasks)} ROIs"
-                    )
-                    QtWidgets.QApplication.processEvents()
-        
+            # Use core spatial_distance_distribution function
+            self.distance_df = spatial_distance_distribution(
+                features_df=filtered_df,
+                edges_df=self.edge_df,
+                cluster_column=cluster_col,
+                roi_column=roi_col,
+                output_path=None  # Don't save, we'll use the dataframe directly
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Distance Distribution Error",
+                f"Error computing distance distributions: {str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
+            self.distance_df = pd.DataFrame()
         finally:
             progress_dlg.close()
-        
-        self.distance_df = pd.DataFrame(distance_data)
     
     def _populate_roi_combo(self):
         """Populate ROI combo box."""

@@ -33,10 +33,9 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 
 from openimc.processing.batch_correction import (
-    apply_combat_correction,
-    apply_harmony_correction,
     validate_batch_correction_inputs
 )
+from openimc.core import batch_correction
 from openimc.ui.dialogs.custom_grouping_dialog import CustomGroupingDialog
 from openimc.utils.logger import get_logger
 
@@ -791,31 +790,43 @@ class BatchCorrectionDialog(QtWidgets.QDialog):
         QtWidgets.QApplication.processEvents()
         
         try:
-            # Apply correction based on method
-            if method == "Combat":
-                if not _HAVE_COMBAT:
-                    raise ImportError("Combat is not installed. Install with: pip install combat")
-                self.corrected_dataframe = apply_combat_correction(
-                    combined_df,
-                    batch_var,
-                    selected_features
-                )
-            elif method == "Harmony":
-                if not _HAVE_HARMONY:
-                    raise ImportError("Harmony is not installed. Install with: pip install harmonypy")
-                # Get PCA variance threshold (default 0.9 for 90%)
-                pca_variance = self.pca_variance_spin.value() if hasattr(self, 'pca_variance_spin') else 0.9
-                self.corrected_dataframe = apply_harmony_correction(
-                    combined_df,
-                    batch_var,
-                    selected_features,
-                    pca_variance=pca_variance
-                )
-            else:
-                raise ValueError(f"Unknown method: {method}")
+            # Map method name to core function format
+            method_lower = method.lower()  # "Combat" -> "combat", "Harmony" -> "harmony"
+            
+            # Get Harmony-specific parameters if needed
+            pca_variance = 0.9  # Default
+            if method == "Harmony" and hasattr(self, 'pca_variance_spin'):
+                pca_variance = self.pca_variance_spin.value()
+            
+            # Use core batch_correction function
+            # Note: output_path is None here since we handle saving separately below
+            self.corrected_dataframe = batch_correction(
+                features_df=combined_df,
+                method=method_lower,
+                batch_var=batch_var,
+                features=selected_features,
+                output_path=None,  # We'll save manually below if requested
+                covariates=None,  # ComBat covariates not currently supported in GUI
+                # Harmony parameters (only used if method == "harmony")
+                n_clusters=30,  # Default, could add UI control later
+                sigma=0.1,  # Default, could add UI control later
+                theta=2.0,  # Default, could add UI control later
+                lambda_reg=1.0,  # Default, could add UI control later
+                max_iter=10,  # Default, could add UI control later
+                pca_variance=pca_variance
+            )
             
             progress.close()
-            
+        except ImportError as e:
+            progress.close()
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Import Error",
+                f"Required package not installed:\n{str(e)}\n\nPlease install the required package and try again."
+            )
+            return
+        
+        try:
             # Validate output path if saving
             output_path = None
             if self.save_output_chk.isChecked():

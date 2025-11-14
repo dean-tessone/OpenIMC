@@ -36,6 +36,7 @@ import math
 from openimc.utils.logger import get_logger
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.plot_config_dialog import PlotConfigDialog
+from openimc.core import cluster
 
 # Optional seaborn for enhanced clustering visualization
 try:
@@ -214,11 +215,11 @@ class CellClusteringDialog(QtWidgets.QDialog):
         if _HAVE_LEIDEN:
             clustering_types.append("Leiden")
             clustering_types.append("Louvain")
-        clustering_types.append("Hierarchical")
         if _HAVE_SKLEARN:
             clustering_types.append("K-means")
         if _HAVE_HDBSCAN:
             clustering_types.append("HDBSCAN")
+        clustering_types.append("Hierarchical")
         self.clustering_type.addItems(clustering_types)
         # Set Leiden as default if available, otherwise fall back to Hierarchical
         if _HAVE_LEIDEN:
@@ -1018,18 +1019,187 @@ class CellClusteringDialog(QtWidgets.QDialog):
     
     def _perform_clustering(self, data, n_clusters, method):
         """Perform clustering using specified method."""
+        import time
+        print(f"[CLUSTERING DEBUG] _perform_clustering called: method={method}, n_clusters={n_clusters}")
+        print(f"[CLUSTERING DEBUG] Input data shape: {data.shape}")
+        print(f"[CLUSTERING DEBUG] Input data columns: {list(data.columns)[:10]}...")  # First 10 columns
+        
+        t0 = time.time()
         clustering_type = self.clustering_type.currentText()
         
+        # Get selected columns from data
+        selected_columns = list(data.columns)
+        print(f"[CLUSTERING DEBUG] Selected columns count: {len(selected_columns)}")
+        
+        # Get scaling method
+        scaling_text = self.clustering_scaling_combo.currentText()
+        scaling_map = {
+            "Z-score": "zscore",
+            "MAD (Median Absolute Deviation)": "mad"
+        }
+        scaling_method = scaling_map.get(scaling_text, "zscore")
+        print(f"[CLUSTERING DEBUG] Scaling method: {scaling_method}")
+        
+        # Get seed
+        seed = self.seed_spinbox.value()
+        
+        # Prepare full dataframe with all columns (for core function)
+        # The core function needs the full dataframe but will use only selected columns
+        full_data = self.feature_dataframe.copy()
+        print(f"[CLUSTERING DEBUG] Full dataframe shape: {full_data.shape}")
+        print(f"[CLUSTERING DEBUG] Time to prepare data: {time.time() - t0:.3f}s")
+        
         if clustering_type == "Leiden":
-            return self._perform_leiden_clustering(data)
+            # Use core.cluster for Leiden
+            resolution = self.resolution_spinbox.value() if self.resolution_radio.isChecked() else 1.0
+            n_neighbors = self.n_neighbors_spinbox.value()
+            metric = self.leiden_metric_combo.currentText()
+            print(f"[CLUSTERING DEBUG] Calling core.cluster with Leiden method")
+            print(f"[CLUSTERING DEBUG] Parameters: resolution={resolution}, seed={seed}, scaling={scaling_method}")
+            print(f"[CLUSTERING DEBUG] Parameters: n_neighbors={n_neighbors}, metric={metric}")
+            print(f"[CLUSTERING DEBUG] Selected columns: {len(selected_columns)} columns")
+            
+            t1 = time.time()
+            clustered_df = cluster(
+                features_df=full_data,
+                method="leiden",
+                columns=selected_columns,
+                scaling=scaling_method,
+                output_path=None,  # Don't save here
+                resolution=resolution,
+                seed=seed,
+                n_neighbors=n_neighbors,
+                metric=metric
+            )
+            print(f"[CLUSTERING DEBUG] core.cluster returned in {time.time() - t1:.3f}s")
+            print(f"[CLUSTERING DEBUG] Result shape: {clustered_df.shape}")
+            print(f"[CLUSTERING DEBUG] Unique clusters: {clustered_df['cluster'].nunique()}")
+            # Extract cluster labels
+            cluster_labels = clustered_df['cluster'].values
+            # Get data subset with clusters
+            clustered_data = data.copy()
+            clustered_data['cluster'] = cluster_labels
+            clustered_data = clustered_data.sort_values('cluster')
+            return clustered_data, cluster_labels
+            
         elif clustering_type == "Louvain":
-            return self._perform_louvain_clustering(data)
+            # Use core.cluster for Louvain
+            n_neighbors = self.n_neighbors_spinbox.value()
+            metric = self.leiden_metric_combo.currentText()
+            print(f"[CLUSTERING DEBUG] Calling core.cluster with Louvain method")
+            print(f"[CLUSTERING DEBUG] Parameters: seed={seed}, scaling={scaling_method}")
+            print(f"[CLUSTERING DEBUG] Parameters: n_neighbors={n_neighbors}, metric={metric}")
+            print(f"[CLUSTERING DEBUG] Selected columns: {len(selected_columns)} columns")
+            
+            t1 = time.time()
+            clustered_df = cluster(
+                features_df=full_data,
+                method="louvain",
+                columns=selected_columns,
+                scaling=scaling_method,
+                output_path=None,  # Don't save here
+                seed=seed,
+                n_neighbors=n_neighbors,
+                metric=metric
+            )
+            print(f"[CLUSTERING DEBUG] core.cluster returned in {time.time() - t1:.3f}s")
+            print(f"[CLUSTERING DEBUG] Result shape: {clustered_df.shape}")
+            print(f"[CLUSTERING DEBUG] Unique clusters: {clustered_df['cluster'].nunique()}")
+            # Extract cluster labels
+            cluster_labels = clustered_df['cluster'].values
+            # Get data subset with clusters
+            clustered_data = data.copy()
+            clustered_data['cluster'] = cluster_labels
+            clustered_data = clustered_data.sort_values('cluster')
+            return clustered_data, cluster_labels
+            
         elif clustering_type == "HDBSCAN":
-            return self._perform_hdbscan_clustering(data)
+            # Use core.cluster for HDBSCAN
+            min_cluster_size = self.min_cluster_size_spinbox.value()
+            min_samples = self.min_samples_spinbox.value()
+            cluster_selection_method = self.cluster_selection_combo.currentText()
+            hdbscan_metric = self.metric_combo.currentText()
+            print(f"[CLUSTERING DEBUG] Calling core.cluster with HDBSCAN method")
+            print(f"[CLUSTERING DEBUG] Parameters: seed={seed}, scaling={scaling_method}")
+            print(f"[CLUSTERING DEBUG] Parameters: min_cluster_size={min_cluster_size}, min_samples={min_samples}")
+            print(f"[CLUSTERING DEBUG] Parameters: cluster_selection_method={cluster_selection_method}, metric={hdbscan_metric}")
+            print(f"[CLUSTERING DEBUG] Selected columns: {len(selected_columns)} columns")
+            
+            t1 = time.time()
+            clustered_df = cluster(
+                features_df=full_data,
+                method="hdbscan",
+                columns=selected_columns,
+                scaling=scaling_method,
+                output_path=None,  # Don't save here
+                seed=seed,
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                cluster_selection_method=cluster_selection_method,
+                hdbscan_metric=hdbscan_metric
+            )
+            print(f"[CLUSTERING DEBUG] core.cluster returned in {time.time() - t1:.3f}s")
+            # Extract cluster labels
+            cluster_labels = clustered_df['cluster'].values
+            # Get data subset with clusters
+            clustered_data = data.copy()
+            clustered_data['cluster'] = cluster_labels
+            clustered_data = clustered_data.sort_values('cluster')
+            return clustered_data, cluster_labels
+            
         elif clustering_type == "K-means":
-            return self._perform_kmeans_clustering(data, n_clusters)
+            # Use core.cluster for K-means
+            print(f"[CLUSTERING DEBUG] Calling core.cluster with K-means method")
+            print(f"[CLUSTERING DEBUG] Parameters: n_clusters={n_clusters}, seed={seed}, scaling={scaling_method}")
+            print(f"[CLUSTERING DEBUG] Selected columns: {len(selected_columns)} columns")
+            
+            t1 = time.time()
+            clustered_df = cluster(
+                features_df=full_data,
+                method="kmeans",
+                columns=selected_columns,
+                scaling=scaling_method,
+                output_path=None,  # Don't save here
+                n_clusters=n_clusters,
+                seed=seed,
+                n_init=10  # Use 10 initializations (efficient default)
+            )
+            print(f"[CLUSTERING DEBUG] core.cluster returned in {time.time() - t1:.3f}s")
+            print(f"[CLUSTERING DEBUG] Result shape: {clustered_df.shape}")
+            print(f"[CLUSTERING DEBUG] Unique clusters: {clustered_df['cluster'].nunique()}")
+            # Extract cluster labels
+            cluster_labels = clustered_df['cluster'].values
+            # Get data subset with clusters
+            clustered_data = data.copy()
+            clustered_data['cluster'] = cluster_labels
+            clustered_data = clustered_data.sort_values('cluster')
+            return clustered_data, cluster_labels
         else:  # Hierarchical
-            return self._perform_hierarchical_clustering(data, n_clusters, method)
+            # Use core.cluster for hierarchical
+            linkage_method = method if isinstance(method, str) else "ward"
+            print(f"[CLUSTERING DEBUG] Calling core.cluster with Hierarchical method")
+            print(f"[CLUSTERING DEBUG] Parameters: n_clusters={n_clusters}, linkage={linkage_method}, seed={seed}, scaling={scaling_method}")
+            print(f"[CLUSTERING DEBUG] Selected columns: {len(selected_columns)} columns")
+            
+            t1 = time.time()
+            clustered_df = cluster(
+                features_df=full_data,
+                method="hierarchical",
+                columns=selected_columns,
+                scaling=scaling_method,
+                output_path=None,  # Don't save here
+                n_clusters=n_clusters,
+                linkage=linkage_method,
+                seed=seed
+            )
+            print(f"[CLUSTERING DEBUG] core.cluster returned in {time.time() - t1:.3f}s")
+            # Extract cluster labels
+            cluster_labels = clustered_df['cluster'].values
+            # Get data subset with clusters
+            clustered_data = data.copy()
+            clustered_data['cluster'] = cluster_labels
+            clustered_data = clustered_data.sort_values('cluster')
+            return clustered_data, cluster_labels
     
     def _perform_hierarchical_clustering(self, data, n_clusters, method):
         """Perform hierarchical clustering."""
@@ -3409,8 +3579,16 @@ class CellClusteringDialog(QtWidgets.QDialog):
             return
         
         try:
+            # Use raw (unscaled) data for boxplot/violin plots instead of z-scored data
+            # Fall back to clustered_data if unscaled data is not available
+            plot_data_source = self.clustered_data_unscaled if (
+                hasattr(self, 'clustered_data_unscaled') and 
+                self.clustered_data_unscaled is not None and 
+                'cluster' in self.clustered_data_unscaled.columns
+            ) else self.clustered_data
+            
             # Filter markers to only those available in the data
-            available_markers = [m for m in self.selected_markers if m in self.clustered_data.columns]
+            available_markers = [m for m in self.selected_markers if m in plot_data_source.columns]
             
             if not available_markers:
                 self.figure.clear()
@@ -3427,9 +3605,9 @@ class CellClusteringDialog(QtWidgets.QDialog):
             marker_display_map = {marker: self._get_feature_display_name(marker) for marker in available_markers}
             plot_data = []
             for marker in available_markers:
-                for cluster_id in sorted(self.clustered_data['cluster'].unique()):
-                    cluster_data = self.clustered_data[
-                        self.clustered_data['cluster'] == cluster_id
+                for cluster_id in sorted(plot_data_source['cluster'].unique()):
+                    cluster_data = plot_data_source[
+                        plot_data_source['cluster'] == cluster_id
                     ][marker].dropna()
                     
                     for value in cluster_data:
@@ -3525,7 +3703,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     
                     # Add statistical tests if enabled
                     if perform_stats:
-                        # Prepare data for statistical testing
+                        # Prepare data for statistical testing - explicitly use unscaled data
                         cluster_data_dict = {}
                         for cluster_name in cluster_order:
                             # Find corresponding cluster ID
@@ -3535,7 +3713,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
                                     cluster_id = cid
                                     break
                             if cluster_id is not None:
-                                cluster_data_dict[cluster_name] = marker_data[marker_data['Cluster'] == cluster_name]['Value'].values
+                                # Extract raw (unscaled) values directly from plot_data_source
+                                cluster_data_dict[cluster_name] = plot_data_source[
+                                    plot_data_source['cluster'] == cluster_id
+                                ][marker].dropna().values
                         
                         # Perform statistical tests
                         test_results = self._perform_pairwise_tests(cluster_data_dict, cluster_order, 
@@ -3624,7 +3805,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 
                 # Add statistical tests if enabled
                 if perform_stats:
-                    # Prepare data for statistical testing
+                    # Prepare data for statistical testing - explicitly use unscaled data
                     cluster_data_dict = {}
                     for cluster_name in cluster_order:
                         # Find corresponding cluster ID
@@ -3634,7 +3815,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
                                 cluster_id = cid
                                 break
                         if cluster_id is not None:
-                            cluster_data_dict[cluster_name] = marker_data[marker_data['Cluster'] == cluster_name]['Value'].values
+                            # Extract raw (unscaled) values directly from plot_data_source
+                            cluster_data_dict[cluster_name] = plot_data_source[
+                                plot_data_source['cluster'] == cluster_id
+                            ][marker].dropna().values
                     
                     # Perform statistical tests
                     test_results = self._perform_pairwise_tests(cluster_data_dict, cluster_order,
@@ -3757,8 +3941,23 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     
                     # Add statistical tests if enabled
                     if perform_stats:
+                        # Prepare data for statistical testing - explicitly use unscaled data
+                        cluster_data_dict = {}
+                        for cluster_name in cluster_order:
+                            # Find corresponding cluster ID
+                            cluster_id = None
+                            for cid in unique_cluster_ids:
+                                if self._get_cluster_display_name(cid) == cluster_name:
+                                    cluster_id = cid
+                                    break
+                            if cluster_id is not None:
+                                # Extract raw (unscaled) values directly from plot_data_source
+                                cluster_data_dict[cluster_name] = plot_data_source[
+                                    plot_data_source['cluster'] == cluster_id
+                                ][marker].dropna().values
+                        
                         # Perform statistical tests
-                        test_results = self._perform_pairwise_tests(cluster_values, cluster_order,
+                        test_results = self._perform_pairwise_tests(cluster_data_dict, cluster_order,
                                                                      mode=test_mode, reference_cluster=reference_cluster)
                         
                         # Store results for export
@@ -3957,6 +4156,8 @@ class CellClusteringDialog(QtWidgets.QDialog):
         layout.addLayout(button_layout)
         
         def run_analysis():
+            from openimc.core import cluster
+            
             k_min = k_min_spin.value()
             k_max = k_max_spin.value()
             if k_min >= k_max:
@@ -3966,19 +4167,19 @@ class CellClusteringDialog(QtWidgets.QDialog):
             k_values = list(range(k_min, k_max + 1))
             progress.setRange(0, len(k_values))
             
-            # Get and scale data
-            data = self.feature_dataframe[feature_cols].copy()
+            # Get scaling method (matching main clustering)
             scaling_method = self.clustering_scaling_combo.currentText()
             scaling_map = {
                 "Z-score": "zscore",
                 "MAD (Median Absolute Deviation)": "mad"
             }
-            selected_scaling = scaling_map[scaling_method]
-            data_scaled = self._apply_scaling(data, selected_scaling)
-            data_scaled = data_scaled.fillna(0)
+            selected_scaling = scaling_map.get(scaling_method, "zscore")
             
-            if data_scaled.empty:
-                QtWidgets.QMessageBox.warning(dlg, "No Data", "No data available after scaling.")
+            # Get full dataframe (core.cluster will handle column selection and scaling)
+            full_data = self.feature_dataframe.copy()
+            
+            if full_data.empty:
+                QtWidgets.QMessageBox.warning(dlg, "No Data", "No data available.")
                 return
             
             seed = self.seed_spinbox.value()
@@ -3990,35 +4191,81 @@ class CellClusteringDialog(QtWidgets.QDialog):
                     progress.setValue(idx + 1)
                     QtWidgets.QApplication.processEvents()
                     
+                    # Use core.cluster for consistency with main clustering
                     if clustering_type == "K-means":
-                        if not _HAVE_SKLEARN:
-                            raise ImportError("scikit-learn required")
-                        kmeans = KMeans(n_clusters=k, random_state=seed, n_init=10)
-                        labels = kmeans.fit_predict(data_scaled.values)
-                        inertias.append(kmeans.inertia_)
-                        if len(np.unique(labels)) > 1:
-                            sil_score = silhouette_score(data_scaled.values, labels)
-                        else:
-                            sil_score = 0
-                        silhouette_scores.append(sil_score)
+                        # Use core.cluster for K-means
+                        clustered_df = cluster(
+                            features_df=full_data,
+                            method="kmeans",
+                            columns=feature_cols,
+                            scaling=selected_scaling,
+                            output_path=None,
+                            n_clusters=k,
+                            seed=seed,
+                            n_init=10
+                        )
+                        labels = clustered_df['cluster'].values - 1  # Convert back to 0-based for calculations
+                        
                     else:  # Hierarchical
                         linkage_method = linkage_combo.currentText() if linkage_combo else "ward"
-                        distances = pdist(data_scaled.values, metric='euclidean')
-                        linkage_matrix = linkage(distances, method=linkage_method)
-                        labels = fcluster(linkage_matrix, k, criterion='maxclust')
-                        
-                        # Calculate WCSS (within-cluster sum of squares) for elbow
-                        wcss = 0
-                        for cluster_id in np.unique(labels):
-                            cluster_data = data_scaled.values[labels == cluster_id]
-                            if len(cluster_data) > 0:
-                                centroid = cluster_data.mean(axis=0)
-                                wcss += np.sum((cluster_data - centroid) ** 2)
-                        inertias.append(wcss)
-                        
-                        # Calculate silhouette
-                        if len(np.unique(labels)) > 1:
-                            sil_score = silhouette_score(data_scaled.values, labels)
+                        # Use core.cluster for hierarchical
+                        clustered_df = cluster(
+                            features_df=full_data,
+                            method="hierarchical",
+                            columns=feature_cols,
+                            scaling=selected_scaling,
+                            output_path=None,
+                            n_clusters=k,
+                            linkage=linkage_method,
+                            seed=seed
+                        )
+                        labels = clustered_df['cluster'].values - 1  # Convert back to 0-based for calculations
+                    
+                    # Get scaled data for WCSS/inertia and silhouette calculations
+                    # (core.cluster returns original dataframe, but clustering was done on scaled data)
+                    # We need to match the exact data that was used for clustering
+                    data_for_calc = full_data[feature_cols].copy()
+                    
+                    # Apply same preprocessing as core.cluster (handle missing/infinite, then scale)
+                    data_for_calc = data_for_calc.replace([np.inf, -np.inf], np.nan)
+                    data_for_calc = data_for_calc.fillna(data_for_calc.median(numeric_only=True))
+                    data_scaled = self._apply_scaling(data_for_calc, selected_scaling)
+                    data_scaled = data_scaled.replace([np.inf, -np.inf], np.nan)
+                    # Drop rows/cols that would be dropped by core.cluster
+                    data_scaled = data_scaled.dropna(axis=0, how='any').dropna(axis=1, how='any')
+                    data_scaled = data_scaled.fillna(0)
+                    
+                    # Filter to only rows that have valid cluster labels (not NaN/0 from dropped rows)
+                    # core.cluster maps labels back, so rows that were dropped will have cluster=0 or NaN
+                    valid_cluster_mask = clustered_df['cluster'].notna() & (clustered_df['cluster'] > 0)
+                    valid_indices = clustered_df.index[valid_cluster_mask]
+                    
+                    # Align data_scaled with valid indices (some rows may have been dropped)
+                    data_scaled_valid = data_scaled.reindex(valid_indices).dropna()
+                    labels_valid = clustered_df.loc[data_scaled_valid.index, 'cluster'].values - 1
+                    
+                    # Calculate WCSS/inertia from cluster labels and scaled data
+                    wcss = 0
+                    for cluster_id in np.unique(labels_valid):
+                        if cluster_id < 0:  # Skip noise/unassigned
+                            continue
+                        cluster_mask = labels_valid == cluster_id
+                        cluster_data = data_scaled_valid.values[cluster_mask]
+                        if len(cluster_data) > 0:
+                            centroid = cluster_data.mean(axis=0)
+                            wcss += np.sum((cluster_data - centroid) ** 2)
+                    inertias.append(wcss)
+                    
+                    # Calculate silhouette score (using scaled data and 0-based labels)
+                    if not _HAVE_SKLEARN:
+                        silhouette_scores.append(0)
+                    else:
+                        # Filter out noise points (label < 0) for silhouette calculation
+                        valid_mask = labels_valid >= 0
+                        if valid_mask.sum() > 1 and len(np.unique(labels_valid[valid_mask])) > 1:
+                            data_for_silhouette = data_scaled_valid.values[valid_mask]
+                            labels_for_silhouette = labels_valid[valid_mask]
+                            sil_score = silhouette_score(data_for_silhouette, labels_for_silhouette)
                         else:
                             sil_score = 0
                         silhouette_scores.append(sil_score)

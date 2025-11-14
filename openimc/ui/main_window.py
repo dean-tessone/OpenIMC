@@ -32,8 +32,10 @@ from PyQt5.QtCore import Qt, QTimer
 
 from openimc.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openimc.data.ometiff_loader import OMETIFFLoader
-from openimc.processing.feature_worker import extract_features_for_acquisition, load_and_extract_features
+from openimc.processing.feature_worker import extract_features_for_acquisition
+from openimc.core import extract_features, load_mcd
 from openimc.processing.watershed_worker import watershed_segmentation
+from openimc.core import segment
 from openimc.processing.export_worker import process_channel_for_export
 from openimc.processing.spillover_correction import comp_image_counts, load_spillover
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -137,7 +139,7 @@ from openimc.ui.dialogs.batch_correction_dialog import BatchCorrectionDialog
 from openimc.ui.dialogs.ometiff_format_dialog import OMETIFFFormatDialog
 from openimc.ui.dialogs.deconvolution_dialog import DeconvolutionDialog
 from openimc.ui.dialogs.pixel_correlation_dialog import PixelCorrelationDialog
-from openimc.processing.deconvolution_worker import deconvolve_acquisition
+from openimc.core import deconvolution
 from openimc.utils.logger import get_logger
 
 
@@ -425,6 +427,10 @@ def _load_and_preprocess_acquisition_worker(task_data):
     except Exception as e:
         print(f"Error processing acquisition {acq_name} ({unique_acq_id}): {e}")
         return None
+
+
+# Import worker function from processing module (now uses core.extract_features)
+from openimc.processing.feature_worker import load_and_extract_features as _extract_features_worker
 
 
 # --------------------------
@@ -4864,184 +4870,39 @@ class MainWindow(QtWidgets.QMainWindow):
         progress_dlg.show()
         
         try:
-            if model == "DeepCell CellSAM":
-                progress_dlg.update_progress(0, "Initializing DeepCell CellSAM model", "Loading model...")
-            else:
-                progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
+            # Get loader and acquisition info
+            loader = self._get_loader_for_acquisition(self.current_acq_id)
+            if loader is None:
+                raise ValueError("No loader found for current acquisition")
             
-            # Determine GPU usage
-            use_gpu = False
-            gpu_device = None
+            acq_info = self._get_acquisition_info(self.current_acq_id)
+            if acq_info is None:
+                raise ValueError(f"Acquisition {self.current_acq_id} not found")
             
-            if gpu_id == "auto":
-                # Auto-detect best GPU
-                if _HAVE_TORCH and torch.cuda.is_available():
-                    use_gpu = True
-                    gpu_device = 0  # Use first CUDA device
-                elif _HAVE_TORCH and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                    use_gpu = True
-                    gpu_device = 'mps'
-            elif gpu_id is not None:
-                # Use specific GPU
-                use_gpu = True
-                gpu_device = gpu_id
+            # Get channel information from preprocessing config
+            nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
+            cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
+            nuclear_combo_method = preprocessing_config.get('nuclear_combo_method', 'mean') if preprocessing_config else 'mean'
+            cyto_combo_method = preprocessing_config.get('cyto_combo_method', 'mean') if preprocessing_config else 'mean'
+            nuclear_weights = preprocessing_config.get('nuclear_weights') if preprocessing_config else None
+            cyto_weights = preprocessing_config.get('cyto_weights') if preprocessing_config else None
             
-            # Initialize model based on type
+            # Convert denoise_source to denoise_settings format
+            denoise_settings = None
+            if denoise_source == "viewer" and use_viewer_denoising:
+                # Use viewer denoising settings
+                denoise_settings = self.channel_denoise.copy() if hasattr(self, 'channel_denoise') else {}
+            elif denoise_source == "custom" and custom_denoise_settings:
+                # Use custom denoise settings from dialog
+                denoise_settings = custom_denoise_settings.copy()
+            
+            # Map GUI model names to core method names
             if model == "Classical Watershed":
-                model_obj = None  # Watershed doesn't use Cellpose model
-            elif model == "DeepCell CellSAM":
-                model_obj = None  # CellSAM model is initialized separately
-                # Set API key from dialog
-                if dlg is not None:
-                    api_key = dlg.get_cellsam_api_key()
-                    if api_key:
-                        os.environ.update({"DEEPCELL_ACCESS_TOKEN": api_key})
-                    elif not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
-                        QtWidgets.QMessageBox.critical(
-                            self, "Missing API Key",
-                            "DeepCell API key is required for CellSAM.\n"
-                            "Please enter your API key in the CellSAM Parameters section.\n"
-                            "Get your key from https://users.deepcell.org/login/"
-                        )
-                        progress_dlg.close()
-                        return
-                else:
-                    if not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
-                        QtWidgets.QMessageBox.critical(
-                            self, "Missing API Key",
-                            "DeepCell API key is required for CellSAM.\n"
-                            "Please set DEEPCELL_ACCESS_TOKEN environment variable or enter it in the dialog."
-                        )
-                        progress_dlg.close()
-                        return
-                
-                # Initialize CellSAM model and download weights
-                progress_dlg.update_progress(5, "Initializing CellSAM model", "Downloading model weights...")
-                try:
-                    get_model()  # This downloads weights if not already present
-                except Exception as e:
-                    QtWidgets.QMessageBox.critical(
-                        self, "CellSAM Initialization Failed",
-                        f"Failed to initialize CellSAM model:\n{str(e)}\n\n"
-                        "Please check your API key and internet connection."
-                    )
-                    progress_dlg.close()
-                    return
-                progress_dlg.update_progress(10, "CellSAM model ready", "Model initialized successfully")
-            elif model == "nuclei":
-                model_obj = models.Cellpose(gpu=use_gpu, model_type='nuclei')
-            else:  # cyto3
-                model_obj = models.Cellpose(gpu=use_gpu, model_type='cyto3')
-            
-            # Set device if using GPU
-            if model == "Classical Watershed":
+                # Watershed uses worker function directly (keep existing implementation)
                 progress_dlg.update_progress(5, "Initializing watershed segmentation", "Using classical watershed algorithm...")
-            elif model == "DeepCell CellSAM":
-                # Progress already updated above
-                pass
-            elif use_gpu and gpu_device is not None:
-                if gpu_device == 'mps':
-                    progress_dlg.update_progress(5, "Initializing Cellpose model", "Using Apple Metal Performance Shaders...")
-                else:
-                    progress_dlg.update_progress(5, "Initializing Cellpose model", f"Using CUDA GPU {gpu_device}...")
-            else:
-                progress_dlg.update_progress(5, "Initializing Cellpose model", "Using CPU...")
-            
-            progress_dlg.update_progress(20, "Preprocessing images", "Loading and preprocessing channels...")
-            
-            # Preprocess and combine channels
-            nuclear_img, cyto_img = self._preprocess_channels_for_segmentation(
-                preprocessing_config, progress_dlg, use_viewer_denoising, denoise_source, custom_denoise_settings
-            )
-            
-            # Prepare input images
-            if model == "DeepCell CellSAM":
-                # DeepCell CellSAM supports three modes:
-                # 1. Nuclear only: H x W array
-                # 2. Cyto only: H x W array
-                # 3. Combined: H x W x C array where channel 0 is blank, channel 1 is nuclear, channel 2 is cyto
-                # Images are already normalized to 0-1 range from preprocessing
-                nuclear_channels_list = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
-                cyto_channels_list = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
                 
-                # Ensure images are in 0-1 range (should already be, but double-check)
-                nuclear_img_normalized = self._ensure_0_1_range(nuclear_img)
-                cyto_img_normalized = None
-                if cyto_img is not None:
-                    cyto_img_normalized = self._ensure_0_1_range(cyto_img)
-                
-                if nuclear_channels_list and cyto_channels_list:
-                    # Combined mode: H x W x 3 array
-                    h, w = nuclear_img_normalized.shape
-                    cellsam_input = np.zeros((h, w, 3), dtype=np.float32)
-                    cellsam_input[:, :, 1] = nuclear_img_normalized  # Channel 1 is nuclear
-                    cellsam_input[:, :, 2] = cyto_img_normalized if cyto_img_normalized is not None else nuclear_img_normalized  # Channel 2 is cyto
-                elif nuclear_channels_list:
-                    # Nuclear only mode: H x W array
-                    cellsam_input = nuclear_img_normalized
-                elif cyto_channels_list:
-                    # Cyto only mode: H x W array
-                    cellsam_input = cyto_img_normalized if cyto_img_normalized is not None else nuclear_img_normalized
-                else:
-                    raise ValueError("At least one channel (nuclear or cyto) must be selected for CellSAM")
-                
-                images = None  # Not used for CellSAM
-                channels = None  # Not used for CellSAM
-            elif model == "nuclei":
-                # For nuclei model, use only nuclear channel
-                # Ensure 0-1 range
-                nuclear_img_normalized = self._ensure_0_1_range(nuclear_img)
-                images = [nuclear_img_normalized]
-                channels = [0, 0]  # [cytoplasm, nucleus] - both are nuclear channel
-            else:  # cyto3
-                # For cyto3 model, use both channels
-                # Ensure 0-1 range
-                nuclear_img_normalized = self._ensure_0_1_range(nuclear_img)
-                if cyto_img is None:
-                    cyto_img_normalized = nuclear_img_normalized  # Fallback to nuclear channel
-                else:
-                    cyto_img_normalized = self._ensure_0_1_range(cyto_img)
-                images = [cyto_img_normalized, nuclear_img_normalized]
-                channels = [0, 1]  # [cytoplasm, nucleus]
-            
-            progress_dlg.update_progress(60, "Running segmentation", "Processing...")
-            
-            # Run segmentation
-            if model == "DeepCell CellSAM":
-                if dlg is None:
-                    raise ValueError("Dialog object is required for DeepCell CellSAM segmentation")
-                
-                # Get DeepCell CellSAM parameters from dialog
-                bbox_threshold = dlg.get_cellsam_bbox_threshold()
-                use_wsi = dlg.get_cellsam_use_wsi()
-                low_contrast_enhancement = dlg.get_cellsam_low_contrast_enhancement()
-                gauge_cell_size = dlg.get_cellsam_gauge_cell_size()
-                
-                # Run DeepCell CellSAM pipeline
-                progress_dlg.update_progress(65, "Running DeepCell CellSAM", "Processing image...")
-                mask = cellsam_pipeline(
-                    cellsam_input,
-                    bbox_threshold=bbox_threshold,
-                    use_wsi=use_wsi,
-                    low_contrast_enhancement=low_contrast_enhancement,
-                    gauge_cell_size=gauge_cell_size
-                )
-                # Use mask directly without any modifications - preserve exactly what CellSAM returns
-                # Ensure mask is a numpy array and make a copy to avoid any potential modifications
-                if isinstance(mask, np.ndarray):
-                    mask = mask.copy()
-                # Convert to list format for consistency with other segmentation methods
-                masks = [mask]
-                flows = [None]
-                styles = [None]
-                diams = [None]
-            elif model == "Classical Watershed":
                 if dlg is None:
                     raise ValueError("Dialog object is required for watershed segmentation")
-                
-                # Get channel information from preprocessing config
-                nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
-                cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
                 
                 # Get watershed parameters from dialog
                 nuclear_fusion_method = dlg.get_nuclear_fusion_method()
@@ -5058,30 +4919,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 tile_overlap = dlg.get_tile_overlap()
                 rng_seed = dlg.get_rng_seed()
                 
-                # Get nuclear and membrane channel weights from preprocessing config
-                nuclear_weights = preprocessing_config.get('nuclear_weights', {})
-                membrane_weights = preprocessing_config.get('cyto_weights', {})
-                
-                # Load full image stack for watershed
-                loader = self._get_loader_for_acquisition(self.current_acq_id)
-                if loader is None:
-                    raise ValueError("No loader found for current acquisition")
                 # Get original acquisition ID if this is a unique ID
                 original_acq_id = self._get_original_acq_id(self.current_acq_id)
                 img_stack = loader.get_all_channels(original_acq_id)
                 channel_names = loader.get_channels(original_acq_id)
                 
-                # Run watershed segmentation
+                # Run watershed segmentation using worker function
+                progress_dlg.update_progress(20, "Running watershed segmentation", "Processing...")
                 masks = watershed_segmentation(
                     img_stack, channel_names, nuclear_channels, cyto_channels,
-                    denoise_settings=custom_denoise_settings if denoise_source == "custom" else None,
+                    denoise_settings=denoise_settings,
                     nuclear_fusion_method=nuclear_fusion_method,
                     nuclear_weights=nuclear_weights,
                     seed_threshold_method=seed_threshold_method,
                     min_seed_area=min_seed_area,
                     min_distance_peaks=min_distance_peaks,
                     membrane_fusion_method=membrane_fusion_method,
-                    membrane_weights=membrane_weights,
+                    membrane_weights=cyto_weights,
                     boundary_method=boundary_method,
                     boundary_sigma=boundary_sigma,
                     compactness=compactness,
@@ -5095,14 +4949,202 @@ class MainWindow(QtWidgets.QMainWindow):
                 flows = [None]
                 styles = [None]
                 diams = [None]
+                
+                # Log watershed segmentation
+                logger = get_logger()
+                n_cells = len(np.unique(masks[0])) - 1
+                params = {
+                    "method": "watershed",
+                    "nuclear_channels": nuclear_channels,
+                    "cyto_channels": cyto_channels,
+                    "nuclear_fusion_method": nuclear_fusion_method,
+                    "nuclear_weights": nuclear_weights,
+                    "seed_threshold_method": seed_threshold_method,
+                    "min_seed_area": min_seed_area,
+                    "min_distance_peaks": min_distance_peaks,
+                    "membrane_fusion_method": membrane_fusion_method,
+                    "membrane_weights": cyto_weights,
+                    "boundary_method": boundary_method,
+                    "boundary_sigma": boundary_sigma,
+                    "compactness": compactness,
+                    "min_cell_area": min_cell_area,
+                    "max_cell_area": max_cell_area,
+                    "tile_size": tile_size,
+                    "tile_overlap": tile_overlap,
+                    "rng_seed": rng_seed,
+                    "n_cells": int(n_cells)
+                }
+                if denoise_source == "custom" and custom_denoise_settings:
+                    params["denoise_settings"] = custom_denoise_settings
+                else:
+                    params["denoise_source"] = denoise_source
+                
+                source_file = os.path.basename(self.current_path) if self.current_path else None
+                logger.log_segmentation(
+                    method="watershed",
+                    parameters=params,
+                    acquisitions=[self.current_acq_id],
+                    output_path=masks_directory if save_masks else None,
+                    notes=f"Segmented {n_cells} cells",
+                    source_file=source_file
+                )
+                
             else:
-                # Run Cellpose segmentation
-                masks, flows, styles, diams = model_obj.eval(
-                    images, 
-                    diameter=diameter,
-                    flow_threshold=flow_threshold,
-                    cellprob_threshold=cellprob_threshold,
-                    channels=channels
+                # Use core.segment() for Cellpose and CellSAM
+                if model == "DeepCell CellSAM":
+                    progress_dlg.update_progress(0, "Initializing DeepCell CellSAM model", "Loading model...")
+                    core_method = "cellsam"
+                    
+                    # Set API key from dialog
+                    if dlg is not None:
+                        api_key = dlg.get_cellsam_api_key()
+                        if api_key:
+                            os.environ.update({"DEEPCELL_ACCESS_TOKEN": api_key})
+                        elif not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
+                            QtWidgets.QMessageBox.critical(
+                                self, "Missing API Key",
+                                "DeepCell API key is required for CellSAM.\n"
+                                "Please enter your API key in the CellSAM Parameters section.\n"
+                                "Get your key from https://users.deepcell.org/login/"
+                            )
+                            progress_dlg.close()
+                            return
+                    else:
+                        if not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
+                            QtWidgets.QMessageBox.critical(
+                                self, "Missing API Key",
+                                "DeepCell API key is required for CellSAM.\n"
+                                "Please set DEEPCELL_ACCESS_TOKEN environment variable or enter it in the dialog."
+                            )
+                            progress_dlg.close()
+                            return
+                    
+                    # Get CellSAM parameters from dialog
+                    bbox_threshold = dlg.get_cellsam_bbox_threshold() if dlg else 0.4
+                    use_wsi = dlg.get_cellsam_use_wsi() if dlg else False
+                    low_contrast_enhancement = dlg.get_cellsam_low_contrast_enhancement() if dlg else False
+                    gauge_cell_size = dlg.get_cellsam_gauge_cell_size() if dlg else False
+                    deepcell_api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN")
+                    
+                elif model == "Cellpose Nuclei":
+                    progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
+                    core_method = "cellpose"
+                    cellpose_model = "nuclei"
+                    
+                    # Determine GPU usage
+                    if gpu_id == "auto":
+                        if _HAVE_TORCH and torch.cuda.is_available():
+                            gpu_id = 0
+                        elif _HAVE_TORCH and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                            gpu_id = 'mps'
+                        else:
+                            gpu_id = None
+                    
+                else:  # Cellpose Cyto3
+                    progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
+                    core_method = "cellpose"
+                    cellpose_model = "cyto3"
+                    
+                    # Determine GPU usage
+                    if gpu_id == "auto":
+                        if _HAVE_TORCH and torch.cuda.is_available():
+                            gpu_id = 0
+                        elif _HAVE_TORCH and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                            gpu_id = 'mps'
+                        else:
+                            gpu_id = None
+                
+                progress_dlg.update_progress(20, "Running segmentation", "Processing...")
+                
+                # Call core.segment()
+                if core_method == "cellsam":
+                    mask = segment(
+                        loader=loader,
+                        acquisition=acq_info,
+                        method="cellsam",
+                        nuclear_channels=nuclear_channels,
+                        cyto_channels=cyto_channels,
+                        output_dir=masks_directory if save_masks else None,
+                        denoise_settings=denoise_settings,
+                        normalization_method="None",  # No normalization for segmentation
+                        nuclear_combo_method=nuclear_combo_method,
+                        cyto_combo_method=cyto_combo_method,
+                        nuclear_weights=nuclear_weights,
+                        cyto_weights=cyto_weights,
+                        deepcell_api_key=deepcell_api_key,
+                        bbox_threshold=bbox_threshold,
+                        use_wsi=use_wsi,
+                        low_contrast_enhancement=low_contrast_enhancement,
+                        gauge_cell_size=gauge_cell_size
+                    )
+                else:  # cellpose
+                    mask = segment(
+                        loader=loader,
+                        acquisition=acq_info,
+                        method="cellpose",
+                        nuclear_channels=nuclear_channels,
+                        cyto_channels=cyto_channels,
+                        output_dir=masks_directory if save_masks else None,
+                        denoise_settings=denoise_settings,
+                        normalization_method="None",  # No normalization for segmentation
+                        nuclear_combo_method=nuclear_combo_method,
+                        cyto_combo_method=cyto_combo_method,
+                        nuclear_weights=nuclear_weights,
+                        cyto_weights=cyto_weights,
+                        cellpose_model=cellpose_model,
+                        diameter=diameter,
+                        flow_threshold=flow_threshold,
+                        cellprob_threshold=cellprob_threshold,
+                        gpu_id=gpu_id
+                    )
+                
+                masks = [mask]
+                flows = [None]
+                styles = [None]
+                diams = [None]
+                
+                # Log segmentation for Cellpose and CellSAM
+                logger = get_logger()
+                n_cells = len(np.unique(masks[0])) - 1
+                
+                if core_method == "cellsam":
+                    params = {
+                        "method": "cellsam",
+                        "bbox_threshold": bbox_threshold,
+                        "use_wsi": use_wsi,
+                        "low_contrast_enhancement": low_contrast_enhancement,
+                        "gauge_cell_size": gauge_cell_size,
+                        "nuclear_channels": nuclear_channels,
+                        "cyto_channels": cyto_channels,
+                        "input_mode": "combined" if (nuclear_channels and cyto_channels) else ("nuclear" if nuclear_channels else "cyto"),
+                        "n_cells": int(n_cells)
+                    }
+                else:  # cellpose
+                    params = {
+                        "model_type": cellpose_model,
+                        "diameter": diameter,
+                        "flow_threshold": flow_threshold,
+                        "cellprob_threshold": cellprob_threshold,
+                        "gpu_id": str(gpu_id) if gpu_id is not None else None,
+                        "nuclear_channels": nuclear_channels,
+                        "cyto_channels": cyto_channels,
+                        "n_cells": int(n_cells)
+                    }
+                
+                if denoise_source == "custom" and custom_denoise_settings:
+                    params["denoise_settings"] = custom_denoise_settings
+                else:
+                    params["denoise_source"] = denoise_source
+                
+                source_file = os.path.basename(self.current_path) if self.current_path else None
+                method_name = "cellsam" if core_method == "cellsam" else "cellpose"
+                logger.log_segmentation(
+                    method=method_name,
+                    parameters=params,
+                    acquisitions=[self.current_acq_id],
+                    output_path=masks_directory if save_masks else None,
+                    notes=f"Segmented {n_cells} cells",
+                    source_file=source_file
                 )
             
             progress_dlg.update_progress(80, "Processing results", "Creating segmentation masks...")
@@ -5135,101 +5177,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
             progress_dlg.close()
             
-            # Get channel information from preprocessing config (for display purposes)
-            if model not in ["Classical Watershed", "DeepCell CellSAM"]:
-                nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
-                cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
-            elif model == "DeepCell CellSAM":
-                nuclear_channels = preprocessing_config.get('nuclear_channels', []) if preprocessing_config else []
-                cyto_channels = preprocessing_config.get('cyto_channels', []) if preprocessing_config else []
-            # For watershed, channels are already defined above
-            
-            # Log segmentation operation
-            logger = get_logger()
-            n_cells = len(np.unique(masks[0])) - 1
-            
-            if model == "DeepCell CellSAM":
-                # Log DeepCell CellSAM segmentation
-                params = {
-                    "method": "cellsam",
-                    "bbox_threshold": bbox_threshold,
-                    "use_wsi": use_wsi,
-                    "low_contrast_enhancement": low_contrast_enhancement,
-                    "gauge_cell_size": gauge_cell_size,
-                    "nuclear_channels": nuclear_channels,
-                    "cyto_channels": cyto_channels,
-                    "input_mode": "combined" if (nuclear_channels and cyto_channels) else ("nuclear" if nuclear_channels else "cyto"),
-                    "n_cells": int(n_cells)
-                }
-                if denoise_source == "custom" and custom_denoise_settings:
-                    params["denoise_settings"] = custom_denoise_settings
-                else:
-                    params["denoise_source"] = denoise_source
-            elif model == "Classical Watershed":
-                # Log watershed segmentation
-                params = {
-                    "method": "watershed",
-                    "nuclear_channels": nuclear_channels,
-                    "cyto_channels": cyto_channels,
-                    "nuclear_fusion_method": nuclear_fusion_method,
-                    "nuclear_weights": nuclear_weights,
-                    "seed_threshold_method": seed_threshold_method,
-                    "min_seed_area": min_seed_area,
-                    "min_distance_peaks": min_distance_peaks,
-                    "membrane_fusion_method": membrane_fusion_method,
-                    "membrane_weights": membrane_weights,
-                    "boundary_method": boundary_method,
-                    "boundary_sigma": boundary_sigma,
-                    "compactness": compactness,
-                    "min_cell_area": min_cell_area,
-                    "max_cell_area": max_cell_area,
-                    "tile_size": tile_size,
-                    "tile_overlap": tile_overlap,
-                    "rng_seed": rng_seed,
-                    "n_cells": int(n_cells)
-                }
-                if denoise_source == "custom" and custom_denoise_settings:
-                    params["denoise_settings"] = custom_denoise_settings
-                else:
-                    params["denoise_source"] = denoise_source
-            else:
-                # Log Cellpose segmentation
-                params = {
-                    "model_type": model,
-                    "diameter": diameter,
-                    "flow_threshold": flow_threshold,
-                    "cellprob_threshold": cellprob_threshold,
-                    "use_gpu": use_gpu,
-                    "gpu_device": str(gpu_device) if gpu_device is not None else None,
-                    "nuclear_channels": nuclear_channels,
-                    "cyto_channels": cyto_channels,
-                    "n_cells": int(n_cells)
-                }
-                if denoise_source == "custom" and custom_denoise_settings:
-                    params["denoise_settings"] = custom_denoise_settings
-                else:
-                    params["denoise_source"] = denoise_source
-                # Handle diams - it can be a scalar or a list/array
-                if diams is not None:
-                    if isinstance(diams, (list, tuple, np.ndarray)) and len(diams) > 0:
-                        if diams[0] is not None:
-                            params["estimated_diameter"] = float(diams[0])
-                    elif isinstance(diams, (int, float, np.integer, np.floating)):
-                        params["estimated_diameter"] = float(diams)
-            
-            # Get source file name
-            source_file = os.path.basename(self.current_path) if self.current_path else None
-            
-            method_name = "watershed" if model == "Classical Watershed" else ("cellsam" if model == "DeepCell CellSAM" else "cellpose")
-            logger.log_segmentation(
-                method=method_name,
-                parameters=params,
-                acquisitions=[self.current_acq_id],
-                output_path=masks_directory if save_masks else None,
-                notes=f"Segmented {n_cells} cells",
-                source_file=source_file
-            )
-            
+            # Get channel information for display
             channel_info = ""
             if nuclear_channels:
                 channel_info += f"Nuclear: {len(nuclear_channels)} channels"
@@ -5239,6 +5187,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     channel_info += f"Cytoplasm: {len(cyto_channels)} channels"
             
+            n_cells = len(np.unique(masks[0])) - 1
             QtWidgets.QMessageBox.information(
                 self, "Segmentation Complete", 
                 f"Successfully segmented {n_cells} cells.\n"
@@ -6988,11 +6937,11 @@ class MainWindow(QtWidgets.QMainWindow):
             all_features = []
             try:
                 with mp.Pool(processes=max_workers) as pool:
-                    # Submit all tasks - each worker loads and extracts in parallel
+                    # Submit all tasks - each worker loads and extracts in parallel using core function
                     futures = []
                     for (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file, excluded_channels) in mp_args:
                         future = pool.apply_async(
-                            load_and_extract_features,
+                            _extract_features_worker,
                             (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file, excluded_channels)
                         )
                         futures.append((acq_id, future))
@@ -7026,13 +6975,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 progress_dlg.update_progress(0, "Multiprocessing failed, using sequential processing", "Processing acquisitions one by one")
                 
                 # Fallback to sequential processing
-                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file) in enumerate(mp_args):
+                for i, (acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file, excluded_channels) in enumerate(mp_args):
                     if progress_dlg.is_cancelled():
                         break
                     
                     try:
-                        result = load_and_extract_features(
-                            acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file
+                        result = _extract_features_worker(
+                            acq_id, mask, selected_features, acq_info_dict, acq_label, file_path, loader_type, arcsinh_enabled, cofactor, denoise_source, custom_denoise_settings, spillover_config, source_file, excluded_channels
                         )
                         
                         if result is not None and not result.empty:
@@ -7726,7 +7675,10 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def _open_qc_dialog(self):
         """Open the QC analysis dialog."""
-        if self.loader is None:
+        # Check if data is loaded (either single file loader or multiple MCD files)
+        has_data = (self.loader is not None) or (len(self.mcd_loaders) > 0) or (len(self.acquisitions) > 0)
+        
+        if not has_data:
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Data Loaded",
@@ -7928,23 +7880,33 @@ class MainWindow(QtWidgets.QMainWindow):
         progress_dlg.update_progress(0, f"Deconvolving {acq_info.name}", "Starting deconvolution...")
         
         try:
-            # Deconvolve the acquisition
+            # Deconvolve the acquisition using core function
             progress_dlg.update_progress(10, f"Deconvolving {acq_info.name}", "Loading image data...")
             
-            output_path = deconvolve_acquisition(
-                data_path=data_path,
-                acq_id=original_acq_id,
+            # Create AcquisitionInfo with original ID for core function
+            acq_info_for_core = AcquisitionInfo(
+                id=original_acq_id,
+                name=acq_info.name,
+                description=acq_info.description if hasattr(acq_info, 'description') else "",
+                slide_id=acq_info.slide_id if hasattr(acq_info, 'slide_id') else "",
+                well=acq_info.well if hasattr(acq_info, 'well') else None
+            )
+            
+            # Use core deconvolution function
+            # Pass explicit paths since loader may not have file_path/directory attributes
+            output_path = deconvolution(
+                loader=loader,
+                acquisition=acq_info_for_core,
                 output_dir=output_dir,
                 x0=x0,
                 iterations=iterations,
                 output_format=output_format,
-                channel_names=channel_names,
-                source_file_path=source_file_path,  # Pass source file/dir for filename generation
-                unique_acq_id=self.current_acq_id,  # Pass unique ID for filename
-                loader_type=loader_type,
-                channel_format=self.ometiff_channel_format if isinstance(loader, OMETIFFLoader) else 'CHW',
-                well_name=acq_info.well  # Pass well name if available
+                loader_path=data_path,
+                source_file_path=source_file_path,
+                unique_acq_id=self.current_acq_id
             )
+            
+            output_path = str(output_path)  # Convert Path to string for compatibility
             
             progress_dlg.update_progress(100, "Complete", f"Saved to {os.path.basename(output_path)}")
             
@@ -8070,19 +8032,26 @@ class MainWindow(QtWidgets.QMainWindow):
                 if not data_path or loader_type is None:
                     raise ValueError(f"Could not determine data path or loader type for acquisition {acq.id}")
                 
-                # Deconvolve the acquisition
-                deconvolve_acquisition(
-                    data_path=data_path,
-                    acq_id=original_acq_id,
+                # Create AcquisitionInfo with original ID for core function
+                acq_info_for_core = AcquisitionInfo(
+                    id=original_acq_id,
+                    name=acq.name,
+                    description=acq.description if hasattr(acq, 'description') else "",
+                    slide_id=acq.slide_id if hasattr(acq, 'slide_id') else "",
+                    well=acq.well if hasattr(acq, 'well') else None
+                )
+                
+                # Use core deconvolution function
+                deconvolution(
+                    loader=loader,
+                    acquisition=acq_info_for_core,
                     output_dir=output_dir,
                     x0=x0,
                     iterations=iterations,
                     output_format=output_format,
-                    channel_names=channel_names,
-                    source_file_path=source_file_path,  # Pass source file/dir for filename generation
-                    unique_acq_id=acq.id,  # Pass unique ID for filename
-                    loader_type=loader_type,
-                    channel_format=self.ometiff_channel_format if isinstance(loader, OMETIFFLoader) else 'CHW'
+                    loader_path=data_path,
+                    source_file_path=source_file_path,
+                    unique_acq_id=acq.id
                 )
                 
                 processed += 1

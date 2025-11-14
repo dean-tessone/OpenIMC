@@ -44,6 +44,31 @@ from openimc.processing.batch_correction import apply_combat_correction, apply_h
 from openimc.processing.spillover_correction import load_spillover
 from openimc.ui.utils import arcsinh_normalize, percentile_clip_normalize, channelwise_minmax_normalize, combine_channels
 
+# Import core functions
+from openimc.core import (
+    load_mcd,
+    parse_denoise_settings as parse_denoise_settings_core,
+    preprocess,
+    segment,
+    extract_features,
+    cluster,
+    build_spatial_graph,
+    batch_correction,
+    pixel_correlation,
+    qc_analysis,
+    spillover_correction,
+    generate_spillover_matrix,
+    deconvolution,
+    spatial_enrichment,
+    spatial_distance_distribution,
+    build_spatial_graph_anndata,
+    spatial_neighborhood_enrichment,
+    spatial_cooccurrence,
+    spatial_autocorrelation,
+    spatial_ripley,
+    export_anndata
+)
+
 # Try to import Cellpose (optional)
 try:
     from cellpose import models
@@ -59,44 +84,25 @@ except ImportError:
     _HAVE_CELLSAM = False
 
 
+# Wrapper functions for backward compatibility
 def load_data(input_path: str, channel_format: str = 'CHW'):
     """Load data from MCD file or OME-TIFF directory.
+    
+    This is a wrapper around openimc.core.load_mcd for backward compatibility.
     
     Args:
         input_path: Path to MCD file or OME-TIFF directory
         channel_format: Format for OME-TIFF files ('CHW' or 'HWC'), default is 'CHW'
     """
-    input_path = Path(input_path)
-    
-    if input_path.is_file() and input_path.suffix.lower() in ['.mcd', '.mcdx']:
-        # Load MCD file
-        loader = MCDLoader()
-        loader.open(str(input_path))
-        return loader, 'mcd'
-    elif input_path.is_dir():
-        # Load OME-TIFF directory
-        loader = OMETIFFLoader(channel_format=channel_format)
-        loader.open(str(input_path))
-        return loader, 'ometiff'
-    else:
-        raise ValueError(f"Input path must be an MCD file or directory containing OME-TIFF files: {input_path}")
+    return load_mcd(input_path, channel_format)
 
 
 def parse_denoise_settings(denoise_json: Optional[str]) -> Dict:
-    """Parse denoise settings from JSON string or file."""
-    if not denoise_json:
-        return {}
+    """Parse denoise settings from JSON string or file.
     
-    # Check if it's a file path
-    if os.path.isfile(denoise_json):
-        with open(denoise_json, 'r') as f:
-            return json.load(f)
-    
-    # Try to parse as JSON string
-    try:
-        return json.loads(denoise_json)
-    except json.JSONDecodeError:
-        raise ValueError(f"Invalid JSON for denoise settings: {denoise_json}")
+    This is a wrapper around openimc.core.parse_denoise_settings for backward compatibility.
+    """
+    return parse_denoise_settings_core(denoise_json)
 
 
 def preprocess_command(args):
@@ -106,7 +112,7 @@ def preprocess_command(args):
     Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
     """
     print(f"Loading data from: {args.input}")
-    loader, loader_type = load_data(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
+    loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
     try:
         acquisitions = loader.list_acquisitions()
@@ -117,62 +123,28 @@ def preprocess_command(args):
         
         # Create output directory
         output_dir = Path(args.output)
-        output_dir.mkdir(parents=True, exist_ok=True)
         
         for acq in acquisitions:
             print(f"\nProcessing acquisition: {acq.name} (ID: {acq.id})")
             
-            # Get all channels
+            # Get image shape for info
             channels = loader.get_channels(acq.id)
             img_stack = loader.get_all_channels(acq.id)
-            
             print(f"  Image shape: {img_stack.shape}, Channels: {len(channels)}")
             
-            # Process each channel
-            processed_channels = []
-            for i, channel_name in enumerate(channels):
-                channel_img = img_stack[..., i] if img_stack.ndim == 3 else img_stack
-                
-                # Apply denoising if configured
-                denoise_source = "custom" if channel_name in denoise_settings else "none"
-                channel_denoise = denoise_settings.get(channel_name, {})
-                
-                # Process channel - only denoising, no arcsinh normalization
-                processed = process_channel_for_export(
-                    channel_img, channel_name, denoise_source,
-                    {channel_name: channel_denoise} if channel_denoise else {},
-                    "None",  # No normalization applied to exported images
-                    10.0,  # Unused but kept for function signature
-                    (1.0, 99.0),
-                    None  # viewer_denoise_func not used in CLI
-                )
-                
-                processed_channels.append(processed)
-            
-            # Stack channels in CHW format (C, H, W) to match GUI export
-            processed_stack = np.stack(processed_channels, axis=0)
-            
-            # Save as OME-TIFF
-            # Use well name if available, otherwise use acquisition name
-            if acq.well:
-                output_filename = f"{acq.well}.ome.tif"
-            else:
-                output_filename = f"{acq.name}.ome.tif"
-            output_path = output_dir / output_filename
-            
-            # Create OME metadata
-            metadata = {
-                'Channel': {'Name': channels}
-            }
+            # Use core preprocess function
+            output_path = preprocess(
+                loader=loader,
+                acquisition=acq,
+                output_dir=output_dir,
+                denoise_settings=denoise_settings,
+                normalization_method="None",  # No normalization applied to exported images
+                arcsinh_cofactor=10.0,  # Unused but kept for function signature
+                percentile_params=(1.0, 99.0),
+                viewer_denoise_func=None  # Not used in CLI
+            )
             
             print(f"  Saving to: {output_path}")
-            tifffile.imwrite(
-                str(output_path),
-                processed_stack,
-                metadata=metadata,
-                ome=True,
-                photometric='minisblack'
-            )
         
         print(f"\n✓ Preprocessing complete! Output saved to: {output_dir}")
         
@@ -183,18 +155,7 @@ def preprocess_command(args):
 def segment_command(args):
     """Segment cells using DeepCell CellSAM, Cellpose, or watershed method."""
     print(f"Loading data from: {args.input}")
-    loader, loader_type = load_data(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
-    
-    # Helper function to ensure 0-1 range (used by all segmentation methods)
-    def ensure_0_1_range(img):
-        """Ensure image is normalized to 0-1 range using min-max scaling."""
-        img_float = img.astype(np.float32, copy=True)
-        vmin = np.min(img_float)
-        vmax = np.max(img_float)
-        if vmax > vmin:
-            return (img_float - vmin) / (vmax - vmin)
-        else:
-            return np.zeros_like(img_float)
+    loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
     try:
         acquisitions = loader.list_acquisitions()
@@ -211,289 +172,64 @@ def segment_command(args):
         
         # Create output directory
         output_dir = Path(args.output)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Parse channel lists
+        nuclear_channels = args.nuclear_channels.split(',') if args.nuclear_channels else []
+        nuclear_channels = [ch.strip() for ch in nuclear_channels]
+        cyto_channels = args.cytoplasm_channels.split(',') if args.cytoplasm_channels else []
+        cyto_channels = [ch.strip() for ch in cyto_channels]
+        
+        # Parse weights if provided
+        nuclear_weights = None
+        if args.nuclear_weights:
+            try:
+                nuclear_weights = [float(w.strip()) for w in args.nuclear_weights.split(',')]
+            except ValueError:
+                raise ValueError(f"Invalid nuclear weights format: {args.nuclear_weights}")
+        
+        cyto_weights = None
+        if args.cyto_weights:
+            try:
+                cyto_weights = [float(w.strip()) for w in args.cyto_weights.split(',')]
+            except ValueError:
+                raise ValueError(f"Invalid cyto weights format: {args.cyto_weights}")
         
         for acq in acquisitions:
             print(f"\nProcessing acquisition: {acq.name} (ID: {acq.id})")
-            
-            channels = loader.get_channels(acq.id)
-            img_stack = loader.get_all_channels(acq.id)
-            
-            # Parse channel lists
-            nuclear_channels = args.nuclear_channels.split(',') if args.nuclear_channels else []
-            nuclear_channels = [ch.strip() for ch in nuclear_channels]
-            cyto_channels = args.cytoplasm_channels.split(',') if args.cytoplasm_channels else []
-            cyto_channels = [ch.strip() for ch in cyto_channels]
-            
-            # Parse weights if provided
-            nuclear_weights = None
-            if args.nuclear_weights:
-                try:
-                    nuclear_weights = [float(w.strip()) for w in args.nuclear_weights.split(',')]
-                except ValueError:
-                    raise ValueError(f"Invalid nuclear weights format: {args.nuclear_weights}")
-            
-            cyto_weights = None
-            if args.cyto_weights:
-                try:
-                    cyto_weights = [float(w.strip()) for w in args.cyto_weights.split(',')]
-                except ValueError:
-                    raise ValueError(f"Invalid cyto weights format: {args.cyto_weights}")
-            
-            # Validate channels
-            missing_nuclear = [ch for ch in nuclear_channels if ch not in channels]
-            missing_cyto = [ch for ch in cyto_channels if ch not in channels]
-            if missing_nuclear:
-                raise ValueError(f"Nuclear channels not found: {missing_nuclear}")
-            if missing_cyto and args.method not in ['watershed', 'cellsam']:
-                raise ValueError(f"Cytoplasm channels not found: {missing_cyto}")
-            if args.method == 'cellsam' and not nuclear_channels and not cyto_channels:
-                raise ValueError("For CellSAM, at least one nuclear or cytoplasm channel must be specified")
-            
-            # Run segmentation
-            if args.method == 'cellsam':
-                if not _HAVE_CELLSAM:
-                    raise ImportError("CellSAM not installed. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git")
                 
-                # Set API key from argument or environment variable
-                api_key = args.deepcell_api_key or os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
-                if not api_key:
-                    raise ValueError("DeepCell API key is required for CellSAM. Set --deepcell-api-key or DEEPCELL_ACCESS_TOKEN environment variable.")
-                os.environ["DEEPCELL_ACCESS_TOKEN"] = api_key
-                
-                # Initialize CellSAM model and download weights
-                print("  Initializing DeepCell CellSAM model (downloading weights if needed)...")
-                try:
-                    get_model()  # This downloads weights if not already present
-                except Exception as e:
-                    raise RuntimeError(f"Failed to initialize CellSAM model: {e}. Please check your API key and internet connection.")
-                
-                # Preprocess channels exactly like GUI: load individually, denoise, normalize, then combine
-                # Build preprocessing config
-                preprocessing_config = {
-                    'nuclear_channels': nuclear_channels,
-                    'cyto_channels': cyto_channels,
-                    'nuclear_combo_method': args.nuclear_fusion_method,
-                    'cyto_combo_method': args.cyto_fusion_method,
-                    'nuclear_weights': nuclear_weights,
-                    'cyto_weights': cyto_weights,
-                    'normalization_method': 'arcsinh' if args.arcsinh else 'None',
-                    'arcsinh_cofactor': args.arcsinh_cofactor if args.arcsinh else 10.0,
-                    'percentile_params': (1.0, 99.0)
-                }
-                
-                # Load and preprocess nuclear channels
-                nuclear_imgs = []
-                for channel in nuclear_channels:
-                    img = loader.get_image(acq.id, channel)
-                    # Apply denoising if custom settings provided
-                    if denoise_settings and channel in denoise_settings:
-                        img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
-                    # Apply normalization if configured
-                    if preprocessing_config['normalization_method'] == 'channelwise_minmax':
-                        img = channelwise_minmax_normalize(img)
-                    elif preprocessing_config['normalization_method'] == 'arcsinh':
-                        img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
-                    elif preprocessing_config['normalization_method'] == 'percentile_clip':
-                        p_low, p_high = preprocessing_config['percentile_params']
-                        img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
-                    # Ensure 0-1 range after denoising and normalization
-                    img = ensure_0_1_range(img)
-                    nuclear_imgs.append(img)
-                
-                # Combine nuclear channels
-                nuclear_combo_method = preprocessing_config['nuclear_combo_method']
-                nuclear_weights_list = preprocessing_config['nuclear_weights']
-                nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights_list)
-                # Ensure combined image is in 0-1 range
-                nuclear_img = ensure_0_1_range(nuclear_img)
-                
-                # Load and preprocess cytoplasm channels
-                cyto_img = None
-                if cyto_channels:
-                    cyto_imgs = []
-                    for channel in cyto_channels:
-                        img = loader.get_image(acq.id, channel)
-                        # Apply denoising if custom settings provided
-                        if denoise_settings and channel in denoise_settings:
-                            img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
-                        # Apply normalization if configured
-                        if preprocessing_config['normalization_method'] == 'channelwise_minmax':
-                            img = channelwise_minmax_normalize(img)
-                        elif preprocessing_config['normalization_method'] == 'arcsinh':
-                            img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
-                        elif preprocessing_config['normalization_method'] == 'percentile_clip':
-                            p_low, p_high = preprocessing_config['percentile_params']
-                            img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
-                        # Ensure 0-1 range after denoising and normalization
-                        img = ensure_0_1_range(img)
-                        cyto_imgs.append(img)
-                    
-                    # Combine cytoplasm channels
-                    cyto_combo_method = preprocessing_config['cyto_combo_method']
-                    cyto_weights_list = preprocessing_config['cyto_weights']
-                    cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights_list)
-                    # Ensure combined image is in 0-1 range
-                    cyto_img = ensure_0_1_range(cyto_img)
-                
-                # Prepare input for CellSAM (supports nuclear-only, cyto-only, or combined)
-                if nuclear_channels and cyto_channels:
-                    # Combined mode: H x W x 3 array
-                    h, w = nuclear_img.shape
-                    cellsam_input = np.zeros((h, w, 3), dtype=np.float32)
-                    cellsam_input[:, :, 1] = nuclear_img  # Channel 1 is nuclear
-                    cellsam_input[:, :, 2] = cyto_img if cyto_img is not None else nuclear_img  # Channel 2 is cyto
-                elif nuclear_channels:
-                    # Nuclear only mode: H x W array
-                    cellsam_input = nuclear_img
-                elif cyto_channels:
-                    # Cyto only mode: H x W array
-                    cellsam_input = cyto_img if cyto_img is not None else nuclear_img
-                else:
-                    raise ValueError("At least one channel (nuclear or cyto) must be selected for CellSAM")
-                
-                # Run CellSAM pipeline
-                print(f"  Running DeepCell CellSAM segmentation...")
-                mask = cellsam_pipeline(
-                    cellsam_input,
-                    bbox_threshold=args.bbox_threshold,
-                    use_wsi=args.use_wsi,
-                    low_contrast_enhancement=args.low_contrast_enhancement,
-                    gauge_cell_size=args.gauge_cell_size
-                )
-                # Use mask directly without modifications
-                if isinstance(mask, np.ndarray):
-                    mask = mask.copy()
-                
-            elif args.method == 'cellpose':
-                if not _HAVE_CELLPOSE:
-                    raise ImportError("Cellpose not installed. Install with: pip install cellpose")
-                
-                # Preprocess channels exactly like GUI: load individually, denoise, normalize, then combine
-                # Build preprocessing config
-                preprocessing_config = {
-                    'nuclear_channels': nuclear_channels,
-                    'cyto_channels': cyto_channels,
-                    'nuclear_combo_method': args.nuclear_fusion_method,
-                    'cyto_combo_method': args.cyto_fusion_method,
-                    'nuclear_weights': nuclear_weights,
-                    'cyto_weights': cyto_weights,
-                    'normalization_method': 'arcsinh' if args.arcsinh else 'None',
-                    'arcsinh_cofactor': args.arcsinh_cofactor if args.arcsinh else 10.0,
-                    'percentile_params': (1.0, 99.0)
-                }
-                
-                # Load and preprocess nuclear channels (exactly like GUI _preprocess_channels_for_segmentation)
-                nuclear_imgs = []
-                for channel in nuclear_channels:
-                    img = loader.get_image(acq.id, channel)
-                    # Apply denoising if custom settings provided
-                    if denoise_settings and channel in denoise_settings:
-                        img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
-                    # Apply normalization if configured
-                    if preprocessing_config['normalization_method'] == 'channelwise_minmax':
-                        img = channelwise_minmax_normalize(img)
-                    elif preprocessing_config['normalization_method'] == 'arcsinh':
-                        img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
-                    elif preprocessing_config['normalization_method'] == 'percentile_clip':
-                        p_low, p_high = preprocessing_config['percentile_params']
-                        img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
-                    # Ensure 0-1 range after denoising and normalization
-                    img = ensure_0_1_range(img)
-                    nuclear_imgs.append(img)
-                
-                # Combine nuclear channels
-                nuclear_combo_method = preprocessing_config['nuclear_combo_method']
-                nuclear_weights_list = preprocessing_config['nuclear_weights']
-                nuclear_img = combine_channels(nuclear_imgs, nuclear_combo_method, nuclear_weights_list)
-                # Ensure combined image is in 0-1 range
-                nuclear_img = ensure_0_1_range(nuclear_img)
-                
-                # Load and preprocess cytoplasm channels
-                cyto_img = None
-                if cyto_channels:
-                    cyto_imgs = []
-                    for channel in cyto_channels:
-                        img = loader.get_image(acq.id, channel)
-                        # Apply denoising if custom settings provided
-                        if denoise_settings and channel in denoise_settings:
-                            img = _apply_denoise_to_channel(img, channel, denoise_settings[channel])
-                        # Apply normalization if configured
-                        if preprocessing_config['normalization_method'] == 'channelwise_minmax':
-                            img = channelwise_minmax_normalize(img)
-                        elif preprocessing_config['normalization_method'] == 'arcsinh':
-                            img = arcsinh_normalize(img, cofactor=preprocessing_config['arcsinh_cofactor'])
-                        elif preprocessing_config['normalization_method'] == 'percentile_clip':
-                            p_low, p_high = preprocessing_config['percentile_params']
-                            img = percentile_clip_normalize(img, p_low=p_low, p_high=p_high)
-                        # Ensure 0-1 range after denoising and normalization
-                        img = ensure_0_1_range(img)
-                        cyto_imgs.append(img)
-                    
-                    # Combine cytoplasm channels
-                    cyto_combo_method = preprocessing_config['cyto_combo_method']
-                    cyto_weights_list = preprocessing_config['cyto_weights']
-                    cyto_img = combine_channels(cyto_imgs, cyto_combo_method, cyto_weights_list)
-                    # Ensure combined image is in 0-1 range
-                    cyto_img = ensure_0_1_range(cyto_img)
-                
-                # Ensure images are in 0-1 range before passing to Cellpose
-                nuclear_img = ensure_0_1_range(nuclear_img)
-                if cyto_img is not None:
-                    cyto_img = ensure_0_1_range(cyto_img)
-                
-                # Prepare input images for Cellpose
-                if args.model == 'nuclei':
-                    # For nuclei model, use only nuclear channel
-                    images = [nuclear_img]
-                    channels_cp = [0, 0]  # [cytoplasm, nucleus] - both are nuclear channel
-                else:  # cyto3
-                    # For cyto3 model, use both channels
-                    if cyto_img is None:
-                        cyto_img = nuclear_img  # Fallback to nuclear channel
-                    images = [cyto_img, nuclear_img]
-                    channels_cp = [0, 1]  # [cytoplasm, nucleus]
-                
-                # Initialize Cellpose model
-                model = models.Cellpose(model_type=args.model, gpu=args.gpu_id is not None, device=args.gpu_id)
-                
-                print(f"  Running Cellpose segmentation (model: {args.model})...")
-                masks, flows, styles, diams = model.eval(
-                    images,
-                    diameter=args.diameter,
-                    flow_threshold=args.flow_threshold,
-                    cellprob_threshold=args.cellprob_threshold,
-                    channels=channels_cp
-                )
-                mask = masks[0]
-                
-            elif args.method == 'watershed':
-                print(f"  Running watershed segmentation...")
-                mask = watershed_segmentation(
-                    img_stack, channels, nuclear_channels, cyto_channels,
-                    denoise_settings=denoise_settings if denoise_settings else None,
-                    normalization_method="arcsinh" if args.arcsinh else "None",
-                    arcsinh_cofactor=args.arcsinh_cofactor if args.arcsinh else 10.0,
-                    min_cell_area=args.min_cell_area,
-                    max_cell_area=args.max_cell_area,
-                    compactness=args.compactness
-                )
-            else:
-                raise ValueError(f"Unknown segmentation method: {args.method}")
-            
-            # Save mask
-            # Use well name if available, otherwise use acquisition name
-            if acq.well:
-                output_filename = f"{acq.well}_segmentation.tif"
-            else:
-                output_filename = f"{acq.name}_segmentation.tif"
-            output_path = output_dir / output_filename
-            
-            print(f"  Saving segmentation mask to: {output_path}")
-            tifffile.imwrite(str(output_path), mask.astype(np.uint32), compression='lzw')
-            
-            # Also save as numpy array for easier loading
-            np.save(str(output_path).replace('.tif', '.npy'), mask)
+            # Use core segment function
+            mask = segment(
+                loader=loader,
+                acquisition=acq,
+                method=args.method,
+                nuclear_channels=nuclear_channels,
+                cyto_channels=cyto_channels if cyto_channels else None,
+                output_dir=output_dir,
+                denoise_settings=denoise_settings,
+                normalization_method='arcsinh' if args.arcsinh else 'None',
+                arcsinh_cofactor=args.arcsinh_cofactor if args.arcsinh else 10.0,
+                percentile_params=(1.0, 99.0),
+                nuclear_combo_method=args.nuclear_fusion_method,
+                cyto_combo_method=args.cyto_fusion_method,
+                nuclear_weights=nuclear_weights,
+                cyto_weights=cyto_weights,
+                # Cellpose parameters
+                cellpose_model=args.model,
+                diameter=args.diameter,
+                flow_threshold=args.flow_threshold,
+                cellprob_threshold=args.cellprob_threshold,
+                gpu_id=args.gpu_id,
+                # CellSAM parameters
+                deepcell_api_key=args.deepcell_api_key,
+                bbox_threshold=args.bbox_threshold,
+                use_wsi=args.use_wsi,
+                low_contrast_enhancement=args.low_contrast_enhancement,
+                gauge_cell_size=args.gauge_cell_size,
+                # Watershed parameters
+                min_cell_area=args.min_cell_area,
+                max_cell_area=args.max_cell_area,
+                compactness=args.compactness
+            )
             
             print(f"  ✓ Segmentation complete: {np.max(mask)} cells detected")
         
@@ -506,7 +242,7 @@ def segment_command(args):
 def extract_features_command(args):
     """Extract features from segmented cells."""
     print(f"Loading data from: {args.input}")
-    loader, loader_type = load_data(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
+    loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
     try:
         acquisitions = loader.list_acquisitions()
@@ -518,152 +254,28 @@ def extract_features_command(args):
                 raise ValueError(f"Acquisition '{args.acquisition}' not found")
             acquisitions = [acq]
         
-        # Load segmentation mask(s) - can be a directory or single file
-        mask_path = Path(args.mask)
-        masks_dict = {}
-        
-        if mask_path.is_dir():
-            # Directory of masks - load masks for each acquisition
-            print(f"Loading masks from directory: {mask_path}")
-            for mask_file in sorted(mask_path.glob('*.tif')) + sorted(mask_path.glob('*.tiff')) + sorted(mask_path.glob('*.npy')):
-                # Try to match mask filename to acquisition
-                # First try well name, then fall back to acquisition name
-                mask_name = mask_file.stem
-                matched = False
-                # Try to find matching acquisition by well name first
-                for acq in acquisitions:
-                    if acq.well and acq.well in mask_name:
-                        if mask_file.suffix == '.npy':
-                            masks_dict[acq.id] = np.load(str(mask_file))
-                        else:
-                            masks_dict[acq.id] = tifffile.imread(str(mask_file))
-                        print(f"  Loaded mask for {acq.well} (well name): {mask_file.name}")
-                        matched = True
-                        break
-                
-                # If no match by well name, try acquisition name
-                if not matched:
-                    for acq in acquisitions:
-                        if acq.name in mask_name or acq.id in mask_name:
-                            if mask_file.suffix == '.npy':
-                                masks_dict[acq.id] = np.load(str(mask_file))
-                            else:
-                                masks_dict[acq.id] = tifffile.imread(str(mask_file))
-                            print(f"  Loaded mask for {acq.name} (acquisition name): {mask_file.name}")
-                            break
-        else:
-            # Single mask file - use for all acquisitions
-            print(f"Loading mask from: {mask_path}")
-            if mask_path.suffix == '.npy':
-                mask = np.load(str(mask_path))
-            else:
-                mask = tifffile.imread(str(mask_path))
-            # Use same mask for all acquisitions
-            for acq in acquisitions:
-                masks_dict[acq.id] = mask
-        
         # Parse denoise settings
         denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
         
-        # Build feature selection dict
-        selected_features = {}
+        # Build feature selection flags
         # If neither specified, use defaults (both True)
-        if not args.morphological and not args.intensity:
-            args.morphological = True
-            args.intensity = True
+        morphological = args.morphological if args.morphological or args.intensity else True
+        intensity = args.intensity if args.morphological or args.intensity else True
         
-        if args.morphological:
-            # Add all morphological features
-            selected_features.update({
-                'area_um2': True,
-                'perimeter_um': True,
-                'equivalent_diameter_um': True,
-                'eccentricity': True,
-                'solidity': True,
-                'extent': True,
-                'circularity': True,
-                'major_axis_len_um': True,
-                'minor_axis_len_um': True,
-                'aspect_ratio': True,
-                'bbox_area_um2': True,
-                'touches_border': True,
-                'holes_count': True,
-                'centroid_x': True,
-                'centroid_y': True
-            })
-        if args.intensity:
-            # Add all intensity features
-            selected_features.update({
-                'mean': True,
-                'median': True,
-                'std': True,
-                'mad': True,
-                'p10': True,
-                'p90': True,
-                'integrated': True,
-                'frac_pos': True
-            })
-        
-        all_features = []
-        
-        for acq in acquisitions:
-            print(f"\nProcessing acquisition: {acq.name} (ID: {acq.id})")
-            
-            # Get mask for this acquisition
-            if acq.id not in masks_dict:
-                print(f"  Warning: No mask found for acquisition {acq.name}, skipping")
-                continue
-            
-            mask = masks_dict[acq.id]
-            
-            channels = loader.get_channels(acq.id)
-            img_stack = loader.get_all_channels(acq.id)
-            
-            # Prepare acquisition info
-            acq_info = {
-                'channels': channels,
-                'channel_metals': acq.channel_metals,
-                'channel_labels': acq.channel_labels,
-                'well': acq.well  # Include well for source_well column creation
-            }
-            
-            # Extract features
-            # Use well name for acquisition label if available, otherwise use acquisition name
-            acq_label = acq.well if acq.well else acq.name
-            features_df = extract_features_for_acquisition(
-                acq.id,
-                mask,
-                selected_features,
-                acq_info,
-                acq_label,
-                img_stack,
-                args.arcsinh,
-                args.arcsinh_cofactor if args.arcsinh else 10.0,
-                "custom" if denoise_settings else "None",
-                denoise_settings,
-                None,  # spillover_config
-                acq.source_file,
-                None  # excluded_channels (CLI doesn't support channel exclusion yet)
-            )
-            
-            # Add acquisition info
-            features_df['acquisition_id'] = acq.id
-            features_df['acquisition_name'] = acq.name
-            if acq.well:
-                features_df['well'] = acq.well
-            
-            all_features.append(features_df)
-        
-        # Combine all features
-        if len(all_features) > 1:
-            combined_features = pd.concat(all_features, ignore_index=True)
-        else:
-            combined_features = all_features[0]
-        
-        # Save to CSV
-        output_path = Path(args.output)
-        print(f"\nSaving features to: {output_path}")
-        combined_features.to_csv(output_path, index=False)
+        # Use core extract_features function
+        combined_features = extract_features(
+            loader=loader,
+            acquisitions=acquisitions,
+            mask_path=args.mask,
+            output_path=args.output,
+            morphological=morphological,
+            intensity=intensity,
+            denoise_settings=denoise_settings,
+            arcsinh=args.arcsinh,
+            arcsinh_cofactor=args.arcsinh_cofactor if args.arcsinh else 10.0,
+            spillover_config=None,  # CLI doesn't support spillover correction yet
+            excluded_channels=None  # CLI doesn't support channel exclusion yet
+        )
         
         print(f"✓ Feature extraction complete! Extracted {len(combined_features)} cells")
         
@@ -676,176 +288,43 @@ def cluster_command(args):
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
-    # Select columns for clustering
+    # Parse columns if provided
+    columns = None
     if args.columns:
-        cluster_columns = [col.strip() for col in args.columns.split(',')]
-    else:
-        # Auto-detect: exclude non-feature columns (matching GUI)
-        exclude_cols = {'label', 'acquisition_id', 'acquisition_name', 'well', 'cluster', 'cell_id'}
-        cluster_columns = [col for col in features_df.columns if col not in exclude_cols]
+        columns = [col.strip() for col in args.columns.split(',')]
     
-    # Validate columns
-    missing = [col for col in cluster_columns if col not in features_df.columns]
-    if missing:
-        raise ValueError(f"Columns not found: {missing}")
+    # Use core cluster function
+    result_df = cluster(
+        features_df=features_df,
+        method=args.method,
+        columns=columns,
+        scaling=args.scaling,
+        output_path=args.output,
+        # Hierarchical parameters
+        n_clusters=args.n_clusters,
+        linkage=args.linkage,
+        # Leiden/Louvain parameters
+        resolution=args.resolution,
+        seed=args.seed,
+        n_neighbors=args.n_neighbors,
+        metric=args.metric,
+        # K-means parameters
+        n_init=args.n_init,
+        # HDBSCAN parameters
+        min_cluster_size=args.min_cluster_size,
+        min_samples=args.min_samples,
+        cluster_selection_method=args.cluster_selection_method,
+        hdbscan_metric=args.hdbscan_metric
+    )
     
-    # Prepare data exactly like GUI _prepare_clustering_data
-    data = features_df[cluster_columns].copy()
+    # Count clusters
+    unique_clusters = result_df['cluster'].unique()
+    n_clusters_found = len([c for c in unique_clusters if c > 0])  # Exclude 0 (noise/unassigned)
+    n_noise = (result_df['cluster'] == 0).sum()
     
-    # Handle missing/infinite values safely (matching GUI)
-    data = data.replace([np.inf, -np.inf], np.nan).fillna(data.median(numeric_only=True))
-    
-    # Apply scaling (matching GUI _apply_scaling)
-    if args.scaling == 'zscore':
-        # Z-score normalization: (x - mean) / std
-        data_means = data.mean()
-        data_stds = data.std(ddof=0)
-        
-        # Handle columns with zero variance or NaN std/mean
-        zero_var_cols = (data_stds == 0) | data_stds.isna() | data_means.isna()
-        if zero_var_cols.any():
-            # Set zero variance/NaN columns to 0 (centered but not scaled)
-            data.loc[:, zero_var_cols] = 0
-            non_zero_var_cols = ~zero_var_cols
-            if non_zero_var_cols.any():
-                normalized_data = (data.loc[:, non_zero_var_cols] - data_means[non_zero_var_cols]) / data_stds[non_zero_var_cols]
-                data.loc[:, non_zero_var_cols] = normalized_data
-        else:
-            # Normalize all columns
-            data = (data - data_means) / data_stds
-    elif args.scaling == 'mad':
-        # MAD (Median Absolute Deviation) scaling: (x - median) / MAD
-        data_medians = data.median()
-        
-        # Calculate MAD for each column
-        mad_values = {}
-        for col in data.columns:
-            col_data = data[col].values
-            median_val = data_medians[col]
-            if pd.isna(median_val):
-                mad_values[col] = 0.0
-            else:
-                mad = np.median(np.abs(col_data - median_val))
-                mad_values[col] = 0.0 if pd.isna(mad) else mad
-        
-        mad_series = pd.Series(mad_values)
-        
-        # Handle columns with zero MAD or NaN
-        zero_mad_cols = (mad_series == 0) | mad_series.isna() | data_medians.isna()
-        if zero_mad_cols.any():
-            data.loc[:, zero_mad_cols] = 0
-            non_zero_mad_cols = ~zero_mad_cols
-            if non_zero_mad_cols.any():
-                for col in data.columns[non_zero_mad_cols]:
-                    data[col] = (data[col] - data_medians[col]) / mad_series[col]
-        else:
-            for col in data.columns:
-                data[col] = (data[col] - data_medians[col]) / mad_series[col]
-    
-    # Handle any infinities that might have been introduced
-    data = data.replace([np.inf, -np.inf], np.nan)
-    
-    # Drop any residual non-finite rows/cols (matching GUI)
-    data = data.dropna(axis=0, how='any').dropna(axis=1, how='any')
-    
-    # Guard: require at least 2 rows and 2 columns
-    if data.shape[0] < 2 or data.shape[1] < 2:
-        raise ValueError("Insufficient data for clustering. Need at least 2 rows and 2 columns after cleaning.")
-    
-    # Store original indices to map back
-    original_indices = data.index
-    data_values = data.values
-    
-    # Perform clustering
-    print(f"Running {args.method} clustering...")
-    
-    if args.method == 'hierarchical':
-        from scipy.cluster.hierarchy import linkage, fcluster
-        from scipy.spatial.distance import pdist
-        
-        # Calculate distance matrix and linkage (matching GUI)
-        distances = pdist(data_values, metric='euclidean')
-        linkage_matrix = linkage(distances, method=args.linkage)
-        
-        # Get cluster labels
-        if args.n_clusters is None:
-            raise ValueError("--n-clusters is required for hierarchical clustering")
-        cluster_labels = fcluster(linkage_matrix, args.n_clusters, criterion='maxclust')
-        
-    elif args.method == 'leiden':
-        import igraph as ig
-        from scipy.spatial.distance import pdist
-        import leidenalg
-        
-        # Calculate distance matrix (matching GUI exactly)
-        distances = pdist(data_values, metric='euclidean')
-        
-        # Convert to similarity matrix (invert distances) - matching GUI
-        max_dist = np.max(distances)
-        similarities = max_dist - distances
-        
-        # Create graph from similarity matrix (matching GUI exactly)
-        n = data_values.shape[0]
-        edges = []
-        weights = []
-        
-        # Convert condensed distance matrix to edge list
-        idx = 0
-        for i in range(n):
-            for j in range(i + 1, n):
-                if similarities[idx] > 0:  # Only add positive similarities
-                    edges.append((i, j))
-                    weights.append(similarities[idx])
-                idx += 1
-        
-        # Create igraph
-        g = ig.Graph(n)
-        g.add_edges(edges)
-        g.es['weight'] = weights
-        
-        # Run Leiden clustering (matching GUI)
-        partition = leidenalg.find_partition(
-            g,
-            leidenalg.RBConfigurationVertexPartition,
-            weights='weight',
-            resolution_parameter=args.resolution,
-            seed=args.seed,
-        )
-        cluster_labels = np.array(partition.membership) + 1  # Start from 1 (matching GUI)
-        
-    elif args.method == 'hdbscan':
-        import hdbscan
-        # Set random seed for reproducibility
-        np.random.seed(args.seed)
-        clusterer = hdbscan.HDBSCAN(
-            min_cluster_size=args.min_cluster_size,
-            min_samples=args.min_samples
-        )
-        cluster_labels = clusterer.fit_predict(data_values)
-        # HDBSCAN uses -1 for noise, convert to 1-based (matching GUI)
-        cluster_labels = cluster_labels + 1  # -1 becomes 0, others become 1-based
-    
-    else:
-        raise ValueError(f"Unknown clustering method: {args.method}")
-    
-    # Map cluster labels back to original dataframe indices
-    # Create a series with cluster labels for the cleaned data
-    cluster_series = pd.Series(cluster_labels, index=original_indices)
-    
-    # Add cluster labels to original dataframe (NaN for rows that were dropped)
-    features_df['cluster'] = cluster_series
-    # Fill NaN with 0 (noise/unassigned) if needed
-    features_df['cluster'] = features_df['cluster'].fillna(0).astype(int)
-    
-    # Save output
-    output_path = Path(args.output)
-    print(f"Saving clustered features to: {output_path}")
-    features_df.to_csv(output_path, index=False)
-    
-    print(f"✓ Clustering complete! Found {len(set(cluster_labels))} clusters")
-    if -1 in cluster_labels:
-        n_noise = sum(cluster_labels == -1)
-        print(f"  ({n_noise} cells marked as noise)")
+    print(f"✓ Clustering complete! Found {n_clusters_found} clusters")
+    if n_noise > 0:
+        print(f"  ({n_noise} cells marked as noise/unassigned)")
 
 
 def spatial_command(args):
@@ -853,183 +332,537 @@ def spatial_command(args):
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
-    # Check for required columns
-    required_cols = ['centroid_x', 'centroid_y']
-    missing = [col for col in required_cols if col not in features_df.columns]
-    if missing:
-        raise ValueError(f"Required columns for spatial analysis: {missing}")
-    
     # Get pixel size (default to 1.0 µm if not available)
     pixel_size_um = getattr(args, 'pixel_size_um', 1.0)
     
-    # Build spatial graph per ROI if acquisition_id is present (matching GUI)
-    if 'acquisition_id' in features_df.columns:
-        print("Building spatial graph per ROI (acquisition)...")
-        edge_records = []
-        
-        for roi_id, roi_df in features_df.groupby('acquisition_id'):
-            roi_df = roi_df.dropna(subset=["centroid_x", "centroid_y"])
-            if roi_df.empty:
-                continue
-            
-            coords_px = roi_df[["centroid_x", "centroid_y"]].values
-            cell_ids = roi_df["cell_id"].values if 'cell_id' in roi_df.columns else roi_df.index.values
-            
-            # Use cKDTree for efficient spatial queries (matching GUI)
-            from scipy.spatial import cKDTree
-            tree = cKDTree(coords_px)
-            
-            # Convert radius from pixels to micrometers if needed
-            # CLI uses pixels, but we'll store in micrometers to match GUI
-            radius_px = args.radius
-            
-            # Build edges using kNN within radius (matching GUI)
-            roi_edges_set = set()
-            query_k = min(args.k_neighbors + 1, max(2, len(coords_px)))
-            dists, idxs = tree.query(coords_px, k=query_k)
-            
-            # Handle scalar case
-            if np.isscalar(dists):
-                dists = np.array([[dists]])
-                idxs = np.array([[idxs]])
-            elif dists.ndim == 1:
-                dists = dists[:, None]
-                idxs = idxs[:, None]
-            
-            for i in range(len(coords_px)):
-                src_cell_id = int(cell_ids[i])
-                for j in range(1, min(dists.shape[1], args.k_neighbors + 1)):
-                    nbr_idx = int(idxs[i, j])
-                    if nbr_idx < 0 or nbr_idx >= len(coords_px):
-                        continue
-                    dst_cell_id = int(cell_ids[nbr_idx])
-                    dist_px = float(dists[i, j])
-                    dist_um = dist_px * pixel_size_um
-                    
-                    # Only include edges within radius
-                    if dist_px <= radius_px:
-                        # Create canonical edge (smaller cell_id first)
-                        edge_key = (min(src_cell_id, dst_cell_id), max(src_cell_id, dst_cell_id))
-                        if edge_key not in roi_edges_set:
-                            roi_edges_set.add(edge_key)
-                            edge_records.append({
-                                'roi_id': str(roi_id),
-                                'cell_id_A': src_cell_id,
-                                'cell_id_B': dst_cell_id,
-                                'distance_um': dist_um
-                            })
-        
-        # Create edges dataframe (matching GUI format)
-        edges_df = pd.DataFrame(edge_records)
-    else:
-        # Single ROI or no ROI grouping - build graph globally
-        print("Building spatial graph (single ROI)...")
-        coords = features_df[['centroid_x', 'centroid_y']].dropna().values
-        
-        from scipy.spatial import cKDTree
-        tree = cKDTree(coords)
-        
-        # Build edges using kNN within radius
-        edge_records = []
-        edge_set = set()
-        query_k = min(args.k_neighbors + 1, max(2, len(coords)))
-        dists, idxs = tree.query(coords, k=query_k)
-        
-        # Handle scalar case
-        if np.isscalar(dists):
-            dists = np.array([[dists]])
-            idxs = np.array([[idxs]])
-        elif dists.ndim == 1:
-            dists = dists[:, None]
-            idxs = idxs[:, None]
-        
-        for i in range(len(coords)):
-            for j in range(1, min(dists.shape[1], args.k_neighbors + 1)):
-                nbr_idx = int(idxs[i, j])
-                if nbr_idx < 0 or nbr_idx >= len(coords):
-                    continue
-                dist_px = float(dists[i, j])
-                dist_um = dist_px * pixel_size_um
-                
-                if dist_px <= args.radius:
-                    edge_key = (min(i, nbr_idx), max(i, nbr_idx))
-                    if edge_key not in edge_set:
-                        edge_set.add(edge_key)
-                        edge_records.append({
-                            'source': i,
-                            'target': nbr_idx,
-                            'distance': dist_px,  # Keep in pixels for compatibility
-                            'distance_um': dist_um
-                        })
-        
-        edges_df = pd.DataFrame(edge_records)
+    # Get method from args (defaults to 'kNN' from argparse)
+    method = args.method
     
-    # Save edges
-    output_path = Path(args.output)
-    print(f"Saving spatial graph edges to: {output_path}")
-    edges_df.to_csv(output_path, index=False)
+    # Validate radius is provided for Radius method
+    if method == 'Radius' and args.radius is None:
+        raise ValueError("--radius is required for Radius method")
+            
+    # Use core build_spatial_graph function
+    print(f"Building spatial graph using {method} method...")
+    edges_df, features_with_communities = build_spatial_graph(
+        features_df=features_df,
+        method=method,
+        k_neighbors=args.k_neighbors,
+        radius=args.radius if method == 'Radius' else None,
+        pixel_size_um=pixel_size_um,
+        roi_column=None,  # Auto-detect from dataframe
+        detect_communities=args.detect_communities,
+        community_seed=args.seed,
+        output_path=args.output
+    )
     
     print(f"✓ Spatial analysis complete! Found {len(edges_df)} edges")
     
-    # Optionally detect communities
-    if args.detect_communities:
-        print("Detecting spatial communities...")
-        import igraph as ig
+    if features_with_communities is not None:
+        print(f"  Communities detected and saved")
+
+
+def batch_correction_command(args):
+    """Apply batch correction to feature data."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    # Use core batch_correction function
+    corrected_df = batch_correction(
+        features_df=features_df,
+        method=args.method,
+        batch_var=args.batch_var,
+        features=args.columns.split(',') if args.columns else None,
+        output_path=args.output,
+        covariates=args.covariates.split(',') if args.covariates else None,
+        n_clusters=args.n_clusters,
+        sigma=args.sigma,
+        theta=args.theta,
+        lambda_reg=args.lambda_reg,
+        max_iter=args.max_iter,
+        pca_variance=args.pca_variance
+    )
+    
+    print(f"✓ Batch correction complete! Corrected {len(corrected_df)} cells")
+
+
+def pixel_correlation_command(args):
+    """Compute pixel-level correlations between markers."""
+    print(f"Loading data from: {args.input}")
+    loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
+    
+    try:
+        acquisitions = loader.list_acquisitions()
         
-        # Build graph from edges
-        # Map cell IDs to indices if needed
-        if 'cell_id_A' in edges_df.columns and 'cell_id' in features_df.columns:
-            # Create mapping from cell_id to index
-            cell_id_to_idx = {cell_id: idx for idx, cell_id in enumerate(features_df['cell_id'].values)}
-            edge_list = []
-            weights = []
-            for _, e in edges_df.iterrows():
-                cell_a = int(e['cell_id_A'])
-                cell_b = int(e['cell_id_B'])
-                if cell_a in cell_id_to_idx and cell_b in cell_id_to_idx:
-                    edge_list.append((cell_id_to_idx[cell_a], cell_id_to_idx[cell_b]))
-                    dist_um = e.get('distance_um', e.get('distance', 1.0) * pixel_size_um)
-                    weights.append(1.0 / (dist_um + 1e-6))
-            g = ig.Graph(len(features_df))
-            g.add_edges(edge_list)
-            g.es['weight'] = weights
+        # Get acquisition
+        if args.acquisition:
+            acq = next((a for a in acquisitions if a.id == args.acquisition or a.name == args.acquisition), None)
+            if not acq:
+                raise ValueError(f"Acquisition '{args.acquisition}' not found")
+            acquisitions = [acq]
         else:
-            # Use index-based edges
-            g = ig.Graph()
-            g.add_vertices(len(features_df))
-            edge_list = []
-            weights = []
-            for _, e in edges_df.iterrows():
-                source = int(e.get('source', e.get('cell_id_A', 0)))
-                target = int(e.get('target', e.get('cell_id_B', 0)))
-                edge_list.append((source, target))
-                dist_um = e.get('distance_um', e.get('distance', 1.0) * pixel_size_um)
-                weights.append(1.0 / (dist_um + 1e-6))
-            g.add_edges(edge_list)
-            g.es['weight'] = weights
+            acquisitions = [acquisitions[0]]  # Use first if not specified
         
-        # Run community detection with seed
-        import leidenalg
-        partition = leidenalg.find_partition(g, leidenalg.ModularityVertexPartition, seed=args.seed)
-        communities = partition.membership
-        
-        # Map community labels back to dataframe
-        if 'cell_id_A' in edges_df.columns and 'cell_id' in features_df.columns:
-            # Map from graph vertex index to cell_id, then to dataframe index
-            idx_to_cell_id = {idx: cell_id for idx, cell_id in enumerate(features_df['cell_id'].values)}
-            community_series = pd.Series(index=features_df.index, dtype=int)
-            for vertex_idx, community in enumerate(communities):
-                if vertex_idx < len(features_df):
-                    community_series.iloc[vertex_idx] = community
-            features_df['spatial_community'] = community_series
+        # Parse channels
+        channels = args.channels.split(',') if args.channels else None
+        if channels:
+            channels = [ch.strip() for ch in channels]
         else:
-            # Direct mapping (vertex index = dataframe index)
-            features_df['spatial_community'] = communities[:len(features_df)]
+            # Get all channels from first acquisition
+            channels = loader.get_channels(acquisitions[0].id)
         
-        # Save with communities
-        community_output = output_path.parent / (output_path.stem + '_with_communities.csv')
-        features_df.to_csv(community_output, index=False)
-        print(f"  Saved communities to: {community_output}")
+        # Load mask if provided
+        mask = None
+        if args.mask:
+            import tifffile
+            mask = tifffile.imread(args.mask)
+        
+        # Compute correlations for each acquisition
+        all_results = []
+        for acq in acquisitions:
+            print(f"\nProcessing acquisition: {acq.name} (ID: {acq.id})")
+            
+            results_df = pixel_correlation(
+                loader=loader,
+                acquisition=acq,
+                channels=channels,
+                mask=mask,
+                multiple_testing_correction=args.multiple_testing_correction
+            )
+            
+            if not results_df.empty:
+                results_df['acquisition_id'] = acq.id
+                results_df['acquisition_name'] = acq.name
+                all_results.append(results_df)
+        
+        # Combine results
+        if all_results:
+            combined_results = pd.concat(all_results, ignore_index=True)
+    
+            # Save output
+            output_path = Path(args.output)
+            combined_results.to_csv(output_path, index=False)
+            print(f"\n✓ Pixel correlation complete! Results saved to: {output_path}")
+        else:
+            print("\n✗ No correlations computed")
+    
+    finally:
+        loader.close()
+
+
+def qc_analysis_command(args):
+    """Perform quality control analysis."""
+    print(f"Loading data from: {args.input}")
+    loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
+    
+    try:
+        acquisitions = loader.list_acquisitions()
+        
+        # Get acquisition
+        if args.acquisition:
+            acq = next((a for a in acquisitions if a.id == args.acquisition or a.name == args.acquisition), None)
+            if not acq:
+                raise ValueError(f"Acquisition '{args.acquisition}' not found")
+            acquisitions = [acq]
+        else:
+            acquisitions = [acquisitions[0]]  # Use first if not specified
+        
+        # Parse channels
+        channels = args.channels.split(',') if args.channels else None
+        if channels:
+            channels = [ch.strip() for ch in channels]
+        else:
+            # Get all channels from first acquisition
+            channels = loader.get_channels(acquisitions[0].id)
+        
+        # Load mask if provided (for cell-level analysis)
+        mask = None
+        if args.mask:
+            import tifffile
+            mask = tifffile.imread(args.mask)
+        
+        # Run QC analysis for each acquisition
+        all_results = []
+        for acq in acquisitions:
+            print(f"\nProcessing acquisition: {acq.name} (ID: {acq.id})")
+            
+            results_df = qc_analysis(
+                loader=loader,
+                acquisition=acq,
+                channels=channels,
+                mode=args.mode,
+                mask=mask
+            )
+            
+            if not results_df.empty:
+                all_results.append(results_df)
+        
+        # Combine results
+        if all_results:
+            combined_results = pd.concat(all_results, ignore_index=True)
+            
+            # Save output
+            output_path = Path(args.output)
+            combined_results.to_csv(output_path, index=False)
+            print(f"\n✓ QC analysis complete! Results saved to: {output_path}")
+        else:
+            print("\n✗ No QC results computed")
+    
+    finally:
+        loader.close()
+
+
+def spillover_correction_command(args):
+    """Apply spillover correction to feature data."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    # Use core spillover_correction function
+    corrected_df = spillover_correction(
+        features_df=features_df,
+        spillover_matrix=args.spillover_matrix,
+        method=args.method,
+        arcsinh_cofactor=args.arcsinh_cofactor,
+        channel_map=None,  # Could add CLI arg for this
+        output_path=args.output
+    )
+    
+    print(f"✓ Spillover correction complete! Corrected {len(corrected_df)} cells")
+
+
+def generate_spillover_matrix_command(args):
+    """Generate spillover matrix from single-stain control MCD file."""
+    print(f"Processing MCD file: {args.input}")
+            
+    # Parse donor mapping if provided
+    donor_map = None
+    if args.donor_map:
+        import json
+        if os.path.exists(args.donor_map):
+            with open(args.donor_map, 'r') as f:
+                donor_map = json.load(f)
+        else:
+            # Try to parse as JSON string
+            donor_map = json.loads(args.donor_map)
+    
+    # Use core generate_spillover_matrix function
+    S_df, qc_df = generate_spillover_matrix(
+        mcd_path=args.input,
+        donor_label_per_acq=donor_map,
+        cap=args.cap,
+        aggregate=args.aggregate,
+        output_path=args.output
+    )
+    
+    print(f"✓ Spillover matrix generation complete!")
+    print(f"  Matrix shape: {S_df.shape}")
+    print(f"  Saved to: {args.output}")
+
+
+def deconvolution_command(args):
+    """Apply deconvolution to high resolution IMC images."""
+    print(f"Loading data from: {args.input}")
+    loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
+    
+    try:
+        acquisitions = loader.list_acquisitions()
+        
+        # Get acquisition
+        if args.acquisition:
+            acq = next((a for a in acquisitions if a.id == args.acquisition or a.name == args.acquisition), None)
+            if not acq:
+                raise ValueError(f"Acquisition '{args.acquisition}' not found")
+            acquisitions = [acq]
+        
+        # Create output directory
+        output_dir = Path(args.output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Apply deconvolution to each acquisition
+        for acq in acquisitions:
+            print(f"\nProcessing acquisition: {acq.name} (ID: {acq.id})")
+            
+            output_path = deconvolution(
+                loader=loader,
+                acquisition=acq,
+                output_dir=output_dir,
+                x0=args.x0,
+                iterations=args.iterations,
+                output_format=args.output_format
+            )
+            
+            print(f"  Saved to: {output_path}")
+        
+        print(f"\n✓ Deconvolution complete! Output saved to: {output_dir}")
+    
+    finally:
+        loader.close()
+
+
+def spatial_enrichment_command(args):
+    """Compute pairwise spatial enrichment between clusters."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    print(f"Loading edges from: {args.edges}")
+    edges_df = pd.read_csv(args.edges)
+    
+    # Use core spatial_enrichment function
+    enrichment_df = spatial_enrichment(
+        features_df=features_df,
+        edges_df=edges_df,
+        cluster_column=args.cluster_column,
+        n_permutations=args.n_permutations,
+        seed=args.seed,
+        roi_column=args.roi_column,
+        output_path=args.output
+    )
+    
+    print(f"✓ Spatial enrichment complete! Found {len(enrichment_df)} cluster pairs")
+
+
+def spatial_distance_command(args):
+    """Compute distance distributions between clusters."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    print(f"Loading edges from: {args.edges}")
+    edges_df = pd.read_csv(args.edges)
+    
+    # Use core spatial_distance_distribution function
+    distance_df = spatial_distance_distribution(
+        features_df=features_df,
+        edges_df=edges_df,
+        cluster_column=args.cluster_column,
+        roi_column=args.roi_column,
+        output_path=args.output
+    )
+    
+    print(f"✓ Distance distribution complete! Found {len(distance_df)} cluster pairs")
+
+
+def spatial_anndata_command(args):
+    """Build spatial graph using AnnData/squidpy approach."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    pixel_size_um = getattr(args, 'pixel_size_um', 1.0)
+    method = args.method
+    
+    if method == 'Radius' and args.radius is None:
+        raise ValueError("--radius is required for Radius method")
+    
+    print(f"Building spatial graph using {method} method (AnnData/squidpy)...")
+    anndata_dict = build_spatial_graph_anndata(
+        features_df=features_df,
+        method=method,
+        k_neighbors=args.k_neighbors,
+        radius=args.radius if method == 'Radius' else None,
+        pixel_size_um=pixel_size_um,
+        roi_column=args.roi_column,
+        roi_id=args.roi_id,
+        seed=args.seed
+    )
+    
+    print(f"✓ Spatial graph built for {len(anndata_dict)} ROI(s)")
+    
+    # Export if output path provided
+    if args.output:
+        export_anndata(anndata_dict, args.output, combined=args.combined)
+        print(f"✓ AnnData exported to: {args.output}")
+
+
+def spatial_nhood_enrichment_command(args):
+    """Run neighborhood enrichment analysis."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    pixel_size_um = getattr(args, 'pixel_size_um', 1.0)
+    
+    # Build graph first
+    print("Building spatial graph...")
+    anndata_dict = build_spatial_graph_anndata(
+        features_df=features_df,
+        method=args.method,
+        k_neighbors=args.k_neighbors,
+        radius=args.radius if args.method == 'Radius' else None,
+        pixel_size_um=pixel_size_um,
+        roi_column=args.roi_column,
+        roi_id=args.roi_id,
+        seed=args.seed
+    )
+    
+    if not anndata_dict:
+        raise ValueError("Failed to build spatial graph. Check your data and parameters.")
+    
+    # Run neighborhood enrichment
+    print("Running neighborhood enrichment...")
+    results = spatial_neighborhood_enrichment(
+        anndata_dict=anndata_dict,
+        cluster_key=args.cluster_column,
+        aggregation=args.aggregation
+    )
+    
+    print(f"✓ Neighborhood enrichment complete for {len(results['results'])} ROI(s)")
+    
+    # Export if output path provided
+    if args.output:
+        export_anndata(results['results'], args.output, combined=args.combined)
+        print(f"✓ Results exported to: {args.output}")
+
+
+def spatial_cooccurrence_command(args):
+    """Run co-occurrence analysis."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    pixel_size_um = getattr(args, 'pixel_size_um', 1.0)
+    
+    # Parse interval
+    interval = [float(x.strip()) for x in args.interval.split(',')]
+    if len(interval) < 2:
+        raise ValueError("Co-occurrence requires at least 2 distances in interval")
+    
+    # Build graph first
+    print("Building spatial graph...")
+    anndata_dict = build_spatial_graph_anndata(
+        features_df=features_df,
+        method=args.method,
+        k_neighbors=args.k_neighbors,
+        radius=args.radius if args.method == 'Radius' else None,
+        pixel_size_um=pixel_size_um,
+        roi_column=args.roi_column,
+        roi_id=args.roi_id,
+        seed=args.seed
+    )
+    
+    if not anndata_dict:
+        raise ValueError("Failed to build spatial graph. Check your data and parameters.")
+    
+    # Run co-occurrence
+    print("Running co-occurrence analysis...")
+    results = spatial_cooccurrence(
+        anndata_dict=anndata_dict,
+        cluster_key=args.cluster_column,
+        interval=interval,
+        reference_cluster=args.reference_cluster
+    )
+    
+    print(f"✓ Co-occurrence complete for {len(results)} ROI(s)")
+    
+    # Export if output path provided
+    if args.output:
+        export_anndata(results, args.output, combined=args.combined)
+        print(f"✓ Results exported to: {args.output}")
+
+
+def spatial_autocorr_command(args):
+    """Run spatial autocorrelation (Moran's I) analysis."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    pixel_size_um = getattr(args, 'pixel_size_um', 1.0)
+    
+    # Parse markers
+    markers = None
+    if args.markers and args.markers.lower() != 'all':
+        markers = [m.strip() for m in args.markers.split(',')]
+    
+    # Build graph first
+    print("Building spatial graph...")
+    anndata_dict = build_spatial_graph_anndata(
+        features_df=features_df,
+        method=args.method,
+        k_neighbors=args.k_neighbors,
+        radius=args.radius if args.method == 'Radius' else None,
+        pixel_size_um=pixel_size_um,
+        roi_column=args.roi_column,
+        roi_id=args.roi_id,
+        seed=args.seed
+    )
+    
+    if not anndata_dict:
+        raise ValueError("Failed to build spatial graph. Check your data and parameters.")
+    
+    # Run autocorrelation
+    print("Running spatial autocorrelation...")
+    results = spatial_autocorrelation(
+        anndata_dict=anndata_dict,
+        markers=markers,
+        aggregation=args.aggregation
+    )
+    
+    print(f"✓ Spatial autocorrelation complete for {len(results['results'])} ROI(s)")
+    
+    # Export if output path provided
+    if args.output:
+        export_anndata(results['results'], args.output, combined=args.combined)
+        print(f"✓ Results exported to: {args.output}")
+
+
+def spatial_ripley_command(args):
+    """Run Ripley function analysis."""
+    print(f"Loading features from: {args.features}")
+    features_df = pd.read_csv(args.features)
+    
+    pixel_size_um = getattr(args, 'pixel_size_um', 1.0)
+    
+    # Build graph first
+    print("Building spatial graph...")
+    anndata_dict = build_spatial_graph_anndata(
+        features_df=features_df,
+        method=args.method,
+        k_neighbors=args.k_neighbors,
+        radius=args.radius if args.method == 'Radius' else None,
+        pixel_size_um=pixel_size_um,
+        roi_column=args.roi_column,
+        roi_id=args.roi_id,
+        seed=args.seed
+    )
+    
+    if not anndata_dict:
+        raise ValueError("Failed to build spatial graph. Check your data and parameters.")
+    
+    # Run Ripley
+    print(f"Running Ripley {args.mode} function...")
+    results = spatial_ripley(
+        anndata_dict=anndata_dict,
+        cluster_key=args.cluster_column,
+        mode=args.mode,
+        max_dist=args.max_dist
+    )
+    
+    print(f"✓ Ripley analysis complete for {len(results)} ROI(s)")
+    
+    # Export if output path provided
+    if args.output:
+        export_anndata(results, args.output, combined=args.combined)
+        print(f"✓ Results exported to: {args.output}")
+
+
+def export_anndata_command(args):
+    """Export AnnData objects from H5AD file(s)."""
+    try:
+        import anndata as ad
+    except ImportError:
+        raise ImportError("anndata is required. Install with: pip install anndata")
+    
+    # Load AnnData
+    if args.input.endswith('.h5ad'):
+        # Single file
+        adata = ad.read_h5ad(args.input)
+        anndata_dict = {'combined': adata}
+    else:
+        # Directory of files
+        input_path = Path(args.input)
+        anndata_dict = {}
+        for h5ad_file in input_path.glob('*.h5ad'):
+            roi_id = h5ad_file.stem.replace('anndata_roi_', '')
+            anndata_dict[roi_id] = ad.read_h5ad(str(h5ad_file))
+    
+    # Export
+    export_anndata(anndata_dict, args.output, combined=args.combined)
+    print(f"✓ AnnData exported to: {args.output}")
 
 
 def cluster_figures_command(args):
@@ -1805,14 +1638,19 @@ Examples:
     cluster_parser = subparsers.add_parser('cluster', help='Perform clustering on feature data')
     cluster_parser.add_argument('features', help='Input CSV file with features')
     cluster_parser.add_argument('output', help='Output CSV file with cluster labels')
-    cluster_parser.add_argument('--method', choices=['hierarchical', 'leiden', 'hdbscan'], default='leiden', help='Clustering method')
-    cluster_parser.add_argument('--n-clusters', type=int, help='Number of clusters (required for hierarchical, not used for leiden/hdbscan)')
+    cluster_parser.add_argument('--method', choices=['hierarchical', 'leiden', 'louvain', 'kmeans', 'hdbscan'], default='leiden', help='Clustering method')
+    cluster_parser.add_argument('--n-clusters', type=int, help='Number of clusters (required for hierarchical and kmeans, not used for leiden/louvain/hdbscan)')
     cluster_parser.add_argument('--columns', type=str, help='Comma-separated list of columns to use for clustering (auto-detect if not specified)')
     cluster_parser.add_argument('--scaling', choices=['none', 'zscore', 'mad'], default='zscore', help='Feature scaling method (zscore or mad, matching GUI)')
     cluster_parser.add_argument('--linkage', choices=['ward', 'complete', 'average'], default='ward', help='Linkage method for hierarchical clustering')
     cluster_parser.add_argument('--resolution', type=float, default=1.0, help='Resolution parameter for Leiden clustering (default: 1.0)')
+    cluster_parser.add_argument('--n-neighbors', type=int, default=15, help='Number of neighbors for k-NN graph (Leiden/Louvain only, default: 15)')
+    cluster_parser.add_argument('--metric', choices=['euclidean', 'manhattan', 'cosine'], default='euclidean', help='Distance metric for k-NN graph (Leiden/Louvain only, default: euclidean)')
+    cluster_parser.add_argument('--n-init', type=int, default=10, help='Number of initializations for K-means (default: 10)')
     cluster_parser.add_argument('--min-cluster-size', type=int, default=10, help='Minimum cluster size (hdbscan, default: 10)')
     cluster_parser.add_argument('--min-samples', type=int, default=5, help='Minimum samples (hdbscan, default: 5)')
+    cluster_parser.add_argument('--cluster-selection-method', choices=['eom', 'leaf'], default='eom', help='Cluster selection method for HDBSCAN (default: eom)')
+    cluster_parser.add_argument('--hdbscan-metric', choices=['euclidean', 'manhattan'], default='euclidean', help='Distance metric for HDBSCAN (default: euclidean)')
     cluster_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
     cluster_parser.set_defaults(func=cluster_command)
     
@@ -1820,12 +1658,187 @@ Examples:
     spatial_parser = subparsers.add_parser('spatial', help='Perform spatial analysis on feature data')
     spatial_parser.add_argument('features', help='Input CSV file with features (must contain centroid_x, centroid_y)')
     spatial_parser.add_argument('output', help='Output CSV file with spatial graph edges')
-    spatial_parser.add_argument('--radius', type=float, required=True, help='Maximum distance for edges (pixels)')
-    spatial_parser.add_argument('--k-neighbors', type=int, default=10, help='k for k-nearest neighbors (default: 10)')
+    spatial_parser.add_argument('--method', choices=['kNN', 'Radius', 'Delaunay'], default='kNN', help='Graph construction method (default: kNN)')
+    spatial_parser.add_argument('--radius', type=float, help='Maximum distance for edges in pixels (required for Radius method)')
+    spatial_parser.add_argument('--k-neighbors', type=int, default=10, help='k for k-nearest neighbors (default: 10, used for kNN method)')
     spatial_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0, used for distance_um conversion)')
     spatial_parser.add_argument('--detect-communities', action='store_true', help='Also detect spatial communities')
     spatial_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
     spatial_parser.set_defaults(func=spatial_command)
+    
+    # Spatial AnnData command (build graph)
+    spatial_anndata_parser = subparsers.add_parser('spatial-anndata', help='Build spatial graph using AnnData/squidpy approach')
+    spatial_anndata_parser.add_argument('features', help='Input CSV file with features (must contain centroid_x, centroid_y)')
+    spatial_anndata_parser.add_argument('--output', type=str, help='Output H5AD file or directory for AnnData objects')
+    spatial_anndata_parser.add_argument('--method', choices=['kNN', 'Radius', 'Delaunay'], default='kNN', help='Graph construction method (default: kNN)')
+    spatial_anndata_parser.add_argument('--radius', type=float, help='Maximum distance for edges in micrometers (required for Radius method)')
+    spatial_anndata_parser.add_argument('--k-neighbors', type=int, default=20, help='k for k-nearest neighbors (default: 20, used for kNN method)')
+    spatial_anndata_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0)')
+    spatial_anndata_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    spatial_anndata_parser.add_argument('--roi-id', type=str, help='Specific ROI ID to process (processes all if not specified)')
+    spatial_anndata_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
+    spatial_anndata_parser.add_argument('--combined', action='store_true', help='Export as single combined file (default: separate files per ROI)')
+    spatial_anndata_parser.set_defaults(func=spatial_anndata_command)
+    
+    # Spatial neighborhood enrichment command
+    nhood_parser = subparsers.add_parser('spatial-nhood-enrichment', help='Run neighborhood enrichment analysis using squidpy')
+    nhood_parser.add_argument('features', help='Input CSV file with features')
+    nhood_parser.add_argument('--output', type=str, help='Output H5AD file or directory for results')
+    nhood_parser.add_argument('--method', choices=['kNN', 'Radius', 'Delaunay'], default='kNN', help='Graph construction method (default: kNN)')
+    nhood_parser.add_argument('--radius', type=float, help='Maximum distance for edges in micrometers (required for Radius method)')
+    nhood_parser.add_argument('--k-neighbors', type=int, default=20, help='k for k-nearest neighbors (default: 20)')
+    nhood_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0)')
+    nhood_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    nhood_parser.add_argument('--roi-id', type=str, help='Specific ROI ID to process (processes all if not specified)')
+    nhood_parser.add_argument('--cluster-column', type=str, default='cluster', help='Column name containing cluster labels (default: cluster)')
+    nhood_parser.add_argument('--aggregation', choices=['mean', 'sum'], default='mean', help='Aggregation method for multiple ROIs (default: mean)')
+    nhood_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
+    nhood_parser.add_argument('--combined', action='store_true', help='Export as single combined file (default: separate files per ROI)')
+    nhood_parser.set_defaults(func=spatial_nhood_enrichment_command)
+    
+    # Spatial co-occurrence command
+    cooccur_parser = subparsers.add_parser('spatial-cooccurrence', help='Run co-occurrence analysis using squidpy')
+    cooccur_parser.add_argument('features', help='Input CSV file with features')
+    cooccur_parser.add_argument('--output', type=str, help='Output H5AD file or directory for results')
+    cooccur_parser.add_argument('--method', choices=['kNN', 'Radius', 'Delaunay'], default='kNN', help='Graph construction method (default: kNN)')
+    cooccur_parser.add_argument('--radius', type=float, help='Maximum distance for edges in micrometers (required for Radius method)')
+    cooccur_parser.add_argument('--k-neighbors', type=int, default=20, help='k for k-nearest neighbors (default: 20)')
+    cooccur_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0)')
+    cooccur_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    cooccur_parser.add_argument('--roi-id', type=str, help='Specific ROI ID to process (processes all if not specified)')
+    cooccur_parser.add_argument('--cluster-column', type=str, default='cluster', help='Column name containing cluster labels (default: cluster)')
+    cooccur_parser.add_argument('--interval', type=str, default='10,20,30,50,100', help='Comma-separated distances in micrometers (default: 10,20,30,50,100)')
+    cooccur_parser.add_argument('--reference-cluster', type=str, help='Optional reference cluster for co-occurrence')
+    cooccur_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
+    cooccur_parser.add_argument('--combined', action='store_true', help='Export as single combined file (default: separate files per ROI)')
+    cooccur_parser.set_defaults(func=spatial_cooccurrence_command)
+    
+    # Spatial autocorrelation command
+    autocorr_parser = subparsers.add_parser('spatial-autocorr', help='Run spatial autocorrelation (Moran\'s I) analysis using squidpy')
+    autocorr_parser.add_argument('features', help='Input CSV file with features')
+    autocorr_parser.add_argument('--output', type=str, help='Output H5AD file or directory for results')
+    autocorr_parser.add_argument('--method', choices=['kNN', 'Radius', 'Delaunay'], default='kNN', help='Graph construction method (default: kNN)')
+    autocorr_parser.add_argument('--radius', type=float, help='Maximum distance for edges in micrometers (required for Radius method)')
+    autocorr_parser.add_argument('--k-neighbors', type=int, default=20, help='k for k-nearest neighbors (default: 20)')
+    autocorr_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0)')
+    autocorr_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    autocorr_parser.add_argument('--roi-id', type=str, help='Specific ROI ID to process (processes all if not specified)')
+    autocorr_parser.add_argument('--markers', type=str, default='all', help='Comma-separated list of markers to analyze, or "all" (default: all)')
+    autocorr_parser.add_argument('--aggregation', choices=['mean', 'sum'], default='mean', help='Aggregation method for multiple ROIs (default: mean)')
+    autocorr_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
+    autocorr_parser.add_argument('--combined', action='store_true', help='Export as single combined file (default: separate files per ROI)')
+    autocorr_parser.set_defaults(func=spatial_autocorr_command)
+    
+    # Spatial Ripley command
+    ripley_parser = subparsers.add_parser('spatial-ripley', help='Run Ripley function analysis using squidpy')
+    ripley_parser.add_argument('features', help='Input CSV file with features')
+    ripley_parser.add_argument('--output', type=str, help='Output H5AD file or directory for results')
+    ripley_parser.add_argument('--method', choices=['kNN', 'Radius', 'Delaunay'], default='kNN', help='Graph construction method (default: kNN)')
+    ripley_parser.add_argument('--radius', type=float, help='Maximum distance for edges in micrometers (required for Radius method)')
+    ripley_parser.add_argument('--k-neighbors', type=int, default=20, help='k for k-nearest neighbors (default: 20)')
+    ripley_parser.add_argument('--pixel-size-um', type=float, default=1.0, help='Pixel size in micrometers (default: 1.0)')
+    ripley_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    ripley_parser.add_argument('--roi-id', type=str, help='Specific ROI ID to process (processes all if not specified)')
+    ripley_parser.add_argument('--cluster-column', type=str, default='cluster', help='Column name containing cluster labels (default: cluster)')
+    ripley_parser.add_argument('--mode', choices=['F', 'G', 'L'], default='L', help='Ripley function mode (default: L)')
+    ripley_parser.add_argument('--max-dist', type=float, default=50.0, help='Maximum distance in micrometers (default: 50.0)')
+    ripley_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
+    ripley_parser.add_argument('--combined', action='store_true', help='Export as single combined file (default: separate files per ROI)')
+    ripley_parser.set_defaults(func=spatial_ripley_command)
+    
+    # Export AnnData command
+    export_anndata_parser = subparsers.add_parser('export-anndata', help='Export AnnData objects to H5AD file(s)')
+    export_anndata_parser.add_argument('input', help='Input H5AD file or directory containing H5AD files')
+    export_anndata_parser.add_argument('output', help='Output H5AD file (if combined) or directory (if separate)')
+    export_anndata_parser.add_argument('--combined', action='store_true', help='Export as single combined file (default: separate files per ROI)')
+    export_anndata_parser.set_defaults(func=export_anndata_command)
+    
+    # Batch correction command
+    batch_parser = subparsers.add_parser('batch-correction', help='Apply batch correction to feature data')
+    batch_parser.add_argument('features', help='Input CSV file with features')
+    batch_parser.add_argument('output', help='Output CSV file with corrected features')
+    batch_parser.add_argument('--method', choices=['combat', 'harmony'], default='harmony', help='Batch correction method (default: harmony)')
+    batch_parser.add_argument('--batch-var', type=str, help='Column name containing batch identifiers (auto-detected if not specified)')
+    batch_parser.add_argument('--columns', type=str, help='Comma-separated list of feature columns to correct (auto-detected if not specified)')
+    batch_parser.add_argument('--covariates', type=str, help='Comma-separated list of covariate columns (ComBat only)')
+    batch_parser.add_argument('--n-clusters', type=int, default=30, help='Number of Harmony clusters (default: 30)')
+    batch_parser.add_argument('--sigma', type=float, default=0.1, help='Width of soft kmeans clusters for Harmony (default: 0.1)')
+    batch_parser.add_argument('--theta', type=float, default=2.0, help='Diversity clustering penalty parameter for Harmony (default: 2.0)')
+    batch_parser.add_argument('--lambda-reg', type=float, default=1.0, help='Regularization parameter for Harmony (default: 1.0)')
+    batch_parser.add_argument('--max-iter', type=int, default=10, help='Maximum iterations for Harmony (default: 10)')
+    batch_parser.add_argument('--pca-variance', type=float, default=0.9, help='Proportion of variance to retain in PCA for Harmony (default: 0.9)')
+    batch_parser.set_defaults(func=batch_correction_command)
+    
+    # Pixel correlation command
+    pixel_corr_parser = subparsers.add_parser('pixel-correlation', help='Compute pixel-level correlations between markers')
+    pixel_corr_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
+    pixel_corr_parser.add_argument('output', help='Output CSV file with correlation results')
+    pixel_corr_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
+    pixel_corr_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (uses first if not specified)')
+    pixel_corr_parser.add_argument('--channels', type=str, help='Comma-separated list of channels to analyze (uses all if not specified)')
+    pixel_corr_parser.add_argument('--mask', type=str, help='Path to segmentation mask file (optional, for within-cell analysis)')
+    pixel_corr_parser.add_argument('--multiple-testing-correction', type=str, choices=['bonferroni', 'fdr_bh', 'fdr_by'], help='Multiple testing correction method')
+    pixel_corr_parser.set_defaults(func=pixel_correlation_command)
+    
+    # QC analysis command
+    qc_parser = subparsers.add_parser('qc-analysis', help='Perform quality control analysis')
+    qc_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
+    qc_parser.add_argument('output', help='Output CSV file with QC metrics')
+    qc_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
+    qc_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (uses first if not specified)')
+    qc_parser.add_argument('--channels', type=str, help='Comma-separated list of channels to analyze (uses all if not specified)')
+    qc_parser.add_argument('--mode', choices=['pixel', 'cell'], default='pixel', help='Analysis mode (default: pixel)')
+    qc_parser.add_argument('--mask', type=str, help='Path to segmentation mask file (required for cell mode)')
+    qc_parser.set_defaults(func=qc_analysis_command)
+    
+    # Spillover correction command
+    spillover_parser = subparsers.add_parser('spillover-correction', help='Apply spillover correction to feature data')
+    spillover_parser.add_argument('features', help='Input CSV file with features')
+    spillover_parser.add_argument('spillover_matrix', help='Path to spillover matrix CSV file')
+    spillover_parser.add_argument('output', help='Output CSV file with corrected features')
+    spillover_parser.add_argument('--method', choices=['nnls', 'pgd'], default='pgd', help='Compensation method (default: pgd)')
+    spillover_parser.add_argument('--arcsinh-cofactor', type=float, help='Optional cofactor for arcsinh transformation')
+    spillover_parser.set_defaults(func=spillover_correction_command)
+    
+    # Generate spillover matrix command
+    spillover_gen_parser = subparsers.add_parser('generate-spillover-matrix', help='Generate spillover matrix from single-stain control MCD file')
+    spillover_gen_parser.add_argument('input', help='Input MCD file with single-stain controls')
+    spillover_gen_parser.add_argument('output', help='Output CSV file for spillover matrix')
+    spillover_gen_parser.add_argument('--donor-map', type=str, help='JSON file or string mapping acquisition IDs to donor channel names')
+    spillover_gen_parser.add_argument('--cap', type=float, default=0.3, help='Maximum spillover coefficient (default: 0.3)')
+    spillover_gen_parser.add_argument('--aggregate', choices=['median', 'mean'], default='median', help='Aggregation method (default: median)')
+    spillover_gen_parser.set_defaults(func=generate_spillover_matrix_command)
+    
+    # Deconvolution command
+    deconv_parser = subparsers.add_parser('deconvolution', help='Apply deconvolution to high resolution IMC images')
+    deconv_parser.add_argument('input', help='Input MCD file or OME-TIFF directory')
+    deconv_parser.add_argument('output', help='Output directory for deconvolved images')
+    deconv_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
+    deconv_parser.add_argument('--acquisition', type=str, help='Acquisition ID or name (processes all if not specified)')
+    deconv_parser.add_argument('--x0', type=float, default=7.0, help='Parameter for kernel calculation (default: 7.0)')
+    deconv_parser.add_argument('--iterations', type=int, default=4, help='Number of Richardson-Lucy iterations (default: 4)')
+    deconv_parser.add_argument('--output-format', choices=['float', 'uint16'], default='float', help='Output format (default: float)')
+    deconv_parser.set_defaults(func=deconvolution_command)
+    
+    # Spatial enrichment command
+    enrichment_parser = subparsers.add_parser('spatial-enrichment', help='Compute pairwise spatial enrichment between clusters')
+    enrichment_parser.add_argument('features', help='Input CSV file with features and cluster labels')
+    enrichment_parser.add_argument('edges', help='Input CSV file with spatial graph edges')
+    enrichment_parser.add_argument('output', help='Output CSV file with enrichment results')
+    enrichment_parser.add_argument('--cluster-column', type=str, default='cluster', help='Column name containing cluster labels (default: cluster)')
+    enrichment_parser.add_argument('--n-permutations', type=int, default=100, help='Number of permutations for null distribution (default: 100)')
+    enrichment_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    enrichment_parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility (default: 42)')
+    enrichment_parser.set_defaults(func=spatial_enrichment_command)
+    
+    # Spatial distance command
+    distance_parser = subparsers.add_parser('spatial-distance', help='Compute distance distributions between clusters')
+    distance_parser.add_argument('features', help='Input CSV file with features and cluster labels')
+    distance_parser.add_argument('edges', help='Input CSV file with spatial graph edges')
+    distance_parser.add_argument('output', help='Output CSV file with distance distribution results')
+    distance_parser.add_argument('--cluster-column', type=str, default='cluster', help='Column name containing cluster labels (default: cluster)')
+    distance_parser.add_argument('--roi-column', type=str, help='Column name for ROI grouping (auto-detected if not specified)')
+    distance_parser.set_defaults(func=spatial_distance_command)
     
     # Cluster figures command
     cluster_figures_parser = subparsers.add_parser('cluster-figures', help='Generate cluster visualization figures')

@@ -32,6 +32,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 from openimc.processing.spillover_matrix import build_spillover_from_comp_mcd
+from openimc.core import generate_spillover_matrix
 from openimc.ui.dialogs.progress_dialog import ProgressDialog
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.data.mcd_loader import MCDLoader
@@ -59,8 +60,9 @@ class SpilloverMatrixWorker(QThread):
     
     def run(self):
         try:
-            S, qc = build_spillover_from_comp_mcd(
-                self.mcd_path,
+            # Use core.generate_spillover_matrix for unified behavior
+            S, qc = generate_spillover_matrix(
+                mcd_path=self.mcd_path,
                 donor_label_per_acq=self.donor_label_per_acq,
                 **self.kwargs
             )
