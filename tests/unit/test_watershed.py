@@ -58,7 +58,7 @@ class TestWatershedSegmentation:
         assert result.dtype in [np.uint32, np.int32, np.int64]
     
     def test_watershed_segmentation_no_cyto(self, sample_image_stack_chw, sample_channels):
-        """Test watershed segmentation with only nuclear channels."""
+        """Test watershed segmentation with only nuclear channels raises error."""
         pytest.importorskip("skimage")
         
         from openimc.processing.watershed_worker import watershed_segmentation
@@ -66,23 +66,22 @@ class TestWatershedSegmentation:
         img_stack_hwc = np.moveaxis(sample_image_stack_chw, 0, -1)
         
         nuclear_channels = [sample_channels[0]]
-        cyto_channels = []
+        cyto_channels = []  # Empty cyto channels should raise error
         
-        result = watershed_segmentation(
-            img_stack_hwc,
-            sample_channels,
-            nuclear_channels,
-            cyto_channels,
-            denoise_settings=None,
-            normalization_method="arcsinh",
-            arcsinh_cofactor=10.0,
-            min_cell_area=100,
-            max_cell_area=10000,
-            compactness=0.01
-        )
-        
-        assert isinstance(result, np.ndarray)
-        assert result.shape == img_stack_hwc.shape[:2]
+        # Watershed requires membrane/cyto channels for boundary detection
+        with pytest.raises(ValueError, match="No membrane channels found"):
+            watershed_segmentation(
+                img_stack_hwc,
+                sample_channels,
+                nuclear_channels,
+                cyto_channels,
+                denoise_settings=None,
+                normalization_method="arcsinh",
+                arcsinh_cofactor=10.0,
+                min_cell_area=100,
+                max_cell_area=10000,
+                compactness=0.01
+            )
     
     def test_watershed_segmentation_with_denoise(self, sample_image_stack_chw, sample_channels, sample_denoise_settings):
         """Test watershed segmentation with denoising."""

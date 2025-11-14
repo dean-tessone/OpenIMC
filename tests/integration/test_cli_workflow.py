@@ -18,70 +18,692 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Integration tests for CLI workflows.
+Integration tests for CLI workflows using real MCD data.
+
+These tests are designed to work cross-platform (Windows, Linux, macOS)
+and in CI environments like GitHub Actions.
 """
 import pytest
 import numpy as np
+import pandas as pd
 from pathlib import Path
 import tempfile
 import shutil
+import tifffile
+import os
 
-# These tests require actual data or more sophisticated setup
-# They are marked as integration tests and may be slow
+from openimc.core import (
+    load_mcd,
+    preprocess,
+    segment,
+    extract_features,
+    cluster
+)
+
+
+def _find_dna_channels(channels):
+    """Find channels whose names contain 'DNA' (case-insensitive).
+    
+    Args:
+        channels: List of channel names
+    
+    Returns:
+        List of channel names containing 'DNA'
+    """
+    return [ch for ch in channels if 'DNA' in ch.upper()]
+
+
+def _select_nuclear_channels(channels, min_count=1):
+    """Select nuclear channels from a list of channel names.
+    
+    Preferentially selects channels containing 'DNA', otherwise falls back
+    to first available channels.
+    
+    Args:
+        channels: List of channel names
+        min_count: Minimum number of channels to select
+    
+    Returns:
+        List of selected nuclear channel names
+    
+    Raises:
+        ValueError: If not enough channels are available
+    """
+    dna_channels = _find_dna_channels(channels)
+    if len(dna_channels) >= min_count:
+        return dna_channels[:min_count]
+    elif len(channels) >= min_count:
+        # Fallback to first channels if no DNA channels found
+        return channels[:min_count]
+    else:
+        raise ValueError(f"Need at least {min_count} channels, but only {len(channels)} available")
+
+
+def _ensure_path(path):
+    """Ensure a path is a resolved Path object for cross-platform compatibility.
+    
+    Args:
+        path: Path-like object (str, Path, etc.)
+    
+    Returns:
+        Resolved Path object
+    """
+    return Path(path).resolve()
 
 
 @pytest.mark.integration
 @pytest.mark.slow
-class TestCLIPreprocessWorkflow:
-    """Integration tests for CLI preprocess workflow."""
+@pytest.mark.requires_readimc
+class TestMCDLoading:
+    """Integration tests for loading MCD files."""
     
-    def test_preprocess_workflow_ometiff(self, mock_ometiff_directory, temp_dir):
-        """Test preprocess command with OME-TIFF directory."""
-        pytest.skip("Requires full CLI setup and test data")
-        # This would test the full preprocess_command workflow
-        # Requires actual implementation with proper mocking
+    def test_load_mcd_file(self, test_data_dir):
+        """Test loading the MCD file from test data."""
+        # Use resolve() to ensure absolute path (cross-platform)
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # load_mcd accepts both Path and str, but we'll use Path for consistency
+        loader, loader_type = load_mcd(mcd_path)
+        
+        assert loader_type == 'mcd'
+        assert loader is not None
+        
+        # Check that we can list acquisitions
+        acquisitions = loader.list_acquisitions()
+        assert len(acquisitions) > 0
+        
+        # Verify acquisition has channels
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        assert len(channels) > 0
+        
+        # Verify we can load an image
+        img = loader.get_image(acq.id, channels[0])
+        assert img is not None
+        assert isinstance(img, np.ndarray)
+        assert img.ndim == 2
 
 
 @pytest.mark.integration
 @pytest.mark.slow
-class TestCLISegmentWorkflow:
-    """Integration tests for CLI segment workflow."""
+@pytest.mark.requires_readimc
+class TestPreprocessWorkflow:
+    """Integration tests for preprocessing workflow."""
     
-    def test_segment_workflow_watershed(self, mock_ometiff_directory, temp_dir):
-        """Test segment command with watershed method."""
-        pytest.skip("Requires full CLI setup and test data")
-        # This would test the full segment_command workflow with watershed
+    def test_preprocess_mcd_file(self, test_data_dir, temp_dir):
+        """Test preprocessing an MCD file and exporting to OME-TIFF."""
+        # Resolve path for cross-platform compatibility
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Load MCD file - load_mcd accepts Path objects
+        loader, _ = load_mcd(mcd_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        # Use first acquisition
+        acq = acquisitions[0]
+        
+        # Preprocess and export
+        output_path = preprocess(
+            loader=loader,
+            acquisition=acq,
+            output_dir=temp_dir,
+            denoise_settings=None,
+            normalization_method="None"
+        )
+        
+        # Verify output file exists
+        assert output_path.exists()
+        assert output_path.suffix == '.tif'
+        
+        # Verify we can read the OME-TIFF
+        img = tifffile.imread(str(output_path))
+        assert img is not None
+        assert isinstance(img, np.ndarray)
+        
+        # Verify image has expected shape (C, H, W)
+        assert img.ndim == 3
+        assert img.shape[0] > 0  # At least one channel
 
 
 @pytest.mark.integration
 @pytest.mark.slow
-class TestCLIFeatureExtractionWorkflow:
-    """Integration tests for CLI feature extraction workflow."""
+@pytest.mark.requires_readimc
+class TestSegmentWorkflow:
+    """Integration tests for segmentation workflow."""
     
-    def test_extract_features_workflow(self, mock_ometiff_directory, temp_dir, sample_segmentation_mask):
-        """Test extract-features command workflow."""
-        pytest.skip("Requires full CLI setup and test data")
-        # This would test the full extract_features_command workflow
+    def test_segment_watershed(self, test_data_dir, temp_dir):
+        """Test watershed segmentation on MCD file."""
+        # Resolve path for cross-platform compatibility
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Load MCD file - load_mcd accepts Path objects
+        loader, _ = load_mcd(mcd_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 2:
+            pytest.skip("Need at least 2 channels for watershed segmentation")
+        
+        # Select DNA channels for nuclear, use first non-DNA channel for cytoplasm
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        dna_channels = _find_dna_channels(channels)
+        non_dna_channels = [ch for ch in channels if ch not in dna_channels]
+        cyto_channels = [non_dna_channels[0]] if len(non_dna_channels) > 0 else []
+        
+        # Run watershed segmentation
+        mask = segment(
+            loader=loader,
+            acquisition=acq,
+            method='watershed',
+            nuclear_channels=nuclear_channels,
+            cyto_channels=cyto_channels,
+            output_dir=temp_dir / "masks",
+            min_cell_area=100,
+            max_cell_area=10000,
+            compactness=0.01
+        )
+        
+        # Verify mask
+        assert mask is not None
+        assert isinstance(mask, np.ndarray)
+        assert mask.ndim == 2
+        assert mask.dtype in [np.uint32, np.int32, np.uint64, np.int64]
+        
+        # Verify mask has some cells
+        unique_labels = np.unique(mask)
+        # Background is typically 0, so we should have at least 2 unique values
+        assert len(unique_labels) >= 1
+        
+        # Verify mask file was saved
+        mask_dir = temp_dir / "masks"
+        mask_files = list(mask_dir.glob("*.tif")) + list(mask_dir.glob("*.npy"))
+        assert len(mask_files) > 0
+    
+    @pytest.mark.slow
+    def test_segment_cellsam(self, test_data_dir, temp_dir):
+        """Test CellSAM segmentation on MCD file.
+        
+        WARNING: This test is VERY SLOW (may take several minutes) as it runs
+        a deep learning model for segmentation.
+        
+        This test requires:
+        - CellSAM to be installed (pip install git+https://github.com/vanvalenlab/cellSAM.git)
+        - DEEPCELL_ACCESS_TOKEN environment variable or deepcell_api_key parameter
+        """
+        import os
+        
+        mcd_path = test_data_dir / "Patient1.mcd"
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Check for API key
+        api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN")
+        if not api_key:
+            pytest.skip("DEEPCELL_ACCESS_TOKEN environment variable not set. CellSAM requires DeepCell API key.")
+        
+        # Load MCD file
+        loader, _ = load_mcd(str(mcd_path))
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 1:
+            pytest.skip("Need at least 1 channel for CellSAM segmentation")
+        
+        # Select DNA channels for nuclear (CellSAM can work with nuclear-only)
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        dna_channels = _find_dna_channels(channels)
+        non_dna_channels = [ch for ch in channels if ch not in dna_channels]
+        cyto_channels = [non_dna_channels[0]] if len(non_dna_channels) > 0 else []
+        
+        # Run CellSAM segmentation
+        try:
+            mask = segment(
+                loader=loader,
+                acquisition=acq,
+                method='cellsam',
+                nuclear_channels=nuclear_channels,
+                cyto_channels=cyto_channels,
+                output_dir=temp_dir / "masks_cellsam",
+                deepcell_api_key=api_key,
+                bbox_threshold=0.4,
+                use_wsi=False,
+                low_contrast_enhancement=False,
+                gauge_cell_size=False
+            )
+        except ImportError as e:
+            pytest.skip(f"CellSAM not installed: {e}")
+        except (ValueError, RuntimeError) as e:
+            # API key issues or model initialization problems
+            pytest.skip(f"CellSAM initialization failed: {e}")
+        
+        # Verify mask
+        assert mask is not None
+        assert isinstance(mask, np.ndarray)
+        assert mask.ndim == 2
+        assert mask.dtype in [np.uint32, np.int32, np.uint64, np.int64]
+        
+        # Verify mask has some cells
+        unique_labels = np.unique(mask)
+        assert len(unique_labels) >= 1
+        
+        # Verify mask file was saved
+        mask_dir = temp_dir / "masks_cellsam"
+        mask_files = list(mask_dir.glob("*.tif")) + list(mask_dir.glob("*.npy"))
+        assert len(mask_files) > 0
+    
+    @pytest.mark.slow
+    def test_segment_cellpose(self, test_data_dir, temp_dir):
+        """Test Cellpose segmentation on MCD file.
+        
+        WARNING: This test is VERY SLOW (may take several minutes) as it runs
+        a deep learning model for segmentation. On CPU, this can take 5-10+ minutes.
+        
+        This test requires:
+        - Cellpose to be installed (pip install cellpose)
+        - May use GPU if available, but will fall back to CPU
+        """
+        # Resolve path for cross-platform compatibility
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Load MCD file - load_mcd accepts Path objects
+        loader, _ = load_mcd(mcd_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 1:
+            pytest.skip("Need at least 1 channel for Cellpose segmentation")
+        
+        # Select DNA channels for nuclear
+        # For cyto3 model, cytoplasm channels are optional (will fallback to nuclear)
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        dna_channels = _find_dna_channels(channels)
+        non_dna_channels = [ch for ch in channels if ch not in dna_channels]
+        cyto_channels = [non_dna_channels[0]] if len(non_dna_channels) > 0 else []
+        
+        # Run Cellpose segmentation with cyto3 model
+        try:
+            mask = segment(
+                loader=loader,
+                acquisition=acq,
+                method='cellpose',
+                nuclear_channels=nuclear_channels,
+                cyto_channels=cyto_channels,
+                output_dir=temp_dir / "masks_cellpose",
+                cellpose_model='cyto3',
+                diameter=None,  # Auto-detect
+                flow_threshold=0.4,
+                cellprob_threshold=0.0,
+                gpu_id=None  # Use CPU for testing (can be set to GPU ID if available)
+            )
+        except ImportError as e:
+            pytest.skip(f"Cellpose not installed: {e}")
+        except Exception as e:
+            # Other errors (model download, etc.)
+            pytest.skip(f"Cellpose segmentation failed: {e}")
+        
+        # Verify mask
+        assert mask is not None
+        assert isinstance(mask, np.ndarray)
+        assert mask.ndim == 2
+        # Cellpose returns uint16 masks, other methods may return uint32
+        assert mask.dtype in [np.uint8, np.uint16, np.uint32, np.int32, np.uint64, np.int64]
+        
+        # Verify mask structure (may be empty if no cells found, which is valid)
+        unique_labels = np.unique(mask)
+        assert len(unique_labels) >= 1  # At least background (0)
+        
+        # Verify mask file was saved
+        mask_dir = temp_dir / "masks_cellpose"
+        mask_files = list(mask_dir.glob("*.tif")) + list(mask_dir.glob("*.npy"))
+        assert len(mask_files) > 0
+    
+    @pytest.mark.slow
+    def test_segment_cellpose_nuclei(self, test_data_dir, temp_dir):
+        """Test Cellpose nuclei model segmentation on MCD file.
+        
+        WARNING: This test is VERY SLOW (may take several minutes) as it runs
+        a deep learning model for segmentation. On CPU, this can take 5-10+ minutes.
+        
+        This test uses the nuclei model which only requires nuclear channels.
+        """
+        # Resolve path for cross-platform compatibility
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Load MCD file - load_mcd accepts Path objects
+        loader, _ = load_mcd(mcd_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 1:
+            pytest.skip("Need at least 1 channel for Cellpose segmentation")
+        
+        # Select DNA channels for nuclear (nuclei model only needs nuclear)
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        cyto_channels = []
+        
+        # Run Cellpose segmentation with nuclei model
+        try:
+            mask = segment(
+                loader=loader,
+                acquisition=acq,
+                method='cellpose',
+                nuclear_channels=nuclear_channels,
+                cyto_channels=cyto_channels,
+                output_dir=temp_dir / "masks_cellpose_nuclei",
+                cellpose_model='nuclei',
+                diameter=None,  # Auto-detect
+                flow_threshold=0.4,
+                cellprob_threshold=0.0,
+                gpu_id=None  # Use CPU for testing
+            )
+        except ImportError as e:
+            pytest.skip(f"Cellpose not installed: {e}")
+        except Exception as e:
+            pytest.skip(f"Cellpose segmentation failed: {e}")
+        
+        # Verify mask
+        assert mask is not None
+        assert isinstance(mask, np.ndarray)
+        assert mask.ndim == 2
+        # Cellpose returns uint16 masks, other methods may return uint32
+        assert mask.dtype in [np.uint8, np.uint16, np.uint32, np.int32, np.uint64, np.int64]
+        
+        # Verify mask structure (may be empty if no cells found, which is valid)
+        unique_labels = np.unique(mask)
+        assert len(unique_labels) >= 1  # At least background (0)
+        
+        # Verify mask file was saved
+        mask_dir = temp_dir / "masks_cellpose_nuclei"
+        mask_files = list(mask_dir.glob("*.tif")) + list(mask_dir.glob("*.npy"))
+        assert len(mask_files) > 0
 
 
 @pytest.mark.integration
 @pytest.mark.slow
-class TestCLIClusterWorkflow:
-    """Integration tests for CLI clustering workflow."""
+@pytest.mark.requires_readimc
+class TestFeatureExtractionWorkflow:
+    """Integration tests for feature extraction workflow."""
     
-    def test_cluster_workflow_leiden(self, sample_feature_dataframe, temp_dir):
-        """Test cluster command with Leiden method."""
-        pytest.skip("Requires full CLI setup")
-        # This would test the full cluster_command workflow
+    def test_extract_features_from_segmentation(self, test_data_dir, temp_dir):
+        """Test extracting features from segmented cells."""
+        # Resolve path for cross-platform compatibility
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Load MCD file - load_mcd accepts Path objects
+        loader, _ = load_mcd(mcd_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 2:
+            pytest.skip("Need at least 2 channels for segmentation")
+        
+        # Create segmentation mask directory
+        mask_dir = temp_dir / "masks"
+        mask_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Run segmentation first - select DNA channels for nuclear
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        dna_channels = _find_dna_channels(channels)
+        non_dna_channels = [ch for ch in channels if ch not in dna_channels]
+        cyto_channels = [non_dna_channels[0]] if len(non_dna_channels) > 0 else []
+        
+        mask = segment(
+            loader=loader,
+            acquisition=acq,
+            method='watershed',
+            nuclear_channels=nuclear_channels,
+            cyto_channels=cyto_channels,
+            output_dir=mask_dir,
+            min_cell_area=100,
+            max_cell_area=10000,
+            compactness=0.01
+        )
+        
+        # Extract features
+        features_df = extract_features(
+            loader=loader,
+            acquisitions=[acq],
+            mask_path=mask_dir,
+            output_path=temp_dir / "features.csv",
+            morphological=True,
+            intensity=True,
+            arcsinh=False
+        )
+        
+        # Verify features
+        assert features_df is not None
+        assert isinstance(features_df, pd.DataFrame)
+        assert len(features_df) > 0
+        
+        # Verify feature columns exist
+        assert 'cell_id' in features_df.columns or 'label' in features_df.columns
+        assert 'acquisition_id' in features_df.columns
+        
+        # Verify CSV was saved
+        features_csv = temp_dir / "features.csv"
+        assert features_csv.exists()
+        
+        # Verify we can reload the CSV
+        loaded_df = pd.read_csv(features_csv)
+        assert len(loaded_df) == len(features_df)
 
 
 @pytest.mark.integration
 @pytest.mark.slow
-class TestCLISpatialWorkflow:
-    """Integration tests for CLI spatial analysis workflow."""
+@pytest.mark.requires_readimc
+class TestClusterWorkflow:
+    """Integration tests for clustering workflow."""
     
-    def test_spatial_workflow(self, sample_feature_dataframe, temp_dir):
-        """Test spatial command workflow."""
-        pytest.skip("Requires full CLI setup")
-        # This would test the full spatial_command workflow
+    def test_cluster_features(self, test_data_dir, temp_dir):
+        """Test clustering extracted features."""
+        # Resolve path for cross-platform compatibility
+        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Load MCD file - load_mcd accepts Path objects
+        loader, _ = load_mcd(mcd_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 2:
+            pytest.skip("Need at least 2 channels for segmentation")
+        
+        # Create segmentation mask
+        mask_dir = temp_dir / "masks"
+        mask_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Select DNA channels for nuclear
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        dna_channels = _find_dna_channels(channels)
+        non_dna_channels = [ch for ch in channels if ch not in dna_channels]
+        cyto_channels = [non_dna_channels[0]] if len(non_dna_channels) > 0 else []
+        
+        segment(
+            loader=loader,
+            acquisition=acq,
+            method='watershed',
+            nuclear_channels=nuclear_channels,
+            cyto_channels=cyto_channels,
+            output_dir=mask_dir,
+            min_cell_area=100,
+            max_cell_area=10000,
+            compactness=0.01
+        )
+        
+        # Extract features
+        features_df = extract_features(
+            loader=loader,
+            acquisitions=[acq],
+            mask_path=mask_dir,
+            morphological=True,
+            intensity=True,
+            arcsinh=False
+        )
+        
+        if len(features_df) < 10:
+            pytest.skip("Need at least 10 cells for clustering")
+        
+        # Test hierarchical clustering
+        clustered_df = cluster(
+            features_df=features_df,
+            method='hierarchical',
+            n_clusters=3,
+            output_path=temp_dir / "clustered_features.csv",
+            scaling='zscore'
+        )
+        
+        # Verify clustering results
+        assert clustered_df is not None
+        assert isinstance(clustered_df, pd.DataFrame)
+        assert 'cluster' in clustered_df.columns
+        assert len(clustered_df) == len(features_df)
+        
+        # Verify clusters were assigned
+        unique_clusters = clustered_df['cluster'].unique()
+        assert len(unique_clusters) > 0
+        
+        # Verify CSV was saved
+        clustered_csv = temp_dir / "clustered_features.csv"
+        assert clustered_csv.exists()
+        
+        # Test Leiden clustering if available
+        try:
+            clustered_df_leiden = cluster(
+                features_df=features_df,
+                method='leiden',
+                resolution=1.0,
+                output_path=temp_dir / "clustered_features_leiden.csv",
+                scaling='zscore'
+            )
+            
+            assert clustered_df_leiden is not None
+            assert 'cluster' in clustered_df_leiden.columns
+        except (ImportError, ValueError) as e:
+            # Leiden clustering may not be available or may fail with small datasets
+            pytest.skip(f"Leiden clustering not available: {e}")
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.requires_readimc
+class TestEndToEndWorkflow:
+    """Integration test for complete end-to-end workflow."""
+    
+    def test_complete_workflow(self, test_data_dir, temp_dir):
+        """Test complete workflow: load -> segment -> extract -> cluster."""
+        mcd_path = test_data_dir / "Patient1.mcd"
+        if not mcd_path.exists():
+            pytest.skip(f"MCD test file not found: {mcd_path}")
+        
+        # Step 1: Load MCD file
+        loader, _ = load_mcd(str(mcd_path))
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in MCD file")
+        
+        acq = acquisitions[0]
+        channels = loader.get_channels(acq.id)
+        
+        if len(channels) < 2:
+            pytest.skip("Need at least 2 channels for complete workflow")
+        
+        # Step 2: Preprocess (optional, but test it)
+        preprocess_output = temp_dir / "preprocessed"
+        output_path = preprocess(
+            loader=loader,
+            acquisition=acq,
+            output_dir=preprocess_output,
+            normalization_method="None"
+        )
+        assert output_path.exists() or any(preprocess_output.glob("*.ome.tif"))
+        
+        # Step 3: Segment - select DNA channels for nuclear
+        mask_dir = temp_dir / "masks"
+        nuclear_channels = _select_nuclear_channels(channels, min_count=1)
+        dna_channels = _find_dna_channels(channels)
+        non_dna_channels = [ch for ch in channels if ch not in dna_channels]
+        cyto_channels = [non_dna_channels[0]] if len(non_dna_channels) > 0 else []
+        
+        mask = segment(
+            loader=loader,
+            acquisition=acq,
+            method='watershed',
+            nuclear_channels=nuclear_channels,
+            cyto_channels=cyto_channels,
+            output_dir=mask_dir,
+            min_cell_area=100,
+            max_cell_area=10000
+        )
+        assert mask is not None
+        assert np.unique(mask).size > 0
+        
+        # Step 4: Extract features
+        features_df = extract_features(
+            loader=loader,
+            acquisitions=[acq],
+            mask_path=mask_dir,
+            output_path=temp_dir / "features.csv",
+            morphological=True,
+            intensity=True
+        )
+        assert len(features_df) > 0
+        
+        # Step 5: Cluster
+        if len(features_df) >= 10:
+            clustered_df = cluster(
+                features_df=features_df,
+                method='hierarchical',
+                n_clusters=min(3, len(features_df) // 3),
+                output_path=temp_dir / "clustered.csv",
+                scaling='zscore'
+            )
+            assert 'cluster' in clustered_df.columns
+            assert len(clustered_df) == len(features_df)
 

@@ -29,10 +29,17 @@ import shutil
 
 @pytest.fixture
 def temp_dir():
-    """Create a temporary directory for test outputs."""
+    """Create a temporary directory for test outputs.
+    
+    Returns an absolute, resolved Path that works cross-platform.
+    The directory is automatically cleaned up after the test.
+    """
     temp_path = tempfile.mkdtemp()
-    yield Path(temp_path)
-    shutil.rmtree(temp_path)
+    # Resolve to absolute path for cross-platform compatibility
+    temp_dir_path = Path(temp_path).resolve()
+    yield temp_dir_path
+    # Cleanup - use shutil.rmtree with str() for compatibility
+    shutil.rmtree(str(temp_dir_path), ignore_errors=True)
 
 
 @pytest.fixture
@@ -189,4 +196,17 @@ def mock_ometiff_directory(tmp_path, sample_image_stack_chw):
         )
     
     return ometiff_dir
+
+
+@pytest.fixture
+def test_data_dir():
+    """Get the path to the test data directory.
+    
+    Returns an absolute, resolved path that works cross-platform.
+    """
+    # Get the tests directory (where conftest.py is located)
+    # Use resolve() to get absolute path and handle symlinks
+    tests_dir = Path(__file__).parent.resolve()
+    data_dir = tests_dir / "data"
+    return data_dir
 

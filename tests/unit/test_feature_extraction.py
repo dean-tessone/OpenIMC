@@ -61,7 +61,8 @@ class TestFeatureExtraction:
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) > 0
-        assert 'label' in result.columns
+        # Note: feature_worker renames 'label' to 'cell_id' (see feature_worker.py line 363)
+        assert 'cell_id' in result.columns, "Features should have 'cell_id' column"
         assert 'area_um2' in result.columns or 'area' in result.columns
     
     def test_extract_features_with_arcsinh(self, sample_segmentation_mask, sample_image_stack_chw, sample_acquisition_info):
