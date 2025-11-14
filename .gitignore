@@ -1,0 +1,26 @@
+# Ignore entire logs folder
+logs/
+
+# Ignore all __pycache__ directories at any level
+**/__pycache__/
+__pycache__/
+
+# Ignore compiled Python files
+*.py[cod]
+*$py.class
+
+# Ignore image files
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.tif
+
+# Ignore HDF5 files
+*.h5
+*.hdf5
+*.hdf
+*.hdf4

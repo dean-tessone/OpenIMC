@@ -123,6 +123,12 @@ except Exception:
     _HAVE_TIFFFILE = False
 from openimc.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
 from openimc.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
+# Import dialog classes directly to avoid lazy loading issues
+from openimc.ui.dialogs.simple_spatial_analysis import SimpleSpatialAnalysisDialog
+try:
+    from openimc.ui.dialogs.advanced_spatial_analysis import AdvancedSpatialAnalysisDialog
+except (ImportError, RuntimeError):
+    AdvancedSpatialAnalysisDialog = None
 from openimc.ui.dialogs.comparison_dialog import DynamicComparisonDialog
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.qc_analysis_dialog import QCAnalysisDialog
@@ -1027,8 +1033,14 @@ class MainWindow(QtWidgets.QMainWindow):
         act_batch_correction.triggered.connect(self._open_batch_correction_dialog)
         act_clustering = analysis_menu.addAction("Cell Clustering…")
         act_clustering.triggered.connect(self._open_clustering_dialog)
-        act_spatial = analysis_menu.addAction("Spatial Analysis…")
-        act_spatial.triggered.connect(self._open_spatial_dialog)
+        # Spatial Analysis submenu
+        spatial_submenu = analysis_menu.addMenu("Spatial Analysis")
+        act_simple_spatial = spatial_submenu.addAction("Simple Spatial Analysis…")
+        act_simple_spatial.triggered.connect(self._open_simple_spatial_dialog)
+        act_advanced_spatial = spatial_submenu.addAction("Advanced Spatial Analysis (Squidpy)…")
+        act_advanced_spatial.triggered.connect(self._open_advanced_spatial_dialog)
+        # Default action (for button) - opens Advanced if squidpy available, otherwise Simple
+        # Note: The button uses _open_spatial_dialog which defaults to Advanced
         act_qc = analysis_menu.addAction("QC Analysis…")
         act_qc.triggered.connect(self._open_qc_dialog)
         act_pixel_correlation = analysis_menu.addAction("Pixel-Level Correlation…")
@@ -1303,9 +1315,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.acq_to_file.clear()
         self.unique_acq_to_original.clear()
         
+        # Clear image cache when switching files
+        with self._cache_lock:
+            self.image_cache.clear()
+        
         # Reset channel tracking when loading a new file
         self.previous_acq_channels = []
         self.last_selected_channels = []
+        
+        # Reset segmentation dialog when switching files
+        if self.segmentation_dialog is not None:
+            try:
+                # Clear channel preferences for the old file
+                if hasattr(self.segmentation_dialog, '_per_file_channel_prefs'):
+                    self.segmentation_dialog._per_file_channel_prefs.clear()
+                # Close and reset the dialog
+                self.segmentation_dialog.close()
+                self.segmentation_dialog = None
+            except Exception:
+                # If dialog is already deleted or has issues, just set to None
+                self.segmentation_dialog = None
     
     def _get_loader_for_acquisition(self, acq_id: str) -> Optional[Union[MCDLoader, OMETIFFLoader]]:
         """Get the appropriate loader for a given acquisition ID."""
@@ -4547,6 +4576,23 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.segmentation_dialog is not None:
             try:
                 # Check if dialog still exists (hasn't been deleted)
+                # Check if the current file path has changed - if so, reset the dialog
+                current_file_path = self.current_path
+                dialog_file_path = getattr(self.segmentation_dialog, '_last_file_path', None)
+                
+                # If file path changed, reset the dialog to clear old channel preferences
+                if current_file_path != dialog_file_path:
+                    # Clear old preferences and reset dialog
+                    if hasattr(self.segmentation_dialog, '_per_file_channel_prefs'):
+                        self.segmentation_dialog._per_file_channel_prefs.clear()
+                    # Update channels in the dialog
+                    self.segmentation_dialog.channels = channels
+                    self.segmentation_dialog._populate_denoise_channel_list()
+                    # Store the new file path
+                    self.segmentation_dialog._last_file_path = current_file_path
+                    # Reload persisted selections for the new file
+                    self.segmentation_dialog._load_persisted_selections()
+                
                 # If dialog is visible, just bring it to front
                 # If dialog is not visible, show it
                 if self.segmentation_dialog.isVisible():
@@ -4565,6 +4611,8 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Create new segmentation dialog
         self.segmentation_dialog = SegmentationDialog(channels, self)
+        # Store the current file path in the dialog for tracking file switches
+        self.segmentation_dialog._last_file_path = self.current_path
         # Initialize with current viewer denoising toggle state
         try:
             self.segmentation_dialog.set_use_viewer_denoising(self.denoise_enable_chk.isChecked())
@@ -7505,12 +7553,39 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Update cluster mode availability after cluster data is added
                     # Use a small delay to ensure the update happens after the dialog is fully closed
                     QTimer.singleShot(100, self._update_cluster_mode_availability)
+                    
+                    # Notify spatial analysis dialogs that clusters have changed
+                    # Use a small delay to ensure the update happens after the dialog is fully closed
+                    QTimer.singleShot(200, self._notify_spatial_dialogs_clusters_changed)
         
         # Connect close event
         self.clustering_dialog.finished.connect(on_dialog_closed)
 
     def _open_spatial_dialog(self):
-        """Open the spatial analysis dialog."""
+        """Open the spatial analysis dialog (defaults to Simple)."""
+        # Default to Simple Spatial Analysis
+        self._open_simple_spatial_dialog()
+    
+    def _notify_spatial_dialogs_clusters_changed(self):
+        """Notify open spatial analysis dialogs that clusters have changed."""
+        # Notify simple spatial dialog if it exists and is visible
+        if hasattr(self, 'simple_spatial_dialog') and self.simple_spatial_dialog is not None:
+            try:
+                if self.simple_spatial_dialog.isVisible() and hasattr(self.simple_spatial_dialog, 'on_clusters_changed'):
+                    self.simple_spatial_dialog.on_clusters_changed()
+            except (RuntimeError, AttributeError):
+                pass
+        
+        # Notify advanced spatial dialog if it exists and is visible
+        if hasattr(self, 'advanced_spatial_dialog') and self.advanced_spatial_dialog is not None:
+            try:
+                if self.advanced_spatial_dialog.isVisible() and hasattr(self.advanced_spatial_dialog, 'on_clusters_changed'):
+                    self.advanced_spatial_dialog.on_clusters_changed()
+            except (RuntimeError, AttributeError):
+                pass
+    
+    def _open_simple_spatial_dialog(self):
+        """Open the simple spatial analysis dialog."""
         if self.feature_dataframe is None or self.feature_dataframe.empty:
             QtWidgets.QMessageBox.warning(
                 self,
@@ -7521,35 +7596,113 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
         
+        # Check if cluster column exists
+        cluster_col = None
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+            if col in self.feature_dataframe.columns:
+                cluster_col = col
+                break
+        
+        if cluster_col is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Cluster Data",
+                "Spatial analysis requires cluster assignments.\n\n"
+                "Please perform clustering first using:\n"
+                "- 'Analysis > Cell Clustering'"
+            )
+            return
+        
         # Check if dialog already exists and is still valid
-        if self.spatial_dialog is not None:
+        if hasattr(self, 'simple_spatial_dialog') and self.simple_spatial_dialog is not None:
             try:
-                # Check if dialog still exists (hasn't been deleted)
-                # If dialog is visible, just bring it to front
-                # If dialog is not visible, show it
-                if self.spatial_dialog.isVisible():
-                    self.spatial_dialog.raise_()
-                    self.spatial_dialog.activateWindow()
+                if self.simple_spatial_dialog.isVisible():
+                    self.simple_spatial_dialog.raise_()
+                    self.simple_spatial_dialog.activateWindow()
                 else:
-                    self.spatial_dialog.show()
-                    self.spatial_dialog.raise_()
-                    self.spatial_dialog.activateWindow()
+                    self.simple_spatial_dialog.show()
+                    self.simple_spatial_dialog.raise_()
+                    self.simple_spatial_dialog.activateWindow()
                 return
             except (RuntimeError, AttributeError):
-                # Dialog was deleted, set to None
-                self.spatial_dialog = None
+                self.simple_spatial_dialog = None
         
-        # Create new spatial analysis dialog with both original and batch-corrected features
-        self.spatial_dialog = SpatialAnalysisDialog(
+        # Create new simple spatial analysis dialog
+        self.simple_spatial_dialog = SimpleSpatialAnalysisDialog(
             self.feature_dataframe, 
             batch_corrected_dataframe=self.batch_corrected_dataframe,
             parent=self
         )
-        # Make dialog non-modal so it can be closed and reopened without losing state
-        self.spatial_dialog.setModal(False)
-        # Prevent dialog from being deleted when closed, so we can reopen it
-        self.spatial_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
-        self.spatial_dialog.show()
+        self.simple_spatial_dialog.setModal(False)
+        self.simple_spatial_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.simple_spatial_dialog.show()
+    
+    def _open_advanced_spatial_dialog(self):
+        """Open the advanced spatial analysis dialog (squidpy)."""
+        if self.feature_dataframe is None or self.feature_dataframe.empty:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Feature Data",
+                "No feature data available. Please:\n"
+                "- Extract features using the 'Extract Features' button, or\n"
+                "- Load features using 'Analysis > Load Feature File'"
+            )
+            return
+        
+        # Check if cluster column exists
+        cluster_col = None
+        for col in ['cluster', 'cluster_phenotype', 'cluster_id']:
+            if col in self.feature_dataframe.columns:
+                cluster_col = col
+                break
+        
+        if cluster_col is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Cluster Data",
+                "Spatial analysis requires cluster assignments.\n\n"
+                "Please perform clustering first using:\n"
+                "- 'Analysis > Cell Clustering'"
+            )
+            return
+        
+        # Check if AdvancedSpatialAnalysisDialog is available
+        if AdvancedSpatialAnalysisDialog is None:
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "Squidpy Not Available",
+                "Advanced Spatial Analysis requires squidpy, which is not installed.\n\n"
+                "Would you like to open Simple Spatial Analysis instead?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.Yes
+            )
+            if reply == QtWidgets.QMessageBox.Yes:
+                self._open_simple_spatial_dialog()
+            return
+        
+        # Check if dialog already exists and is still valid
+        if hasattr(self, 'advanced_spatial_dialog') and self.advanced_spatial_dialog is not None:
+            try:
+                if self.advanced_spatial_dialog.isVisible():
+                    self.advanced_spatial_dialog.raise_()
+                    self.advanced_spatial_dialog.activateWindow()
+                else:
+                    self.advanced_spatial_dialog.show()
+                    self.advanced_spatial_dialog.raise_()
+                    self.advanced_spatial_dialog.activateWindow()
+                return
+            except (RuntimeError, AttributeError):
+                self.advanced_spatial_dialog = None
+        
+        # Create new advanced spatial analysis dialog
+        self.advanced_spatial_dialog = AdvancedSpatialAnalysisDialog(
+            self.feature_dataframe, 
+            batch_corrected_dataframe=self.batch_corrected_dataframe,
+            parent=self
+        )
+        self.advanced_spatial_dialog.setModal(False)
+        self.advanced_spatial_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.advanced_spatial_dialog.show()
     
     def _open_qc_dialog(self):
         """Open the QC analysis dialog."""

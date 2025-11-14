@@ -19,7 +19,28 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import sys
+import os
 import platform
+
+# CRITICAL: Configure dask BEFORE any imports that might trigger dask.dataframe
+# This must be done at the very start of the application
+os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'False')
+
+# Suppress warnings from dependencies
+import warnings
+# Suppress dask dataframe legacy implementation warning
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*legacy.*Dask DataFrame.*')
+# Suppress xarray_schema pkg_resources deprecation warning
+warnings.filterwarnings('ignore', category=UserWarning, message='.*pkg_resources.*deprecated.*')
+# Suppress squidpy anndata __version__ deprecation warning
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*__version__.*deprecated.*')
+
+try:
+    import dask
+    dask.config.set({'dataframe.query-planning': False})
+except (ImportError, AttributeError):
+    pass
+
 from PyQt5 import QtWidgets, QtGui
 
 
