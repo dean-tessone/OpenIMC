@@ -49,6 +49,62 @@ except ImportError:
     _HAVE_SCIKIT_IMAGE = False
 
 
+def _calculate_snr(signal_mean: float, background_mean: float, background_std: float, 
+                    img_min: Optional[float] = None, img_max: Optional[float] = None) -> float:
+    """
+    Calculate Signal-to-Noise Ratio (SNR) with robust handling of very small background_std.
+    
+    The SNR formula is: (signal_mean - background_mean) / background_std
+    
+    To prevent inflated SNR values when background_std is extremely small (which can happen
+    with very uniform backgrounds or very low-intensity channels), we use a minimum background_std
+    that is the maximum of:
+    - The actual background_std
+    - 0.1% of the background_mean (to handle relative scale)
+    - 0.01% of the image range if provided (to handle absolute scale)
+    - A small absolute minimum (1e-6) to prevent division by zero
+    
+    This ensures that SNR values remain reasonable even for very uniform backgrounds or
+    very low-intensity channels where background_std might be extremely small.
+    
+    Args:
+        signal_mean: Mean intensity of signal (foreground) pixels
+        background_mean: Mean intensity of background pixels
+        background_std: Standard deviation of background pixels
+        img_min: Optional minimum value in the image (for range-based minimum)
+        img_max: Optional maximum value in the image (for range-based minimum)
+    
+    Returns:
+        SNR value (can be negative if signal_mean < background_mean)
+    """
+    # Calculate signal difference
+    signal_diff = signal_mean - background_mean
+    
+    # Determine minimum background_std to prevent inflated SNR
+    # Use 0.1% of background_mean as a relative minimum (handles relative scale)
+    min_std_relative = abs(background_mean) * 0.001
+    
+    # Use a small absolute minimum to prevent division by zero
+    min_std_absolute = 1e-6
+    
+    # Optionally use a range-based minimum if image range is provided (handles absolute scale)
+    min_std_range = 0.0
+    if img_min is not None and img_max is not None:
+        img_range = img_max - img_min
+        if img_range > 0:
+            # Use 0.01% of image range as minimum
+            min_std_range = img_range * 0.0001
+    
+    # Use the maximum of all minimums to ensure robustness
+    # This prevents extremely small denominators that would inflate SNR
+    min_std = max(background_std, min_std_relative, min_std_absolute, min_std_range)
+    
+    # Calculate SNR
+    snr = signal_diff / min_std
+    
+    return snr
+
+
 # Module-level worker function for multiprocessing (must be picklable)
 # This function is isolated to avoid conflicts with feature extraction workers
 def _qc_process_acquisition_worker(task_data):
@@ -69,12 +125,29 @@ def _qc_process_acquisition_worker(task_data):
         
         loader = None
         if loader_path and os.path.exists(loader_path):
-            if loader_path.endswith('.mcd'):
+            # Determine loader type: MCD files end with .mcd/.mcdx, OME-TIFF is a directory
+            if loader_path.lower().endswith(('.mcd', '.mcdx')):
+                # MCD file
                 loader = MCDLoader()
                 loader.open(loader_path)
-            else:
+            elif os.path.isdir(loader_path):
+                # OME-TIFF directory
                 loader = OMETIFFLoader(channel_format='CHW')  # Default to CHW (matches export format)
                 loader.open(loader_path)
+            else:
+                # Try to determine from file extension or assume OME-TIFF directory
+                # This handles edge cases where path might not have extension
+                print(f"Warning: Unknown file type for {loader_path}, attempting OME-TIFF loader")
+                try:
+                    loader = OMETIFFLoader(channel_format='CHW')
+                    loader.open(loader_path)
+                except Exception:
+                    # If OME-TIFF fails, try MCD as fallback
+                    try:
+                        loader = MCDLoader()
+                        loader.open(loader_path)
+                    except Exception:
+                        pass
         
         if not loader:
             return results
@@ -154,8 +227,12 @@ def _qc_calculate_pixel_metrics_worker(img: np.ndarray, channel: str) -> Optiona
         background_mean = np.mean(background)
         background_std = np.std(background)
         
-        # SNR: (signal_mean - background_mean) / background_std
-        snr = (signal_mean - background_mean) / (background_std + 1e-8)
+        # Calculate image range for robust SNR calculation
+        img_min = np.min(img_float)
+        img_max = np.max(img_float)
+        
+        # SNR: (signal_mean - background_mean) / background_std (with robust handling)
+        snr = _calculate_snr(signal_mean, background_mean, background_std, img_min, img_max)
         
         # Intensity metrics (using raw pixel intensities)
         mean_intensity = np.mean(img_float)
@@ -227,8 +304,12 @@ def _qc_calculate_cell_metrics_worker(img: np.ndarray, channel: str, mask: np.nd
         background_mean = np.mean(background)
         background_std = np.std(background)
         
-        # SNR: (signal_mean - background_mean) / background_std
-        snr = (signal_mean - background_mean) / (background_std + 1e-8)
+        # Calculate image range for robust SNR calculation
+        img_min = np.min(img_float)
+        img_max = np.max(img_float)
+        
+        # SNR: (signal_mean - background_mean) / background_std (with robust handling)
+        snr = _calculate_snr(signal_mean, background_mean, background_std, img_min, img_max)
         
         # Intensity metrics (cell-level, using raw pixel intensities)
         mean_intensity = np.mean(foreground)  # Mean intensity in cells
@@ -309,8 +390,16 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         # Analysis mode
         self.analysis_mode = "pixel"  # "pixel" or "cell"
         
+        # File set ID for caching results
+        self.file_set_id = None
+        if self.parent_window and hasattr(self.parent_window, '_get_qc_file_set_id'):
+            self.file_set_id = self.parent_window._get_qc_file_set_id()
+        
         # Create UI
         self._create_ui()
+        
+        # Try to restore cached results
+        self._restore_cached_results()
         
     def _create_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -340,6 +429,19 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         mode_layout.addWidget(self.mode_combo)
         mode_layout.addStretch()
         options_layout.addLayout(mode_layout)
+        
+        # Add explanation text
+        explanation_text = QtWidgets.QLabel(
+            "<b>Pixel-level:</b> Uses Otsu thresholding to automatically separate signal (foreground) "
+            "from background pixels. SNR is calculated as (signal_mean - background_mean) / background_std. "
+            "This works on any image without requiring segmentation.<br>"
+            "<b>Cell-level:</b> Uses segmentation masks to separate cell pixels from background pixels. "
+            "SNR is calculated using cell regions as signal and non-cell regions as background. "
+            "Requires segmentation masks to be available."
+        )
+        explanation_text.setWordWrap(True)
+        explanation_text.setStyleSheet("QLabel { color: #555; font-size: 9pt; padding: 5px; }")
+        options_layout.addWidget(explanation_text)
         
         # Acquisition selection
         acq_layout = QtWidgets.QHBoxLayout()
@@ -486,6 +588,9 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                     "No Masks Available",
                     "Cell-level analysis requires segmentation masks. Please segment cells first."
                 )
+        
+        # Try to restore cached results for the new mode
+        self._restore_cached_results()
     
     
     def _run_analysis(self):
@@ -702,6 +807,9 @@ class QCAnalysisDialog(QtWidgets.QDialog):
                 # Aggregate results per channel across all ROIs
                 self._aggregate_results_by_channel()
                 
+                # Cache results for persistence
+                self._save_results_to_cache()
+                
                 # Update UI
                 self._update_summary_table()
                 self._update_plots()
@@ -798,8 +906,12 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             background_mean = np.mean(background)
             background_std = np.std(background)
             
-            # SNR: (signal_mean - background_mean) / background_std
-            snr = (signal_mean - background_mean) / (background_std + 1e-8)
+            # Calculate image range for robust SNR calculation
+            img_min = np.min(img_float)
+            img_max = np.max(img_float)
+            
+            # SNR: (signal_mean - background_mean) / background_std (with robust handling)
+            snr = _calculate_snr(signal_mean, background_mean, background_std, img_min, img_max)
             
             # Intensity metrics
             mean_intensity = np.mean(img_float)
@@ -867,8 +979,12 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             background_mean = np.mean(background)
             background_std = np.std(background)
             
-            # SNR: (signal_mean - background_mean) / background_std
-            snr = (signal_mean - background_mean) / (background_std + 1e-8)
+            # Calculate image range for robust SNR calculation
+            img_min = np.min(img_float)
+            img_max = np.max(img_float)
+            
+            # SNR: (signal_mean - background_mean) / background_std (with robust handling)
+            snr = _calculate_snr(signal_mean, background_mean, background_std, img_min, img_max)
             
             # Intensity metrics (cell-level)
             mean_intensity = np.mean(foreground)  # Mean intensity in cells
@@ -971,6 +1087,47 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         roi_counts = self.qc_results.groupby('channel').size().reset_index(name='n_rois')
         self.qc_results_aggregated = self.qc_results_aggregated.merge(roi_counts, on='channel')
     
+    def _save_results_to_cache(self):
+        """Save current QC results to the parent window's cache for persistence."""
+        if not self.file_set_id or not self.parent_window:
+            return
+        
+        if not hasattr(self.parent_window, 'qc_results_cache'):
+            self.parent_window.qc_results_cache = {}
+        
+        # Store results with both analysis mode and file set ID as key
+        cache_key = f"{self.file_set_id}_{self.analysis_mode}"
+        self.parent_window.qc_results_cache[cache_key] = {
+            'qc_results': self.qc_results.copy() if self.qc_results is not None else None,
+            'qc_results_aggregated': self.qc_results_aggregated.copy() if self.qc_results_aggregated is not None else None,
+            'analysis_mode': self.analysis_mode
+        }
+    
+    def _restore_cached_results(self):
+        """Restore QC results from cache if available for the current file set."""
+        if not self.file_set_id or not self.parent_window:
+            return
+        
+        if not hasattr(self.parent_window, 'qc_results_cache'):
+            return
+        
+        # Try to restore results for current analysis mode
+        cache_key = f"{self.file_set_id}_{self.analysis_mode}"
+        cached = self.parent_window.qc_results_cache.get(cache_key)
+        
+        if cached and cached.get('qc_results') is not None:
+            # Restore results
+            self.qc_results = cached['qc_results'].copy()
+            self.qc_results_aggregated = cached['qc_results_aggregated'].copy() if cached.get('qc_results_aggregated') is not None else None
+            
+            # Update UI
+            self._update_summary_table()
+            self._update_plots()
+            self.export_summary_btn.setEnabled(True)
+            self.snr_intensity_save_btn.setEnabled(True)
+            self.coverage_save_btn.setEnabled(True)
+            self.distribution_save_btn.setEnabled(True)
+    
     def _update_summary_table(self):
         """Update the summary table with aggregated results."""
         if self.qc_results_aggregated is None or self.qc_results_aggregated.empty:
@@ -1070,7 +1227,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         ax.set_xlabel('Mean Intensity (log scale, averaged across ROIs)', fontsize=10)
         ax.set_ylabel('SNR (Signal-to-Noise Ratio, log scale, averaged across ROIs)', fontsize=10)
         ax.set_title('SNR vs Mean Intensity by Channel (Mean across all ROIs)', fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3, which='both')
+        ax.grid(False)  # Remove gridlines
         
         fig.tight_layout()
         self.snr_intensity_canvas.draw()
@@ -1142,6 +1299,18 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         
         # Get unique channels (sorted)
         channels = sorted(self.qc_results['channel'].unique())
+        num_channels = len(channels)
+        
+        # Scale font size based on number of channels (smaller for more channels)
+        # Base font size of 8, scales down to minimum of 5 for many channels
+        if num_channels <= 10:
+            xlabel_fontsize = 8
+        elif num_channels <= 20:
+            xlabel_fontsize = 7
+        elif num_channels <= 30:
+            xlabel_fontsize = 6
+        else:
+            xlabel_fontsize = 5
         
         # Prepare data for boxplots
         snr_data = []
@@ -1166,7 +1335,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         ax1.set_yscale('log')
         ax1.set_ylabel('SNR (log scale)', fontsize=10)
         ax1.set_title('SNR Distribution across ROIs', fontsize=11, fontweight='bold')
-        ax1.tick_params(axis='x', rotation=45)
+        ax1.tick_params(axis='x', rotation=90, labelsize=xlabel_fontsize)  # Fully vertical text
         ax1.grid(True, alpha=0.3, axis='y')
         
         # Intensity boxplot
@@ -1176,7 +1345,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         ax2.set_yscale('log')
         ax2.set_ylabel('Mean Intensity (log scale)', fontsize=10)
         ax2.set_title('Intensity Distribution across ROIs', fontsize=11, fontweight='bold')
-        ax2.tick_params(axis='x', rotation=45)
+        ax2.tick_params(axis='x', rotation=90, labelsize=xlabel_fontsize)  # Fully vertical text
         ax2.grid(True, alpha=0.3, axis='y')
         
         # Coverage boxplot
@@ -1185,7 +1354,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             patch.set_facecolor('lightcoral')
         ax3.set_ylabel('% Coverage', fontsize=10)
         ax3.set_title('Coverage Distribution across ROIs', fontsize=11, fontweight='bold')
-        ax3.tick_params(axis='x', rotation=45)
+        ax3.tick_params(axis='x', rotation=90, labelsize=xlabel_fontsize)  # Fully vertical text
         ax3.grid(True, alpha=0.3, axis='y')
         
         fig.tight_layout()
@@ -1225,4 +1394,5 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         """Save coverage plot."""
         fig = self.coverage_canvas.figure
         save_figure_with_options(fig, self, "Coverage_Density")
+
 

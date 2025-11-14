@@ -452,6 +452,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.unique_acq_to_original: Dict[str, str] = {}  # Maps unique acquisition ID to original ID
         self.acquisitions: List[AcquisitionInfo] = []
         self.current_acq_id: Optional[str] = None
+        # QC analysis results cache (persists until files change)
+        self.qc_results_cache: Dict[str, Dict] = {}  # Maps file_set_id to QC results
         # Image cache and prefetching
         self.image_cache: Dict[Tuple[str, str], np.ndarray] = {}
         self._cache_lock = threading.Lock()
@@ -1314,6 +1316,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mcd_loaders.clear()
         self.acq_to_file.clear()
         self.unique_acq_to_original.clear()
+        # Clear QC results cache when files are closed
+        self.qc_results_cache.clear()
         
         # Clear image cache when switching files
         with self._cache_lock:
@@ -7703,6 +7707,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.advanced_spatial_dialog.setModal(False)
         self.advanced_spatial_dialog.setAttribute(Qt.WA_DeleteOnClose, False)
         self.advanced_spatial_dialog.show()
+    
+    def _get_qc_file_set_id(self) -> str:
+        """Get a unique identifier for the current file set (for QC results caching).
+        
+        Returns a hash of all loaded file paths to uniquely identify the current data set.
+        """
+        import hashlib
+        file_paths = sorted(set(self.acq_to_file.values()))
+        if self.current_path and self.current_path not in file_paths:
+            # For single file loaders (OME-TIFF or single MCD)
+            file_paths.append(self.current_path)
+        if not file_paths:
+            return ""
+        # Create a hash of all file paths
+        file_set_str = "|".join(sorted(file_paths))
+        return hashlib.md5(file_set_str.encode()).hexdigest()
     
     def _open_qc_dialog(self):
         """Open the QC analysis dialog."""
