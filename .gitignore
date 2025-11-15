@@ -11,7 +11,6 @@ __pycache__/
 
 # Ignore image files
 *.pdf
-*.png
 *.jpg
 *.jpeg
 *.gif
