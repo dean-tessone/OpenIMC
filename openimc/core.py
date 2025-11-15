@@ -406,10 +406,11 @@ def segment(
     # Run segmentation based on method
     if method == 'cellsam':
         # Try to import CellSAM
+        # Catch both ImportError and OSError (Windows DLL loading errors)
         try:
             from cellSAM import get_model, cellsam_pipeline
-        except ImportError:
-            raise ImportError("CellSAM not installed. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git")
+        except (ImportError, OSError):
+            raise ImportError("CellSAM not installed or failed to load. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git")
         
         # Set API key from argument or environment variable
         api_key = deepcell_api_key or os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
@@ -461,10 +462,11 @@ def segment(
     
     elif method == 'cellpose':
         # Try to import Cellpose
+        # Catch both ImportError and OSError (Windows DLL loading errors)
         try:
             from cellpose import models
-        except ImportError:
-            raise ImportError("Cellpose not installed. Install with: pip install cellpose")
+        except (ImportError, OSError):
+            raise ImportError("Cellpose not installed or failed to load. Install with: pip install cellpose")
         
         # Preprocess channels
         nuclear_img, cyto_img = _preprocess_channels_for_segmentation(

@@ -70,17 +70,19 @@ from openimc.core import (
 )
 
 # Try to import Cellpose (optional)
+# Catch both ImportError and OSError (Windows DLL loading errors)
 try:
     from cellpose import models
     _HAVE_CELLPOSE = True
-except ImportError:
+except (ImportError, OSError):
     _HAVE_CELLPOSE = False
 
 # Try to import CellSAM (optional)
+# Catch both ImportError and OSError (Windows DLL loading errors)
 try:
     from cellSAM import get_model, cellsam_pipeline
     _HAVE_CELLSAM = True
-except ImportError:
+except (ImportError, OSError):
     _HAVE_CELLSAM = False
 
 

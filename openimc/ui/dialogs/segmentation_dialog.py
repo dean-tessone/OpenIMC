@@ -56,10 +56,11 @@ except ImportError:
     _HAVE_ROLLING_BALL = False
 
 # Optional CellSAM
+# Catch both ImportError and OSError (Windows DLL loading errors)
 try:
     from cellSAM import get_model, cellsam_pipeline  # type: ignore
     _HAVE_CELLSAM = True
-except ImportError:
+except (ImportError, OSError):
     _HAVE_CELLSAM = False
 
 

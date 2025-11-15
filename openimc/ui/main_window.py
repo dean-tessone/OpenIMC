@@ -162,7 +162,7 @@ _HAVE_CELLSAM = False
 try:
     from cellSAM import get_model, cellsam_pipeline  # type: ignore
     _HAVE_CELLSAM = True
-except ImportError:
+except (ImportError, OSError):
     _HAVE_CELLSAM = False
 
 # Optional image processing deps (scikit-image, scipy)

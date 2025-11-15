@@ -737,6 +737,7 @@ class TestEndToEndWorkflow:
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.regression
 @pytest.mark.requires_readimc
 class TestFeatureExtractionRegression:
     """Regression tests for feature extraction with known outputs.

@@ -87,6 +87,7 @@ markers = [
     "unit: Unit tests for individual functions",
     "integration: Integration tests for workflows",
     "slow: Tests that take a long time to run",
+    "regression: Regression tests that compare against known outputs",
     "requires_gpu: Tests that require GPU",
     "requires_cellpose: Tests that require Cellpose",
     "requires_cellsam: Tests that require CellSAM",
