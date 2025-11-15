@@ -45,14 +45,17 @@ class TestLoadMCD:
     """Tests for load_mcd function."""
     
     def test_load_mcd_file(self, test_data_dir):
-        """Test loading an MCD file."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        """Test loading an MCD file or OME-TIFF directory."""
+        from tests.conftest import get_test_data_path
         
-        loader, loader_type = load_mcd(str(mcd_path))
+        try:
+            data_path, expected_type = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        assert loader_type == 'mcd'
+        loader, loader_type = load_mcd(str(data_path))
+        
+        assert loader_type == expected_type
         assert loader is not None
         
         # Check that we can list acquisitions
@@ -135,11 +138,14 @@ class TestPreprocess:
     
     def test_preprocess_basic(self, test_data_dir, temp_dir):
         """Test basic preprocessing of an acquisition."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -171,11 +177,14 @@ class TestPreprocess:
     
     def test_preprocess_with_denoise(self, test_data_dir, temp_dir):
         """Test preprocessing with denoise settings."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -211,11 +220,14 @@ class TestSegment:
     
     def test_segment_watershed(self, test_data_dir, temp_dir):
         """Test watershed segmentation."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -292,11 +304,14 @@ class TestExtractFeatures:
     
     def test_extract_features_basic(self, test_data_dir, temp_dir):
         """Test basic feature extraction."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -533,11 +548,14 @@ class TestQCAnalysis:
     
     def test_qc_analysis_pixel_mode(self, test_data_dir):
         """Test QC analysis in pixel mode."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -585,11 +603,14 @@ class TestQCAnalysis:
     
     def test_qc_analysis_cell_mode(self, test_data_dir, temp_dir):
         """Test QC analysis in cell mode."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -652,11 +673,14 @@ class TestPixelCorrelation:
     
     def test_pixel_correlation_basic(self, test_data_dir):
         """Test basic pixel correlation analysis."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
@@ -706,11 +730,14 @@ class TestPixelCorrelation:
     
     def test_pixel_correlation_with_mask(self, test_data_dir, temp_dir):
         """Test pixel correlation with segmentation mask."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        from tests.conftest import get_test_data_path
         
-        loader, _ = load_mcd(str(mcd_path))
+        try:
+            data_path, _ = get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        loader, _ = load_mcd(str(data_path))
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:

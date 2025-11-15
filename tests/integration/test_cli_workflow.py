@@ -94,6 +94,8 @@ def _ensure_path(path):
 def _get_test_data_path(test_data_dir):
     """Get the test data path, supporting both MCD files and OME-TIFF directories.
     
+    This is a wrapper around the shared helper function from conftest.py.
+    
     Args:
         test_data_dir: Path to the test data directory
     
@@ -103,29 +105,8 @@ def _get_test_data_path(test_data_dir):
     Raises:
         FileNotFoundError: If no valid test data is found
     """
-    test_data_dir = Path(test_data_dir).resolve()
-    
-    # First, check for MCD file
-    mcd_files = list(test_data_dir.glob("*.mcd")) + list(test_data_dir.glob("*.mcdx"))
-    if mcd_files:
-        return mcd_files[0], 'mcd'
-    
-    # Check for OME-TIFF files in the directory
-    ometiff_files = (
-        list(test_data_dir.glob("*.ome.tif")) +
-        list(test_data_dir.glob("*.ome.tiff")) +
-        list(test_data_dir.glob("*.tif")) +
-        list(test_data_dir.glob("*.tiff"))
-    )
-    
-    if ometiff_files:
-        # OME-TIFF loader expects a directory, so return the directory
-        return test_data_dir, 'ometiff'
-    
-    raise FileNotFoundError(
-        f"No test data found in {test_data_dir}. "
-        f"Expected either .mcd/.mcdx file or OME-TIFF files (.ome.tif, .ome.tiff, .tif, .tiff)"
-    )
+    from tests.conftest import get_test_data_path
+    return get_test_data_path(test_data_dir)
 
 
 @pytest.mark.integration

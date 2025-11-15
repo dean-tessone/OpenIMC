@@ -22,11 +22,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
-      - name: Run tests
+      - name: Run fast tests
         env:
           OPENIMC_DISABLE_GPU: "1"
           OPENIMC_DISABLE_LLM: "1"
           OPENIMC_DISABLE_ILASTIK: "1"
         run: |
           pytest -m "not slow"
+      - name: Run integration tests
+        env:
+          OPENIMC_DISABLE_GPU: "1"
+          OPENIMC_DISABLE_LLM: "1"
+          OPENIMC_DISABLE_ILASTIK: "1"
+        run: |
+          pytest -m "integration"
 

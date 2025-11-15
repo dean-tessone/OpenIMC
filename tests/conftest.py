@@ -210,3 +210,40 @@ def test_data_dir():
     data_dir = tests_dir / "data"
     return data_dir
 
+
+def get_test_data_path(test_data_dir):
+    """Get the test data path, supporting both MCD files and OME-TIFF directories.
+    
+    Args:
+        test_data_dir: Path to the test data directory
+    
+    Returns:
+        Tuple of (data_path, loader_type) where loader_type is 'mcd' or 'ometiff'
+    
+    Raises:
+        FileNotFoundError: If no valid test data is found
+    """
+    test_data_dir = Path(test_data_dir).resolve()
+    
+    # First, check for MCD file
+    mcd_files = list(test_data_dir.glob("*.mcd")) + list(test_data_dir.glob("*.mcdx"))
+    if mcd_files:
+        return mcd_files[0], 'mcd'
+    
+    # Check for OME-TIFF files in the directory
+    ometiff_files = (
+        list(test_data_dir.glob("*.ome.tif")) +
+        list(test_data_dir.glob("*.ome.tiff")) +
+        list(test_data_dir.glob("*.tif")) +
+        list(test_data_dir.glob("*.tiff"))
+    )
+    
+    if ometiff_files:
+        # OME-TIFF loader expects a directory, so return the directory
+        return test_data_dir, 'ometiff'
+    
+    raise FileNotFoundError(
+        f"No test data found in {test_data_dir}. "
+        f"Expected either .mcd/.mcdx file or OME-TIFF files (.ome.tif, .ome.tiff, .tif, .tiff)"
+    )
+
