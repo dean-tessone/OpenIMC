@@ -1,0 +1,174 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overview &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Installation" href="installation.html" />
+    <link rel="prev" title="OpenIMC Documentation" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Overview</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#design-principles">Design Principles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#intended-audience">Intended Audience</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#additional-resources">Additional Resources</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Overview</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="overview">
+<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h1>
+<p>OpenIMC is an open-source, cross-platform software framework for the analysis of
+Imaging Mass Cytometry (IMC) data. It unifies data visualization, preprocessing,
+segmentation, feature extraction, clustering, and spatial analytics within a
+single reproducible environment. OpenIMC provides both a command-line interface
+(CLI) for automated workflows and a graphical user interface (GUI) for
+interactive exploration.</p>
+<p>IMC generates high-dimensional, multiplexed proteomic images using metal-tagged
+antibodies and laser ablation mass spectrometry. While the modality offers
+unprecedented cellular and spatial resolution, it also poses unique analytical
+challenges: Poisson-distributed ion counts, channel-specific noise, variable
+spillover, inconsistent panel definitions, and heterogeneous image formats
+(MCD, TXT, and OME-TIFF). OpenIMC addresses these challenges through a set of
+well-defined, modular pipelines designed to support both plated-cell IMC assays
+and tissue-based spatial proteomics.</p>
+<section id="design-principles">
+<h2>Design Principles<a class="headerlink" href="#design-principles" title="Link to this heading"></a></h2>
+<p>The platform is built on several core principles:</p>
+<ul class="simple">
+<li><p><strong>Reproducibility</strong>
+All pipelines are accessible via the CLI and use explicit configuration
+files, enabling deterministic, version-controlled processing. The same
+underlying computational functions are used by both the CLI and GUI.</p></li>
+<li><p><strong>Modularity</strong>
+Functionality is organized into clear stages: loading, preprocessing,
+segmentation, feature extraction, clustering, and spatial analysis. Advanced
+users may call these functions directly from Python.</p></li>
+<li><p><strong>Cross-platform compatibility</strong>
+OpenIMC runs on Linux, macOS, and Windows. Core functionality is continuously
+tested across all supported platforms.</p></li>
+<li><p><strong>Extensibility</strong>
+The codebase is structured for integration of new segmentation models,
+spatial metrics, dimensionality reduction methods, and downstream
+machine-learning pipelines.</p></li>
+</ul>
+</section>
+<section id="intended-audience">
+<h2>Intended Audience<a class="headerlink" href="#intended-audience" title="Link to this heading"></a></h2>
+<p>OpenIMC is designed for IMC practitioners, non-coders, computational biologists,
+pathologists, and developers building custom analysis pipelines for multiplexed
+imaging. It provides a complete workflow for users seeking either:</p>
+<ul class="simple">
+<li><p>an immediately usable end-to-end IMC analysis solution, or</p></li>
+<li><p>a flexible Python API for integrating IMC analysis into larger pipelines,
+such as clustering, spatial modeling, or machine-learning-based
+interpretations.</p></li>
+</ul>
+</section>
+<section id="additional-resources">
+<h2>Additional Resources<a class="headerlink" href="#additional-resources" title="Link to this heading"></a></h2>
+<p>More detailed instructions for installation, CLI usage, GUI workflows, and
+pipeline examples can be found in the corresponding sections of this
+documentation. The associated manuscript provides biological validation,
+performance benchmarking, and comparisons to existing IMC software frameworks.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="OpenIMC Documentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="installation.html" class="btn btn-neutral float-right" title="Installation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
