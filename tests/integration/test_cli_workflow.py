@@ -91,23 +91,60 @@ def _ensure_path(path):
     return Path(path).resolve()
 
 
+def _get_test_data_path(test_data_dir):
+    """Get the test data path, supporting both MCD files and OME-TIFF directories.
+    
+    Args:
+        test_data_dir: Path to the test data directory
+    
+    Returns:
+        Tuple of (data_path, loader_type) where loader_type is 'mcd' or 'ometiff'
+    
+    Raises:
+        FileNotFoundError: If no valid test data is found
+    """
+    test_data_dir = Path(test_data_dir).resolve()
+    
+    # First, check for MCD file
+    mcd_files = list(test_data_dir.glob("*.mcd")) + list(test_data_dir.glob("*.mcdx"))
+    if mcd_files:
+        return mcd_files[0], 'mcd'
+    
+    # Check for OME-TIFF files in the directory
+    ometiff_files = (
+        list(test_data_dir.glob("*.ome.tif")) +
+        list(test_data_dir.glob("*.ome.tiff")) +
+        list(test_data_dir.glob("*.tif")) +
+        list(test_data_dir.glob("*.tiff"))
+    )
+    
+    if ometiff_files:
+        # OME-TIFF loader expects a directory, so return the directory
+        return test_data_dir, 'ometiff'
+    
+    raise FileNotFoundError(
+        f"No test data found in {test_data_dir}. "
+        f"Expected either .mcd/.mcdx file or OME-TIFF files (.ome.tif, .ome.tiff, .tif, .tiff)"
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.requires_readimc
 class TestMCDLoading:
-    """Integration tests for loading MCD files."""
+    """Integration tests for loading MCD files and OME-TIFF directories."""
     
     def test_load_mcd_file(self, test_data_dir):
-        """Test loading the MCD file from test data."""
-        # Use resolve() to ensure absolute path (cross-platform)
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        """Test loading the MCD file or OME-TIFF directory from test data."""
+        try:
+            data_path, expected_type = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
         # load_mcd accepts both Path and str, but we'll use Path for consistency
-        loader, loader_type = load_mcd(mcd_path)
+        loader, loader_type = load_mcd(data_path)
         
-        assert loader_type == 'mcd'
+        assert loader_type == expected_type
         assert loader is not None
         
         # Check that we can list acquisitions
@@ -133,18 +170,18 @@ class TestPreprocessWorkflow:
     """Integration tests for preprocessing workflow."""
     
     def test_preprocess_mcd_file(self, test_data_dir, temp_dir):
-        """Test preprocessing an MCD file and exporting to OME-TIFF."""
-        # Resolve path for cross-platform compatibility
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        """Test preprocessing an MCD file or OME-TIFF and exporting to OME-TIFF."""
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Load MCD file - load_mcd accepts Path objects
-        loader, _ = load_mcd(mcd_path)
+        # Load data - load_mcd accepts Path objects
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         # Use first acquisition
         acq = acquisitions[0]
@@ -180,17 +217,18 @@ class TestSegmentWorkflow:
     
     def test_segment_watershed(self, test_data_dir, temp_dir):
         """Test watershed segmentation on MCD file."""
-        # Resolve path for cross-platform compatibility
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Load MCD file - load_mcd accepts Path objects
-        loader, _ = load_mcd(mcd_path)
+        # Load data - load_mcd accepts Path objects
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -246,21 +284,23 @@ class TestSegmentWorkflow:
         """
         import os
         
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
         # Check for API key
         api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN")
         if not api_key:
             pytest.skip("DEEPCELL_ACCESS_TOKEN environment variable not set. CellSAM requires DeepCell API key.")
         
-        # Load MCD file
-        loader, _ = load_mcd(str(mcd_path))
+        # Load data
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -321,17 +361,18 @@ class TestSegmentWorkflow:
         - Cellpose to be installed (pip install cellpose)
         - May use GPU if available, but will fall back to CPU
         """
-        # Resolve path for cross-platform compatibility
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Load MCD file - load_mcd accepts Path objects
-        loader, _ = load_mcd(mcd_path)
+        # Load data - load_mcd accepts Path objects
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -392,17 +433,18 @@ class TestSegmentWorkflow:
         
         This test uses the nuclei model which only requires nuclear channels.
         """
-        # Resolve path for cross-platform compatibility
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Load MCD file - load_mcd accepts Path objects
-        loader, _ = load_mcd(mcd_path)
+        # Load data - load_mcd accepts Path objects
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -459,17 +501,18 @@ class TestFeatureExtractionWorkflow:
     
     def test_extract_features_from_segmentation(self, test_data_dir, temp_dir):
         """Test extracting features from segmented cells."""
-        # Resolve path for cross-platform compatibility
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Load MCD file - load_mcd accepts Path objects
-        loader, _ = load_mcd(mcd_path)
+        # Load data - load_mcd accepts Path objects
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -536,17 +579,18 @@ class TestClusterWorkflow:
     
     def test_cluster_features(self, test_data_dir, temp_dir):
         """Test clustering extracted features."""
-        # Resolve path for cross-platform compatibility
-        mcd_path = (test_data_dir / "Patient1.mcd").resolve()
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Load MCD file - load_mcd accepts Path objects
-        loader, _ = load_mcd(mcd_path)
+        # Load data - load_mcd accepts Path objects
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -637,16 +681,18 @@ class TestEndToEndWorkflow:
     
     def test_complete_workflow(self, test_data_dir, temp_dir):
         """Test complete workflow: load -> segment -> extract -> cluster."""
-        mcd_path = test_data_dir / "Patient1.mcd"
-        if not mcd_path.exists():
-            pytest.skip(f"MCD test file not found: {mcd_path}")
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
         
-        # Step 1: Load MCD file
-        loader, _ = load_mcd(str(mcd_path))
+        # Step 1: Load data
+        loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
         
         if len(acquisitions) == 0:
-            pytest.skip("No acquisitions found in MCD file")
+            pytest.skip("No acquisitions found in test data")
         
         acq = acquisitions[0]
         channels = loader.get_channels(acq.id)
@@ -706,4 +752,214 @@ class TestEndToEndWorkflow:
             )
             assert 'cluster' in clustered_df.columns
             assert len(clustered_df) == len(features_df)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.requires_readimc
+class TestFeatureExtractionRegression:
+    """Regression tests for feature extraction with known outputs.
+    
+    These tests compare extracted features against reference/target files
+    to ensure feature extraction produces consistent results.
+    """
+    
+    def test_feature_extraction_regression(self, test_data_dir, temp_dir):
+        """Test feature extraction against a target feature file.
+        
+        This test:
+        1. Loads the OME-TIFF file from test data
+        2. Loads masks from a masks directory
+        3. Extracts features with:
+           - Hot pixel removal denoising for every channel
+           - Arcsinh transform with cofactor 10
+        4. Compares extracted features against target file (cell_features.csv)
+        """
+        # Get test data path (supports both MCD and OME-TIFF)
+        try:
+            data_path, _ = _get_test_data_path(test_data_dir)
+        except FileNotFoundError as e:
+            pytest.skip(str(e))
+        
+        # Check for masks directory
+        masks_dir = test_data_dir / "mask"
+        if not masks_dir.exists() or not masks_dir.is_dir():
+            pytest.skip(f"Masks directory not found: {masks_dir}")
+        
+        # Check for target features file (use output_features.csv which matches CLI output)
+        target_features_path = test_data_dir / "regression_targets" / "output_features.csv"
+        if not target_features_path.exists():
+            # Fallback to cell_features.csv if output_features.csv doesn't exist
+            target_features_path = test_data_dir / "regression_targets" / "cell_features.csv"
+            if not target_features_path.exists():
+                pytest.skip(f"Target features file not found: {target_features_path}")
+        
+        # Load data
+        loader, _ = load_mcd(data_path)
+        acquisitions = loader.list_acquisitions()
+        
+        if len(acquisitions) == 0:
+            pytest.skip("No acquisitions found in test data")
+        
+        # Verify mask is loaded correctly before feature extraction
+        from openimc.core import _load_masks_for_acquisitions
+        masks_dict = _load_masks_for_acquisitions(masks_dir, acquisitions)
+        if len(masks_dict) == 0:
+            pytest.fail(f"No masks loaded from {masks_dir}. Check mask filename matching.")
+        
+        for acq_id, mask in masks_dict.items():
+            if mask is None:
+                pytest.fail(f"Mask for acquisition {acq_id} is None")
+            if mask.size == 0:
+                pytest.fail(f"Mask for acquisition {acq_id} is empty")
+            # Log mask info for debugging
+            print(f"\n[DEBUG] Mask for {acq_id}: shape={mask.shape}, dtype={mask.dtype}, "
+                  f"unique_labels={len(np.unique(mask))}, max_label={np.max(mask)}")
+        
+        # Use the same method as CLI: build_denoise_settings_for_all_channels
+        # This matches: --denoise all --denoise-method median3
+        from openimc.cli import build_denoise_settings_for_all_channels
+        denoise_settings = build_denoise_settings_for_all_channels(
+            loader, acquisitions, method='median3', n_sd=5.0
+        )
+        
+        # Extract features with specified settings
+        extracted_features = extract_features(
+            loader=loader,
+            acquisitions=acquisitions,
+            mask_path=masks_dir,
+            output_path=temp_dir / "extracted_features.csv",
+            morphological=True,
+            intensity=True,
+            denoise_settings=denoise_settings,
+            arcsinh=True,
+            arcsinh_cofactor=10.0
+        )
+        
+        # Load target features
+        target_features = pd.read_csv(target_features_path)
+        
+        # Basic validation
+        assert len(extracted_features) > 0, "No features extracted"
+        assert len(extracted_features) == len(target_features), \
+            f"Feature count mismatch: extracted {len(extracted_features)}, expected {len(target_features)}"
+        
+        # Sort both dataframes by cell_id or label for comparison
+        # Try to find a common identifier column
+        id_cols = ['cell_id', 'label']
+        extracted_id_col = None
+        target_id_col = None
+        
+        for col in id_cols:
+            if col in extracted_features.columns:
+                extracted_id_col = col
+            if col in target_features.columns:
+                target_id_col = col
+        
+        if extracted_id_col and target_id_col:
+            extracted_features = extracted_features.sort_values(extracted_id_col).reset_index(drop=True)
+            target_features = target_features.sort_values(target_id_col).reset_index(drop=True)
+        
+        # Get common feature columns (exclude metadata columns)
+        metadata_cols = {'cell_id', 'label', 'acquisition_id', 'acquisition_name', 
+                        'well', 'source_file', 'source_well', 'acquisition_label'}
+        
+        extracted_feature_cols = [col for col in extracted_features.columns 
+                                 if col not in metadata_cols]
+        target_feature_cols = [col for col in target_features.columns 
+                              if col not in metadata_cols]
+        
+        # Find common feature columns
+        common_cols = set(extracted_feature_cols) & set(target_feature_cols)
+        
+        if len(common_cols) == 0:
+            pytest.fail(
+                f"No common feature columns found. "
+                f"Extracted: {extracted_feature_cols[:10]}..., "
+                f"Target: {target_feature_cols[:10]}..."
+            )
+        
+        # Compare features (with tolerance for floating point differences)
+        # Use a more reasonable tolerance for intensity features after arcsinh transform
+        # Absolute tolerance: 0.1 (for arcsinh-transformed values)
+        # Relative tolerance: 1% (0.01) for values > 1, stricter for smaller values
+        abs_tolerance = 0.1
+        rel_tolerance = 0.01  # 1%
+        max_abs_diff = 0.0
+        max_rel_diff = 0.0
+        failed_cols = []
+        
+        for col in sorted(common_cols):
+            if col not in extracted_features.columns or col not in target_features.columns:
+                continue
+            
+            extracted_vals = extracted_features[col].values
+            target_vals = target_features[col].values
+            
+            # Handle NaN values
+            valid_mask = ~(np.isnan(extracted_vals) | np.isnan(target_vals))
+            
+            if not np.any(valid_mask):
+                # All NaN - skip this column
+                continue
+            
+            extracted_vals = extracted_vals[valid_mask]
+            target_vals = target_vals[valid_mask]
+            
+            # Calculate differences
+            abs_diff = np.abs(extracted_vals - target_vals)
+            max_abs_diff_col = np.max(abs_diff)
+            
+            # Relative difference (avoid division by zero)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                rel_diff = np.abs((extracted_vals - target_vals) / (np.abs(target_vals) + 1e-10))
+                max_rel_diff_col = np.max(rel_diff)
+            
+            # Check if difference exceeds tolerance
+            # For small values (< 1), use absolute tolerance
+            # For larger values, use relative tolerance
+            small_val_mask = np.abs(target_vals) < 1.0
+            large_val_mask = ~small_val_mask
+            
+            exceeds_tolerance = False
+            if np.any(small_val_mask):
+                # Use absolute tolerance for small values
+                if np.any(abs_diff[small_val_mask] > abs_tolerance):
+                    exceeds_tolerance = True
+            if np.any(large_val_mask):
+                # Use relative tolerance for larger values
+                if np.any(rel_diff[large_val_mask] > rel_tolerance):
+                    exceeds_tolerance = True
+            
+            if exceeds_tolerance:
+                failed_cols.append({
+                    'column': col,
+                    'max_abs_diff': max_abs_diff_col,
+                    'max_rel_diff': max_rel_diff_col,
+                    'mean_abs_diff': np.mean(abs_diff),
+                    'mean_rel_diff': np.mean(rel_diff[large_val_mask]) if np.any(large_val_mask) else 0.0
+                })
+                max_abs_diff = max(max_abs_diff, max_abs_diff_col)
+                max_rel_diff = max(max_rel_diff, max_rel_diff_col)
+        
+        # Report results
+        if failed_cols:
+            error_msg = f"Feature extraction regression test failed:\n"
+            error_msg += f"  Max absolute difference: {max_abs_diff:.2e}\n"
+            error_msg += f"  Max relative difference: {max_rel_diff:.2e}\n"
+            error_msg += f"  Failed columns ({len(failed_cols)}):\n"
+            
+            # Show top 10 worst columns
+            failed_cols_sorted = sorted(failed_cols, key=lambda x: x['max_abs_diff'], reverse=True)[:10]
+            for col_info in failed_cols_sorted:
+                error_msg += f"    {col_info['column']}: abs_diff={col_info['max_abs_diff']:.2e}, "
+                error_msg += f"rel_diff={col_info['max_rel_diff']:.2e}\n"
+            
+            error_msg += f"\n  Extracted features saved to: {temp_dir / 'extracted_features.csv'}\n"
+            error_msg += f"  Target features: {target_features_path}\n"
+            
+            pytest.fail(error_msg)
+        
+        # If we get here, all features match within tolerance
+        assert len(common_cols) > 0, "No common feature columns to compare"
 

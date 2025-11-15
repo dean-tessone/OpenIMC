@@ -24,3 +24,6 @@ __pycache__/
 *.hdf5
 *.hdf
 *.hdf4
+
+.coverage
+coverage.xml

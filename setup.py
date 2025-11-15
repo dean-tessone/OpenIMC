@@ -24,7 +24,14 @@ from setuptools import setup, find_packages
 
 # Read requirements
 with open('requirements.txt', 'r') as f:
-    requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    requirements = []
+    for line in f:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            # Skip git URLs (they should be in optional dependencies)
+            if line.startswith('git+'):
+                continue
+            requirements.append(line)
 
 setup(
     name='openimc',

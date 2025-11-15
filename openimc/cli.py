@@ -27,7 +27,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -105,6 +105,44 @@ def parse_denoise_settings(denoise_json: Optional[str]) -> Dict:
     return parse_denoise_settings_core(denoise_json)
 
 
+def build_denoise_settings_for_all_channels(
+    loader: Union[MCDLoader, OMETIFFLoader],
+    acquisitions: List,
+    method: str = 'median3',
+    n_sd: float = 5.0
+) -> Dict:
+    """Build denoise settings for all channels across all acquisitions.
+    
+    Args:
+        loader: MCDLoader or OMETIFFLoader instance
+        acquisitions: List of AcquisitionInfo objects
+        method: Hot pixel removal method ('median3' or 'n_sd_local_median')
+        n_sd: Number of standard deviations for n_sd_local_median method
+    
+    Returns:
+        Dictionary with denoise settings per channel
+    """
+    denoise_settings = {}
+    
+    # Collect all unique channels across all acquisitions
+    all_channels = set()
+    for acq in acquisitions:
+        channels = loader.get_channels(acq.id)
+        all_channels.update(channels)
+    
+    # Build settings for each channel
+    for channel in all_channels:
+        hot_config = {'method': method}
+        # Only include n_sd for n_sd_local_median method
+        if method == 'n_sd_local_median':
+            hot_config['n_sd'] = n_sd
+        denoise_settings[channel] = {
+            'hot': hot_config
+        }
+    
+    return denoise_settings
+
+
 def preprocess_command(args):
     """Preprocess images: denoising and export to OME-TIFF.
     
@@ -119,7 +157,19 @@ def preprocess_command(args):
         print(f"Found {len(acquisitions)} acquisition(s)")
         
         # Parse denoise settings
-        denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
+        # If --denoise is set, build settings for all channels
+        if hasattr(args, 'denoise') and args.denoise == 'all':
+            denoise_method = getattr(args, 'denoise_method', 'median3')
+            denoise_n_sd = getattr(args, 'denoise_n_sd', 5.0)
+            denoise_settings = build_denoise_settings_for_all_channels(
+                loader, acquisitions, method=denoise_method, n_sd=denoise_n_sd
+            )
+            # If --denoise-settings is also provided, merge it (it can override specific channels)
+            if args.denoise_settings:
+                custom_settings = parse_denoise_settings(args.denoise_settings)
+                denoise_settings.update(custom_settings)
+        else:
+            denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
         
         # Create output directory
         output_dir = Path(args.output)
@@ -168,7 +218,19 @@ def segment_command(args):
             acquisitions = [acq]
         
         # Parse denoise settings
-        denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
+        # If --denoise is set, build settings for all channels
+        if hasattr(args, 'denoise') and args.denoise == 'all':
+            denoise_method = getattr(args, 'denoise_method', 'median3')
+            denoise_n_sd = getattr(args, 'denoise_n_sd', 5.0)
+            denoise_settings = build_denoise_settings_for_all_channels(
+                loader, acquisitions, method=denoise_method, n_sd=denoise_n_sd
+            )
+            # If --denoise-settings is also provided, merge it (it can override specific channels)
+            if args.denoise_settings:
+                custom_settings = parse_denoise_settings(args.denoise_settings)
+                denoise_settings.update(custom_settings)
+        else:
+            denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
         
         # Create output directory
         output_dir = Path(args.output)
@@ -255,7 +317,19 @@ def extract_features_command(args):
             acquisitions = [acq]
         
         # Parse denoise settings
-        denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
+        # If --denoise is set, build settings for all channels
+        if hasattr(args, 'denoise') and args.denoise == 'all':
+            denoise_method = getattr(args, 'denoise_method', 'median3')
+            denoise_n_sd = getattr(args, 'denoise_n_sd', 5.0)
+            denoise_settings = build_denoise_settings_for_all_channels(
+                loader, acquisitions, method=denoise_method, n_sd=denoise_n_sd
+            )
+            # If --denoise-settings is also provided, merge it (it can override specific channels)
+            if args.denoise_settings:
+                custom_settings = parse_denoise_settings(args.denoise_settings)
+                denoise_settings.update(custom_settings)
+        else:
+            denoise_settings = parse_denoise_settings(args.denoise_settings) if args.denoise_settings else {}
         
         # Build feature selection flags
         # If neither specified, use defaults (both True)
@@ -1558,6 +1632,9 @@ Examples:
 
   # Extract features (mask can be directory or single file)
   openimc extract-features input.mcd output/features.csv --mask output/masks/ --morphological --intensity
+  
+  # Extract features with hot pixel removal for all channels
+  openimc extract-features input.mcd output/features.csv --mask output/masks/ --denoise all --denoise-method median3
 
   # Cluster cells (Leiden uses resolution, not n-clusters)
   openimc cluster features.csv clustered_features.csv --method leiden --resolution 1.0
@@ -1584,7 +1661,10 @@ Examples:
     preprocess_parser.add_argument('output', help='Output directory for processed OME-TIFF files')
     preprocess_parser.add_argument('--arcsinh', action='store_true', help='(Deprecated) Arcsinh normalization is not applied to exported images. Use during feature extraction instead.')
     preprocess_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='(Deprecated) Arcsinh cofactor (default: 10.0). Not used for export.')
-    preprocess_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')
+    preprocess_parser.add_argument('--denoise', choices=['all'], help='Apply denoising to all channels (use "all" for hot pixel removal on all channels)')
+    preprocess_parser.add_argument('--denoise-method', choices=['median3', 'n_sd_local_median'], default='median3', help='Hot pixel removal method: median3 (3x3 median filter) or n_sd_local_median (replace pixels above N SD over local median, default: median3)')
+    preprocess_parser.add_argument('--denoise-n-sd', type=float, default=5.0, help='Number of standard deviations for n_sd_local_median method only (ignored for median3, default: 5.0)')
+    preprocess_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel (can be combined with --denoise to override specific channels)')
     preprocess_parser.add_argument('--channel-format', choices=['CHW', 'HWC'], default='CHW', help='Channel format for OME-TIFF files (default: CHW)')
     preprocess_parser.set_defaults(func=preprocess_command)
     
@@ -1617,7 +1697,10 @@ Examples:
     segment_parser.add_argument('--gauge-cell-size', action='store_true', help='Enable gauge cell size for CellSAM (runs twice: estimates error, then returns mask)')
     segment_parser.add_argument('--arcsinh', action='store_true', help='Apply arcsinh normalization before segmentation')
     segment_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='Arcsinh cofactor (default: 10.0)')
-    segment_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')
+    segment_parser.add_argument('--denoise', choices=['all'], help='Apply denoising to all channels (use "all" for hot pixel removal on all channels)')
+    segment_parser.add_argument('--denoise-method', choices=['median3', 'n_sd_local_median'], default='median3', help='Hot pixel removal method: median3 (3x3 median filter) or n_sd_local_median (replace pixels above N SD over local median, default: median3)')
+    segment_parser.add_argument('--denoise-n-sd', type=float, default=5.0, help='Number of standard deviations for n_sd_local_median method only (ignored for median3, default: 5.0)')
+    segment_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel (can be combined with --denoise to override specific channels)')
     segment_parser.set_defaults(func=segment_command)
     
     # Extract features command
@@ -1631,7 +1714,10 @@ Examples:
     extract_parser.add_argument('--intensity', action='store_true', help='Extract intensity features')
     extract_parser.add_argument('--arcsinh', action='store_true', help='Apply arcsinh transformation to extracted intensity features (mean, median, std, etc.), not to raw images')
     extract_parser.add_argument('--arcsinh-cofactor', type=float, default=10.0, help='Arcsinh cofactor (default: 10.0)')
-    extract_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel')
+    extract_parser.add_argument('--denoise', choices=['all'], help='Apply denoising to all channels (use "all" for hot pixel removal on all channels)')
+    extract_parser.add_argument('--denoise-method', choices=['median3', 'n_sd_local_median'], default='median3', help='Hot pixel removal method: median3 (3x3 median filter) or n_sd_local_median (replace pixels above N SD over local median, default: median3)')
+    extract_parser.add_argument('--denoise-n-sd', type=float, default=5.0, help='Number of standard deviations for n_sd_local_median method only (ignored for median3, default: 5.0)')
+    extract_parser.add_argument('--denoise-settings', type=str, help='JSON file or string with denoise settings per channel (can be combined with --denoise to override specific channels)')
     extract_parser.set_defaults(func=extract_features_command)
     
     # Cluster command

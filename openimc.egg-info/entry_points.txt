@@ -1,0 +1,2 @@
+[console_scripts]
+openimc = openimc.cli:main

@@ -1,0 +1,396 @@
+Metadata-Version: 2.4
+Name: openimc
+Version: 0.1.0
+Summary: OpenIMC - Open-source Imaging Mass Cytometry analysis platform
+Author: OpenIMC Contributors
+License: See LICENSE file
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.26
+Requires-Dist: pandas>=2.0
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: seaborn>=0.13.2
+Requires-Dist: pillow
+Requires-Dist: tifffile>=2021.7.2
+Requires-Dist: scipy
+Requires-Dist: statsmodels>=0.14.0
+Requires-Dist: h5py
+Requires-Dist: lxml
+Requires-Dist: imageio
+Requires-Dist: PyQt5>=5.15
+Requires-Dist: readimc>=0.9.0
+Requires-Dist: cellpose==3.1.1.2
+Requires-Dist: torch>=1.9.0
+Requires-Dist: torchvision>=0.10.0
+Requires-Dist: scikit-image>=0.25.0
+Requires-Dist: scikit-learn>=1.0.0
+Requires-Dist: psutil>=5.8.0
+Requires-Dist: leidenalg>=0.10.0
+Requires-Dist: python-igraph>=0.11.0
+Requires-Dist: umap-learn>=0.5.0
+Requires-Dist: hdbscan>=0.8.0
+Requires-Dist: openai>=1.42.0
+Requires-Dist: combat>=0.1.0
+Requires-Dist: harmonypy>=0.0.9
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.1.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.11.0; extra == "dev"
+Requires-Dist: pytest-qt>=4.2.0; extra == "dev"
+Provides-Extra: cellsam
+Requires-Dist: cellSAM@ git+https://github.com/vanvalenlab/cellSAM.git ; extra == "cellsam"
+Dynamic: license-file
+Dynamic: requires-python
+
+# OpenIMC - Advanced IMC Data Analysis Platform
+
+OpenIMC is a comprehensive, open-source PyQt5-based platform for analyzing Imaging Mass Cytometry (IMC) data. It provides an intuitive graphical interface for visualizing, processing, and analyzing multi-channel imaging data from mass cytometry experiments with advanced machine learning capabilities.
+
+## Key Features
+
+### **Image Viewing & Visualization**
+- **Multi-acquisition Support**: View and analyze multiple acquisitions within a single .mcd file
+- **Flexible Display Modes**: Single channel, RGB composite, and grid view for comprehensive data exploration
+- **Custom Scaling**: Advanced intensity scaling with percentile-based optimization and manual controls
+- **Dynamic Comparison**: Compare channels across different acquisitions with linked/unlinked scaling
+
+### **Marker Quality Control**
+- **Visual Quality Assessment**: Real-time visualization with custom scaling for marker evaluation
+
+### **Advanced Segmentation**
+- **DeepCell CellSAM**: Foundation model for cell segmentation with automatic GPU acceleration
+- **Cellpose Integration**: GPU-accelerated cell segmentation using state-of-the-art Cellpose models
+- **Multiple Models**: Support for cyto3 and nuclei segmentation models
+- **Ilastik Integration**: Load and run inference with trained Ilastik models (.ilp project files)
+- **Classical Watershed**: Marker-controlled watershed segmentation with nucleus-seeded, membrane-guided segmentation
+- **Overlay Visualization**: Real-time mask overlay on original images
+- **GPU Acceleration**: CUDA and MPS support for faster processing (Cellpose, automatic for CellSAM)
+
+### **Feature Extraction**
+- **Comprehensive Feature Sets**: Extract morphometric (area, perimeter, eccentricity) and intensity features (mean, median, std)
+- **Multiprocessing Support**: Parallel processing for efficient feature computation
+- **Export Options**: Save results to CSV or keep in memory for further analysis
+- **Per-cell Analysis**: Detailed feature extraction for individual cells
+
+### **Clustering Analysis**
+- **Multiple Algorithms**: Hierarchical clustering and Leiden community detection
+- **Feature Selection**: Interactive dialog to select relevant features for clustering
+- **Advanced Visualization**: Heatmaps, dendrograms, and cluster statistics
+- **Cluster Explorer**: Detailed exploration of individual clusters with cell visualization
+
+### **LLM-Based Cell Phenotyping**
+- **OpenAI Integration**: Leverage GPT models for intelligent cell phenotype annotation
+- **Automated Classification**: AI-powered cell type identification and characterization
+- **Custom Phenotypes**: Define and train custom phenotype categories
+- **Batch Processing**: Process large datasets with AI-assisted annotation
+
+## Workflow
+
+### 1. **Image Loading**
+- Open .mcd files containing IMC acquisitions
+- Browse and select specific acquisitions for analysis
+- View acquisition metadata and channel information
+
+### 2. **Marker QC**
+- Visualize individual channels with custom scaling
+
+### 3. **Segmentation**
+- **DeepCell CellSAM**: Run foundation model-based segmentation (automatic GPU acceleration)
+- **Cellpose**: Run GPU-accelerated segmentation (cyto3 or nuclei models)
+- **Ilastik**: Load and run inference with your trained Ilastik models
+- **Watershed**: Use classical marker-controlled watershed segmentation
+- Configure preprocessing parameters and GPU acceleration
+- Visualize segmentation masks with overlay options
+
+### 4. **Feature Extraction**
+- Extract comprehensive cell features (morphometric and intensity)
+- Select specific feature sets for analysis
+- Export results for downstream analysis
+
+### 5. **Clustering on QC Features**
+- Perform hierarchical or Leiden clustering on extracted features
+- Visualize results with heatmaps and dendrograms
+- Explore individual clusters with detailed statistics
+
+### 6. **Phenotype Annotation**
+- **LLM-based**: Use OpenAI GPT models for automated cell phenotyping
+- **Custom**: Define and apply custom phenotype categories
+- Export annotated results for further analysis
+
+## Installation & Setup
+
+### Option 1: Conda Environment (Recommended)
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd OpenIMC
+
+# Create conda environment
+conda create -n openimc python=3.11
+conda activate openimc
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify installation
+python main.py
+```
+
+### Option 2: Virtual Environment
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd OpenIMC
+
+# Create virtual environment
+python3.11 -m venv openimc_env
+source openimc_env/bin/activate  # On Windows: openimc_env\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify installation
+python main.py
+```
+
+## Optional Software Setup
+
+### Ilastik Installation
+
+To use Ilastik segmentation, you need to install Ilastik separately (it's not a Python package):
+
+1. **Download Ilastik**
+   - Visit https://www.ilastik.org/download
+   - Download the appropriate version for your operating system
+   - Follow the installation instructions for your platform
+
+2. **Verify Installation**
+   - Ensure the `ilastik` command is available in your PATH
+   - Test by running: `ilastik --version` in your terminal
+   - The integration uses Ilastik's headless mode, so the full installation is required
+
+3. **Using Ilastik Models**
+   - Train your segmentation model in Ilastik's GUI
+   - Save your trained project as a `.ilp` file
+   - In OpenIMC, select "Ilastik" as the segmentation method
+   - Browse and select your `.ilp` project file
+   - Run inference on your images
+
+### OpenAI API Key Setup
+
+To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
+
+1. **Generate API Key**
+   - Visit [OpenAI Platform](https://platform.openai.com/)
+   - Sign up or log in to your account
+   - Navigate to the API section
+   - Click "Create new secret key"
+   - Copy the generated API key (starts with `sk-`)
+
+## Requirements
+
+### Core Dependencies
+- Python 3.11
+- PyQt5 (GUI framework)
+- readimc (IMC file reading)
+- numpy, pandas, matplotlib, scipy (scientific computing)
+- scikit-image, scikit-learn (image processing and ML)
+
+### Optional Dependencies
+- **DeepCell CellSAM**: Foundation model for cell segmentation (install via: `pip install git+https://github.com/vanvalenlab/cellSAM.git`)
+- **Cellpose** (3.1.1.2): Cell segmentation
+- **PyTorch** (≥1.9.0): GPU acceleration
+- **Ilastik**: Pixel classification and segmentation (must be installed separately)
+- **Leiden Algorithm**: Advanced clustering
+- **UMAP** (≥0.5.0): Dimensionality reduction
+- **OpenAI** (≥1.42.0): LLM-based phenotyping
+
+## Quick Start
+
+### GUI Mode
+
+```bash
+# Start the application
+python main.py
+
+# Basic workflow:
+# 1. Open .mcd file → 2. Select acquisition → 3. Run segmentation
+# 4. Extract features → 5. Perform clustering → 6. Annotate phenotypes
+```
+
+### CLI Mode (Batch Processing)
+
+OpenIMC also provides a command-line interface for HPC/batch processing without the GUI:
+
+```bash
+# Install the package to make 'openimc' command available
+pip install -e .
+
+# Or run directly as a module
+python -m openimc <command> [options]
+```
+
+#### Available Commands
+
+**1. Preprocess images** - Apply denoising, export to OME-TIFF:
+```bash
+openimc preprocess input.mcd output/ --denoise-settings '{"channel1": {"hot": {"method": "median3"}}}'
+```
+
+Note: Arcsinh normalization is not applied to exported images. Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
+
+**2. Segment cells** - Run DeepCell CellSAM, Cellpose, or watershed segmentation:
+```bash
+# DeepCell CellSAM (default method, automatic GPU acceleration)
+openimc segment input.mcd output/ --method cellsam --nuclear-channels DAPI --deepcell-api-key YOUR_API_KEY
+openimc segment input.mcd output/ --method cellsam --nuclear-channels DAPI --cytoplasm-channels CK8_CK18 --bbox-threshold 0.05 --use-wsi
+
+# Cellpose (cytoplasm channels optional for cyto3 model, will fallback to nuclear if not provided)
+openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI --model cyto3 --gpu-id 0
+
+# Cellpose with cytoplasm channels
+openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI --cytoplasm-channels CK8_CK18 --model cyto3 --gpu-id 0
+
+# Watershed (requires both nuclear and cytoplasm channels)
+openimc segment input.mcd output/ --method watershed --nuclear-channels DNA1 --cytoplasm-channels CK8_CK18
+```
+
+**3. Extract features** - Extract morphological and intensity features:
+```bash
+# Mask can be a directory (for multiple acquisitions) or single file
+openimc extract-features input.mcd features.csv --mask output/masks/ --morphological --intensity
+```
+
+**4. Cluster cells** - Perform clustering analysis:
+```bash
+# Leiden clustering (uses resolution parameter, not n-clusters)
+openimc cluster features.csv clustered_features.csv --method leiden --resolution 1.0
+
+# Hierarchical clustering (uses n-clusters)
+openimc cluster features.csv clustered_features.csv --method hierarchical --n-clusters 10
+
+# HDBSCAN clustering (automatically determines number of clusters)
+openimc cluster features.csv clustered_features.csv --method hdbscan --min-cluster-size 10
+```
+
+**5. Spatial analysis** - Build spatial graphs and detect communities:
+```bash
+openimc spatial features.csv edges.csv --radius 50 --k-neighbors 10 --detect-communities
+```
+
+**6. Generate figures** - Create visualization plots:
+```bash
+# Cluster figures
+openimc cluster-figures clustered_features.csv output/figures/ --dpi 300 --font-size 12
+
+# Spatial figures
+openimc spatial-figures features.csv output/figures/ --edges edges.csv --dpi 300
+```
+
+For detailed help on any command:
+```bash
+openimc <command> --help
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"readimc is not installed"**
+   ```bash
+   pip install readimc>=0.9.0
+   ```
+
+2. **GPU segmentation not available**
+   ```bash
+   # Install PyTorch with CUDA support
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+   ```
+
+3. **Ilastik not found**
+   - Install Ilastik from https://www.ilastik.org/download
+   - Ensure the `ilastik` command is available in your PATH
+   - For headless mode, Ilastik must be properly installed and accessible from command line
+   - The integration uses Ilastik's headless mode, so full installation is required
+
+4. **OpenAI API errors**
+   - Verify your API key is correctly set
+   - Check your OpenAI account has sufficient credits
+   - Ensure internet connectivity
+
+5. **Memory issues with large datasets**
+   - Close other applications to free RAM
+   - Consider subsampling for clustering analysis
+   - Use multiprocessing for feature extraction
+
+## Acknowledgments
+
+- **Cellpose**: GPU-accelerated cell segmentation framework
+  - Paper: Stringer et al., Cellpose: a generalist algorithm for cellular segmentation
+  - Project: https://www.cellpose.org/
+
+- **DeepCell CellSAM**: Foundation model for cell segmentation
+  - Paper: Israel et al., A Foundation Model for Cell Segmentation (bioRxiv 2023)
+  - Project: https://github.com/vanvalenlab/cellSAM
+  - Website: https://vanvalenlab.github.io/cellSAM/
+
+- **Ilastik**: Interactive learning and segmentation toolkit
+  - Paper: Berg et al., ilastik: interactive machine learning for (bio)image analysis
+  - Project: https://www.ilastik.org/
+  - Download: https://www.ilastik.org/download
+
+- **readimc**: IMC file reader for .mcd acquisitions
+  - Project: https://github.com/BodenmillerGroup/readimc
+
+- **OpenAI**: Large language models for cell phenotyping
+  - Project: https://openai.com/
+
+- **UMAP**: Uniform Manifold Approximation and Projection
+  - Paper: McInnes et al., UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction
+  - Project: https://umap-learn.readthedocs.io/
+
+- **Leiden Algorithm**: Community detection for graph-based clustering
+  - Paper: Traag et al., From Louvain to Leiden: guaranteeing well-connected communities
+  - Project: https://github.com/vtraag/leidenalg
+
+- **scikit-learn**: Machine learning algorithms and utilities
+  - Project: https://scikit-learn.org/
+
+- **seaborn**: Statistical data visualization
+  - Project: https://seaborn.pydata.org/
+
+## License
+
+OpenIMC – Interactive analysis toolkit for IMC data
+
+Copyright (C) 2025 University of Southern California
+
+This program is free software: you can redistribute it and/or modify
+
+it under the terms of the GNU General Public License as published by
+
+the Free Software Foundation, either version 3 of the License, or
+
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+
+along with this program (see LICENSE). If not, see <https://www.gnu.org/licenses/>.
