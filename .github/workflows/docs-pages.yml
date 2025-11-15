@@ -5,6 +5,9 @@ on:
     branches: [ main ]   # or whatever your default branch is
   workflow_dispatch:      # allow manual runs from the Actions tab
 
+permissions:
+  contents: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
