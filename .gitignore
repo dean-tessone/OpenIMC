@@ -16,8 +16,7 @@ __pycache__/
 *.jpeg
 *.gif
 *.bmp
-*.tiff
-*.tif
+
 
 # Ignore HDF5 files
 *.h5
