@@ -27,3 +27,6 @@ __pycache__/
 
 .coverage
 coverage.xml
+htmlcov/
+
+openimc.egg-info/

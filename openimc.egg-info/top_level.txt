@@ -1,2 +1,0 @@
-openimc
-tests
