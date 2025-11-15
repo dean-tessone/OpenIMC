@@ -98,62 +98,61 @@
 <section id="basic-workflow">
 <h3>Basic Workflow<a class="headerlink" href="#basic-workflow" title="Link to this heading"></a></h3>
 <ol class="arabic">
-<li><dl>
-<dt>Open .mcd file.</dt><dd><p>In the GUI, select ‘Open File/Folder’ and navigate to the .mcd file you want to analyze.
-Note: users can select multiple .mcd files to analyze at once (shift click or control click).</p>
-<a class="center reference internal image-reference" href="__static/images/FileSelection_gui.png"><img alt="File Selection in GUI" class="center" src="__static/images/FileSelection_gui.png" style="width: 600px;" />
+<li><p>Open .mcd file.</p>
+<p>In the GUI, select “Open File/Folder” and navigate to the .mcd file you want to analyze.
+Note: users can select multiple .mcd files to analyze at once (Shift-click or Ctrl-click).</p>
+<a class="reference internal image-reference" href="_static/images/FileSelection_gui.png"><img alt="File Selection in GUI" class="align-center" src="_static/images/FileSelection_gui.png" style="width: 600px;" />
 </a>
-</dd>
-</dl>
 </li>
-<li><dl>
-<dt>Use the image viewer to inspect the image.</dt><dd><p>The image viewer displays the selected image(s) in a grid view by default.
+<li><p>Use the image viewer to inspect the image.</p>
+<p>The image viewer displays the selected image(s) in a grid view by default.
 Users can select a single channel to view, or multiple channels.</p>
-<a class="center reference internal image-reference" href="__static/images/MultiChannelImageView.png"><img alt="View of 3 channels in grid view" class="center" src="__static/images/MultiChannelImageView.png" style="width: 800px;" />
+<a class="reference internal image-reference" href="_images/MultiChannelImageView.png"><img alt="View of 3 channels in grid view" class="align-center" src="_images/MultiChannelImageView.png" style="width: 800px;" />
 </a>
-<p>Users can view the image in grayscale mode by clicking the ‘Grayscale mode’ checkbox.</p>
-<p>To see images in RGB, rather than in the default grid view, disable the ‘Grid view for multiple channels’ checkbox.
-A drop down will appear to select the RGB channels to use for the composite image. Users can assign as many channels as they want to each of the RGB channels.
+<p>Users can view the image in grayscale mode by clicking the “Grayscale mode” checkbox.</p>
+<p>To see images in RGB, rather than in the default grid view, disable the “Grid view for multiple channels” checkbox.
+A dropdown will appear to select the RGB channels to use for the composite image. Users can assign as many channels as they want to each of the RGB channels.
 The channels will be combined using the selected method.</p>
-<a class="center reference internal image-reference" href="__static/images/RGB_view.png"><img alt="View of 3 channels in RGB view" class="center" src="__static/images/RGB_view.png" style="width: 1000px;" />
+<a class="reference internal image-reference" href="_images/RGB_view.png"><img alt="View of 3 channels in RGB view" class="align-center" src="_images/RGB_view.png" style="width: 1000px;" />
 </a>
-<p>Users can also scale the image by clicking the ‘Custom scaling’ checkbox.
+<p>Users can also scale the image by clicking the “Custom scaling” checkbox.
 A dialog will appear to configure the scaling parameters, which will update in real time.
-Users can also add a scale bar to the image by clicking the ‘Scale bar’ checkbox, which will appear in the bottom right corner of the image, with a configurable length in micrometers.</p>
+Users can also add a scale bar to the image by clicking the “Scale bar” checkbox, which will appear in the bottom right corner of the image with a configurable length in micrometers.</p>
 <p>For more detail on the image viewer, see the Image Viewer section of the documentation.</p>
-</dd>
-</dl>
 </li>
-<li><dl>
-<dt>Run segmentation.</dt><dd><p>After viewing the image(s), users can run segmentation by clicking the ‘Cell Segmentation’ button.
+<li><p>Run segmentation.</p>
+<p>After viewing the image(s), users can run segmentation by clicking the “Cell Segmentation” button.
 The segmentation dialog will appear.
-Users can select the segmentation method, and configure the segmentation parameters.
+Users can select the segmentation method and configure the segmentation parameters.
 Users should select the channels to use for segmentation. Importantly, this is unique to each experiment and needs to be determined by the user.</p>
-<p>5 different segmentation methods are available:
-- DeepCell CellSAM
-- Cellpose cyto3 model (both cytoplasm and nucleus)
-- Cellpose nuclei model (only nucleus)
-- Ilastik (load and run inference with your trained Ilastik models (.ilp project files))
-- Watershed</p>
+<p>Five segmentation methods are available:</p>
+<ul class="simple">
+<li><p>DeepCell CellSAM</p></li>
+<li><p>Cellpose cyto3 model (both cytoplasm and nucleus)</p></li>
+<li><p>Cellpose nuclei model (only nucleus)</p></li>
+<li><p>Ilastik (load and run inference with trained Ilastik models, <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project files)</p></li>
+<li><p>Watershed</p></li>
+</ul>
 <p>We recommend using the DeepCell CellSAM method for most experiments.
-DeepCell CellSAM is a foundation model-based segmentation method that is trained on a large dataset of IMC images, IF images, brightfield images, and more.</p>
+DeepCell CellSAM is a foundation model-based segmentation method trained on a large dataset of IMC, IF, brightfield, and related images.</p>
 <p>To set up DeepCell CellSAM, users need to provide a DeepCell API token. You can get your token from the DeepCell User Portal (see the Installation section of the documentation for more details).
-Once you have your token, you can enter it in the ‘DeepCell CellSAM Parameters’ section of the segmentation dialog.</p>
-<p>CellSAM has 4 parameters that can be configured:
-- Bbox threshold: This is the threshold for the bounding box of the cells. Lower values will include more cells, but may include more false positives. Higher values will exclude more cells, but may exclude more true cells. The default value of 0.4 is generally appropriate.
-- Use WSI mode: This is only available for DeepCell CellSAM. It is used to segment large images (e.g. &gt;500 cells). It will take longer to run, but will be more accurate. The default value is False. This involves tiling the image and running the segmentation on each tile separately.
-- Low contrast enhancement: This is only available for DeepCell CellSAM. It is used to enhance the contrast of the image. It will take longer to run, but will be more accurate. The default value is False. This involves applying a contrast enhancement filter to the image.
-- Gauge cell size: This is only available for DeepCell CellSAM. It is used to gauge the cell size of the cells. It will take longer to run, but will be more accurate. The default value is False. This involves running the segmentation twice, once to gauge the cell size, and once to run the segmentation.</p>
+Once you have your token, enter it in the “DeepCell CellSAM Parameters” section of the segmentation dialog.</p>
+<p>CellSAM has four parameters that can be configured:</p>
+<ul class="simple">
+<li><p><strong>Bbox threshold</strong>: Threshold for bounding boxes. Lower values include more cells (and more false positives), higher values exclude more cells. The default (0.4) is generally appropriate.</p></li>
+<li><p><strong>Use WSI mode</strong>: For large images (e.g. &gt; 500 cells). Tiles the image and segments tile-by-tile. Slower but more accurate. Default: False.</p></li>
+<li><p><strong>Low contrast enhancement</strong>: Enhances contrast for low-contrast images. Slower but may improve segmentation. Default: False.</p></li>
+<li><p><strong>Gauge cell size</strong>: Estimates cell size before running final segmentation. Slower but can improve robustness across datasets. Default: False.</p></li>
+</ul>
 <p>For more detail on the segmentation dialog, see the Segmentation Dialog section of the documentation.</p>
-<p>At the bottom of the segmentation dialog, users can decide to segment all images in the experiment at once, or segment only the current acquisition.
-We recommend first segmenting one image, tweaking the parameters as needed, and then segmenting the rest of the images in the experiment.
-Segmentation can take a few minutes to complete, depending on the size of the image and the segmentation method.
-Because segmentation is computationally intensive, users can choose to load masks into the image viewer to speed up the process. To do this, navigate to the ‘File -&gt; Load Segmentation Masks’ menu item.</p>
-<p>To visually inspect the segmentation, users can click the ‘Show Overlay’ checkbox once segmentation is complete.</p>
-<a class="center reference internal image-reference" href="__static/images/segmentation.png"><img alt="View of segmentation overlaid on DAPI, with DAPI only on the side." class="center" src="__static/images/segmentation.png" style="width: 1000px;" />
+<p>At the bottom of the segmentation dialog, users can choose to segment all images in the experiment at once, or only the current acquisition.
+We recommend first segmenting one image, tuning the parameters, and then segmenting the remaining images.</p>
+<p>Segmentation can take several minutes depending on image size and the chosen method.
+Because segmentation is computationally intensive, users can choose to load existing masks into the image viewer to speed up subsequent work.
+To do this, use the “File → Load Segmentation Masks” menu item.</p>
+<p>To visually inspect segmentation results, users can click the “Show Overlay” checkbox once segmentation is complete.</p>
+<a class="reference internal image-reference" href="_images/segmentation.png"><img alt="View of segmentation overlaid on DAPI, with DAPI-only inset" class="align-center" src="_images/segmentation.png" style="width: 1000px;" />
 </a>
-</dd>
-</dl>
 </li>
 </ol>
 </section>

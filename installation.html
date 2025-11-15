@@ -261,32 +261,27 @@ Python package):</p>
 <h3>DeepCell API Token Setup<a class="headerlink" href="#deepcell-api-token-setup" title="Link to this heading"></a></h3>
 <p>To use the DeepCell CellSAM segmentation method, you’ll need a DeepCell API token:</p>
 <ol class="arabic">
-<li><p><strong>Generate API Token</strong>
-- Visit <a class="reference external" href="https://users.deepcell.org/login/">DeepCell User Portal</a>
-- Sign up or log in to your account
-- Your username is your registration email without the domain suffix</p>
-<blockquote>
-<div><p>(e.g., if your email is <code class="docutils literal notranslate"><span class="pre">user&#64;example.com</span></code>, your username is <code class="docutils literal notranslate"><span class="pre">user</span></code>)</p>
-</div></blockquote>
+<li><p><strong>Generate API Token</strong></p>
 <ul class="simple">
+<li><p>Visit <a class="reference external" href="https://users.deepcell.org/login/">DeepCell User Portal</a></p></li>
+<li><p>Sign up or log in to your account</p></li>
+<li><p>Your username is your registration email without the domain suffix
+(e.g., if your email is <code class="docutils literal notranslate"><span class="pre">user&#64;example.com</span></code>, your username is <code class="docutils literal notranslate"><span class="pre">user</span></code>)</p></li>
 <li><p>Navigate to your account settings or API section</p></li>
 <li><p>Generate or copy your API token</p></li>
 <li><p>The API token is used to download the most up-to-date CellSAM model weights</p></li>
 </ul>
 </li>
-<li><p><strong>Set the API Token</strong>
-You can set the API token in one of the following ways:</p>
-<p><strong>Option A: Environment Variable (Recommended for CLI)</strong>
-.. code-block:: bash</p>
-<blockquote>
-<div><p>export DEEPCELL_ACCESS_TOKEN=”your-api-token-here”</p>
-</div></blockquote>
-<p><strong>Option B: GUI Settings</strong>
-- When using the GUI, enter your API token in the “DeepCell CellSAM Parameters”</p>
-<blockquote>
-<div><p>section of the segmentation dialog</p>
-</div></blockquote>
+<li><p><strong>Set the API Token</strong></p>
+<p>You can set the API token in one of the following ways:</p>
+<p><strong>Option A: Environment Variable (Recommended for CLI)</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DEEPCELL_ACCESS_TOKEN</span><span class="o">=</span><span class="s2">&quot;your-api-token-here&quot;</span>
+</pre></div>
+</div>
+<p><strong>Option B: GUI Settings</strong></p>
 <ul class="simple">
+<li><p>When using the GUI, enter your API token in the “DeepCell CellSAM Parameters”
+section of the segmentation dialog</p></li>
 <li><p>The token will be saved in your user preferences for future use</p></li>
 </ul>
 </li>
@@ -309,48 +304,47 @@ like <code class="docutils literal notranslate"><span class="pre">openimc</span>
 <section id="common-issues">
 <h3>Common Issues<a class="headerlink" href="#common-issues" title="Link to this heading"></a></h3>
 <ol class="arabic">
-<li><p><strong>“readimc is not installed”</strong>
-.. code-block:: bash</p>
-<blockquote>
-<div><p>pip install readimc&gt;=0.9.0</p>
-</div></blockquote>
+<li><p><strong>“readimc is not installed”</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;readimc&gt;=0.9.0&quot;</span>
+</pre></div>
+</div>
 </li>
-<li><p><strong>GPU segmentation not available</strong>
-.. code-block:: bash</p>
-<blockquote>
-<div><p># Install PyTorch with CUDA support
-pip install torch torchvision –index-url <a class="reference external" href="https://download.pytorch.org/whl/cu118">https://download.pytorch.org/whl/cu118</a></p>
-</div></blockquote>
+<li><p><strong>GPU segmentation not available</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install PyTorch with CUDA support</span>
+pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>torchvision<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
+</pre></div>
+</div>
 </li>
-<li><p><strong>Ilastik not found</strong>
-- Install Ilastik from <a class="reference external" href="https://www.ilastik.org/download">https://www.ilastik.org/download</a>
-- Ensure the <code class="docutils literal notranslate"><span class="pre">ilastik</span></code> command is available in your PATH
-- For headless mode, Ilastik must be properly installed and accessible from</p>
-<blockquote>
-<div><p>command line</p>
-</div></blockquote>
+<li><p><strong>Ilastik not found</strong></p>
 <ul class="simple">
+<li><p>Install Ilastik from <a class="reference external" href="https://www.ilastik.org/download">https://www.ilastik.org/download</a></p></li>
+<li><p>Ensure the <code class="docutils literal notranslate"><span class="pre">ilastik</span></code> command is available in your PATH</p></li>
+<li><p>For headless mode, Ilastik must be properly installed and accessible from
+command line</p></li>
 <li><p>The integration uses Ilastik’s headless mode, so full installation is
 required</p></li>
 </ul>
 </li>
-<li><p><strong>OpenAI API errors</strong>
-- Verify your API key is correctly set
-- Check your OpenAI account has sufficient credits
-- Ensure internet connectivity</p></li>
-<li><p><strong>Memory issues with large datasets</strong>
-- Close other applications to free RAM
-- Consider subsampling for clustering analysis
-- Use multiprocessing for feature extraction</p></li>
-<li><p><strong>datrie installation errors</strong>
-- If you encounter build errors with <code class="docutils literal notranslate"><span class="pre">datrie</span></code>, install it from conda-forge</p>
-<blockquote>
-<div><p>before running <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>:
-.. code-block:: bash</p>
-<blockquote>
-<div><p>conda install -c conda-forge datrie</p>
-</div></blockquote>
-</div></blockquote>
+<li><p><strong>OpenAI API errors</strong></p>
+<ul class="simple">
+<li><p>Verify your API key is correctly set</p></li>
+<li><p>Check your OpenAI account has sufficient credits</p></li>
+<li><p>Ensure internet connectivity</p></li>
+</ul>
+</li>
+<li><p><strong>Memory issues with large datasets</strong></p>
+<ul class="simple">
+<li><p>Close other applications to free RAM</p></li>
+<li><p>Consider subsampling for clustering analysis</p></li>
+<li><p>Use multiprocessing for feature extraction</p></li>
+</ul>
+</li>
+<li><p><strong>datrie installation errors</strong></p>
+<p>If you encounter build errors with <code class="docutils literal notranslate"><span class="pre">datrie</span></code>, install it from conda-forge
+before running <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>datrie
+</pre></div>
+</div>
 </li>
 </ol>
 </section>
