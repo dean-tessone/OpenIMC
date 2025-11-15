@@ -51,7 +51,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#basic-workflow">Basic Workflow</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#cli-mode">CLI Mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#more-analyses-and-features-in-openimc">More Analyses and Features in OpenIMC</a></li>
 </ul>
 </li>
 </ul>
@@ -87,79 +87,202 @@
              
   <section id="quick-start">
 <h1>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h1>
-<p>A quick start guide for using OpenIMC.</p>
+<p>This quick tutorial walks you through launching OpenIMC, loading an IMC file, visualizing channels, and running a basic segmentation workflow.</p>
 <section id="gui-mode">
 <h2>GUI Mode<a class="headerlink" href="#gui-mode" title="Link to this heading"></a></h2>
-<p>After installation of the conda environment, you can start the GUI by running:</p>
+<p>Start the GUI after activating your conda environment:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py
 </pre></div>
 </div>
-<p>This will launch the GUI application.</p>
+<p>This opens the full OpenIMC interface.</p>
 <section id="basic-workflow">
 <h3>Basic Workflow<a class="headerlink" href="#basic-workflow" title="Link to this heading"></a></h3>
 <ol class="arabic">
-<li><p>Open .mcd file.</p>
-<p>In the GUI, select “Open File/Folder” and navigate to the .mcd file you want to analyze.
-Note: users can select multiple .mcd files to analyze at once (Shift-click or Ctrl-click).</p>
-<a class="reference internal image-reference" href="_static/images/FileSelection_gui.png"><img alt="File Selection in GUI" class="align-center" src="_static/images/FileSelection_gui.png" style="width: 600px;" />
+<li><p>Open an IMC file</p>
+<p>Select <strong>File → Open File/Folder</strong>, then choose the <code class="docutils literal notranslate"><span class="pre">.mcd</span></code> file(s) you want to analyze.
+Multiple files can be selected using Shift or Ctrl.</p>
+<figure class="align-center" id="id1">
+<a class="reference internal image-reference" href="_images/FileSelection_GUI.png"><img alt="File Selection in GUI" src="_images/FileSelection_GUI.png" style="width: 600px;" />
 </a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 1:</strong> Selecting one or more <code class="docutils literal notranslate"><span class="pre">.mcd</span></code> files in the OpenIMC GUI.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+</figcaption>
+</figure>
 </li>
-<li><p>Use the image viewer to inspect the image.</p>
-<p>The image viewer displays the selected image(s) in a grid view by default.
-Users can select a single channel to view, or multiple channels.</p>
-<a class="reference internal image-reference" href="_images/MultiChannelImageView.png"><img alt="View of 3 channels in grid view" class="align-center" src="_images/MultiChannelImageView.png" style="width: 800px;" />
+<li><p>Explore the image</p>
+<p>Newly loaded files appear in the image viewer. By default, channels are shown in a grid layout.</p>
+<figure class="align-center" id="id2">
+<a class="reference internal image-reference" href="_images/MultiChannelImageView.png"><img alt="View of 3 channels in grid view" src="_images/MultiChannelImageView.png" style="width: 800px;" />
 </a>
-<p>Users can view the image in grayscale mode by clicking the “Grayscale mode” checkbox.</p>
-<p>To see images in RGB, rather than in the default grid view, disable the “Grid view for multiple channels” checkbox.
-A dropdown will appear to select the RGB channels to use for the composite image. Users can assign as many channels as they want to each of the RGB channels.
-The channels will be combined using the selected method.</p>
-<a class="reference internal image-reference" href="_images/RGB_view.png"><img alt="View of 3 channels in RGB view" class="align-center" src="_images/RGB_view.png" style="width: 1000px;" />
+<figcaption>
+<p><span class="caption-text"><strong>Figure 2:</strong> Grid-based visualization of multiple IMC channels.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>Switch to grayscale by enabling <strong>Grayscale mode</strong>.</p>
+<p>To view channels as a composite RGB image, disable <strong>Grid view for multiple channels</strong>.
+A dropdown will appear to assign channels to R, G, and B. Composite intensity is computed using the selected merge method.</p>
+<figure class="align-center" id="id3">
+<a class="reference internal image-reference" href="_images/RGB_view.png"><img alt="View of 3 channels in RGB view" src="_images/RGB_view.png" style="width: 1000px;" />
 </a>
-<p>Users can also scale the image by clicking the “Custom scaling” checkbox.
-A dialog will appear to configure the scaling parameters, which will update in real time.
-Users can also add a scale bar to the image by clicking the “Scale bar” checkbox, which will appear in the bottom right corner of the image with a configurable length in micrometers.</p>
-<p>For more detail on the image viewer, see the Image Viewer section of the documentation.</p>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 3:</strong> RGB composite view generated from user-selected channels.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>Additional tools:
+- <strong>Custom scaling</strong>: interactively rescale intensities.
+- <strong>Scale bar</strong>: add and configure a micrometer scale bar.</p>
+<p>These options help you quickly assess signal quality, contrast, and cell morphology.</p>
 </li>
-<li><p>Run segmentation.</p>
-<p>After viewing the image(s), users can run segmentation by clicking the “Cell Segmentation” button.
-The segmentation dialog will appear.
-Users can select the segmentation method and configure the segmentation parameters.
-Users should select the channels to use for segmentation. Importantly, this is unique to each experiment and needs to be determined by the user.</p>
-<p>Five segmentation methods are available:</p>
-<ul class="simple">
-<li><p>DeepCell CellSAM</p></li>
-<li><p>Cellpose cyto3 model (both cytoplasm and nucleus)</p></li>
-<li><p>Cellpose nuclei model (only nucleus)</p></li>
-<li><p>Ilastik (load and run inference with trained Ilastik models, <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project files)</p></li>
-<li><p>Watershed</p></li>
-</ul>
-<p>We recommend using the DeepCell CellSAM method for most experiments.
-DeepCell CellSAM is a foundation model-based segmentation method trained on a large dataset of IMC, IF, brightfield, and related images.</p>
-<p>To set up DeepCell CellSAM, users need to provide a DeepCell API token. You can get your token from the DeepCell User Portal (see the Installation section of the documentation for more details).
-Once you have your token, enter it in the “DeepCell CellSAM Parameters” section of the segmentation dialog.</p>
-<p>CellSAM has four parameters that can be configured:</p>
-<ul class="simple">
-<li><p><strong>Bbox threshold</strong>: Threshold for bounding boxes. Lower values include more cells (and more false positives), higher values exclude more cells. The default (0.4) is generally appropriate.</p></li>
-<li><p><strong>Use WSI mode</strong>: For large images (e.g. &gt; 500 cells). Tiles the image and segments tile-by-tile. Slower but more accurate. Default: False.</p></li>
-<li><p><strong>Low contrast enhancement</strong>: Enhances contrast for low-contrast images. Slower but may improve segmentation. Default: False.</p></li>
-<li><p><strong>Gauge cell size</strong>: Estimates cell size before running final segmentation. Slower but can improve robustness across datasets. Default: False.</p></li>
-</ul>
-<p>For more detail on the segmentation dialog, see the Segmentation Dialog section of the documentation.</p>
-<p>At the bottom of the segmentation dialog, users can choose to segment all images in the experiment at once, or only the current acquisition.
-We recommend first segmenting one image, tuning the parameters, and then segmenting the remaining images.</p>
-<p>Segmentation can take several minutes depending on image size and the chosen method.
-Because segmentation is computationally intensive, users can choose to load existing masks into the image viewer to speed up subsequent work.
-To do this, use the “File → Load Segmentation Masks” menu item.</p>
-<p>To visually inspect segmentation results, users can click the “Show Overlay” checkbox once segmentation is complete.</p>
-<a class="reference internal image-reference" href="_images/segmentation.png"><img alt="View of segmentation overlaid on DAPI, with DAPI-only inset" class="align-center" src="_images/segmentation.png" style="width: 1000px;" />
+<li><p>Run segmentation</p>
+<p>Click <strong>Cell Segmentation</strong> to open the segmentation dialog.
+Choose a segmentation method and select the channels appropriate for your experiment.</p>
+<p>Available segmentation engines:
+- DeepCell CellSAM
+- Cellpose cyto3 (cytoplasm + nucleus)
+- Cellpose nuclei model
+- Ilastik (<code class="docutils literal notranslate"><span class="pre">.ilp</span></code> models)
+- Watershed</p>
+<p>For most datasets, <strong>DeepCell CellSAM</strong> provides the best overall performance.
+DeepCell CellSAM is a transformer based model and requires a GPU to run quickly (CPU still works, but will be slow).
+If you do not have a GPU, Cellpose is a potential alternative, but will still be slow on CPU.</p>
+<p>If using CellSAM, enter your DeepCell API token under <strong>DeepCell CellSAM Parameters</strong>.
+Adjustable CellSAM options:
+- <strong>Bbox threshold</strong> (default 0.4)
+- <strong>Use WSI mode</strong> (tiling for large images)
+- <strong>Low contrast enhancement</strong>
+- <strong>Gauge cell size</strong></p>
+<p>Before segmenting an entire experiment, it is recommended to test on a single acquisition and refine settings.</p>
+<p>Once segmentation completes, enable <strong>Show Overlay</strong> to visualize masks on top of any channel.</p>
+<figure class="align-center" id="id4">
+<a class="reference internal image-reference" href="_images/segmentation.png"><img alt="Segmentation overlaid on DNA" src="_images/segmentation.png" style="width: 1000px;" />
 </a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 4:</strong> Segmentation mask overlaid on the DNA channel after processing with DeepCell CellSAM. Masks and the raw image are shown side by side.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+</li>
+<li><p>Extract features</p>
+<p>Click <strong>Feature Extraction</strong> to open the feature extraction dialog.
+The primary settings in feature extraction are:
+- <strong>Acquisitions</strong>: the acquisitions to extract features from (default is all acquisitions with segmentation masks)
+- <strong>Output</strong>: the output directory for the features (default is the current directory)
+- <strong>Denoising</strong>: the denoising method to use (for most datasets, hot pixel removal by Median 3x3 is recommended, ensure you click ‘Apply to all channels’)
+- <strong>Arcsinh scaling</strong>: whether to apply arcsinh scaling to the intensity features (for most datasets, this is recommended)</p>
+<figure class="align-default" id="id5">
+<img alt="_static/images/feature_extraction.png:alt:RecommendedSettingsforFeatureExtractionforMostDatasets:width:1000px:align:center" src="_static/images/feature_extraction.png:alt:RecommendedSettingsforFeatureExtractionforMostDatasets:width:1000px:align:center" />
+<figcaption>
+<p><span class="caption-text"><strong>Figure 5:</strong> Recommended Settings for Feature Extraction for Most Datasets.</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>Click ‘Extract Features’ to start the feature extraction process.
+The features will be saved to the output directory as a CSV file.
+The data will continue to be stored in memory for further analysis, including clustering and spatial analysis and does not need to be reloaded.</p>
+</li>
+<li><p>Cluster cells</p>
+<p>Click <strong>Cell Clustering</strong> to open the clustering dialog.
+The features extracted from the previous step will be loaded automatically.</p>
+<p>At the top of the clustering dialog, you can select the type of clustering to perform.
+Available clustering methods:
+- Leiden
+- Louvain
+- Hierarchical
+- K-means
+- HDBSCAN</p>
+<p>Leiden and louvain are recommended for most datasets with high cell density and highly varying types of cells.
+Hierarchical clustering is recommended for datasets with a small number of cells or a small number of cell types.
+K-means is recommended for datasets with approximately equal numbers of cells of each type.
+HDBSCAN is recommended for datasets with many outliers or cells that are not well-defined.</p>
+<p>After selecting the clustering method, you can set the parameters for the clustering method. See the Clustering section for more details.
+For most datasets, the default settings will be sufficient.</p>
+<p>We recommend using Leiden clustering for most datasets.</p>
+<figure class="align-center" id="id6">
+<a class="reference internal image-reference" href="_images/clustering_settings.png"><img alt="Clustering Dialog" src="_images/clustering_settings.png" style="width: 1000px;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 6:</strong> Clustering Dialog Settings, default to Leiden clustering.</span><a class="headerlink" href="#id6" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>After you hit ‘Run Clustering’, a pop up will ask you to select the features to cluster. Features will be subset to the mean intensities and the morphological features.
+At this stage, it is important to select the features that are most informative for the clustering.
+If you know that certain antibodies are not working well, you should exclude them from the clustering.</p>
+<figure class="align-center" id="id7">
+<a class="reference internal image-reference" href="_images/clustering_feature_selection.png"><img alt="Feature Selection" src="_images/clustering_feature_selection.png" style="width: 1000px;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 7:</strong> Feature Selection for Clustering.</span><a class="headerlink" href="#id7" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>Once the clustering is complete, you can visualize the clusters.
+The default visualization is a heatmap of the clusters.</p>
+<figure class="align-center" id="id8">
+<a class="reference internal image-reference" href="_images/clustering_heatmap.png"><img alt="Heatmap of the clusters" src="_images/clustering_heatmap.png" style="width: 1000px;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 8:</strong> Heatmap of the clusters, with annotation of both the clusters and the patients from which the cells are derived.</span><a class="headerlink" href="#id8" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>At the bottom of the clustering dialog, you can change to various other visualizations, including UMAPs, t-SNE, Stacked Bars, Differential Expression, and Boxplot/Violin Plot.
+You can also save the visualization as a PNG file by clicking the ‘Save Plot’ button.
+You can also save the clustering output as a CSV file by clicking the ‘Save Clustering Output’ button. This will save the features with cluster labels and/or any manual annotations.</p>
+</li>
+<li><p>Cell phenotyping</p>
+<p>After clustering, you can annotate the clusters by their cell type.
+This is done by clicking the ‘Annotate Phenotypes’ button.</p>
+<p>You can either manually annotate the clusters by typing in the cell type name or use the LLM to annotate the clusters.
+The LLM will ask you for an OpenAI API key. If you do not have an OpenAI API key, you can get one by signing up for an account at <a class="reference external" href="https://openai.com/">https://openai.com/</a> (see the Installation section for more details).
+You can also provide context to the LLM (such as the cancer type, the tissue type, the treatment, the patient metadata, etc.)
+This will help the LLM to generate more accurate cell type annotations.</p>
+<p>Note: the LLM is charged by the token, so ensure your account has enough credits.
+Second Note: the LLM is not perfect, so you should manually check the annotations and correct them if necessary.</p>
+<p>Once the LLM has suggested the cell types, you can choose from its suggestions and update your plot.</p>
+<figure class="align-center" id="id9">
+<a class="reference internal image-reference" href="_images/phenotyping.png"><img alt="Phenotyping with ChatGPT suggestions" src="_images/phenotyping.png" style="width: 1000px;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 9:</strong> Phenotyping with ChatGPT suggestions.</span><a class="headerlink" href="#id9" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+</li>
+<li><p>Spatial analysis</p>
+<p>After clustering, you can perform spatial analysis to investigate the spatial distribution of the cells.
+This is done by clicking the ‘Spatial Analysis’ button.</p>
+<p>Spatial analysis is split into two windows: a simple analysis and a more advanced analysis.
+For most users, the simple analysis will be sufficient.</p>
+<p>The first step of spatial analysis is to build a spatial graph of the cells.
+There are three methods to build the spatial graph:
+- k-nearest neighbors (kNN)
+- Radius
+- Delaunay</p>
+<p>kNN is the default method and is recommended for most datasets. K is the number of neighbors to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.
+Radius is recommended for datasets with a small number of cells or a small number of cell types. Radius is the radius in micrometers to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.
+Delaunay is recommended for datasets with a large number of cells or a large number of cell types. Delaunay is based on the Delaunay triangulation of the cells. See more details in the Spatial Analysis section.</p>
+<p>Some spatial visualizations are available in the simple analysis window, including:
+- Spatial visualization of the cells (represent each cell as a point, color by their cluster, and show the edges between the cells)
+- Distance distribution of the cells (show the distance distribution of the cells by their cluster -&gt; what is the distribution of distances between cells of the same cluster vs. cells of different clusters?)
+- Pairwise enrichment analysis (test for significant spatial co-occurrence or avoidance between cluster pairs using permutation tests)
+- Community detection (detect communities in the spatial graph -&gt; rather than clustering the cells, we cluster based on the spatial relationship between the cells)</p>
+<figure class="align-center" id="id10">
+<a class="reference internal image-reference" href="_images/spatial_visualization.png"><img alt="Spatial Visualizations in the Simple Analysis Window" src="_images/spatial_visualization.png" style="width: 1000px;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Figure 10:</strong> Spatial Visualizations in the Simple Analysis Window.</span><a class="headerlink" href="#id10" title="Link to this image"></a></p>
+</figcaption>
+</figure>
 </li>
 </ol>
 </section>
 </section>
-<section id="cli-mode">
-<h2>CLI Mode<a class="headerlink" href="#cli-mode" title="Link to this heading"></a></h2>
-<p>After installation of the conda environment, you can start the CLI by running:</p>
+<section id="more-analyses-and-features-in-openimc">
+<h2>More Analyses and Features in OpenIMC<a class="headerlink" href="#more-analyses-and-features-in-openimc" title="Link to this heading"></a></h2>
+<p>This quickstart covers the essential workflow to get you started with OpenIMC. However, the application includes many additional features and advanced analysis options to support a wide range of IMC experiments. These include:</p>
+<ul class="simple">
+<li><p><strong>Quality Control (QC)</strong>: Tools for assessing image quality, detecting artifacts, and verifying segmentation accuracy.</p></li>
+<li><p><strong>Pixel Correlation Analysis</strong>: Explore channel relationships and spatial co-localization at the pixel level.</p></li>
+<li><p><strong>Advanced Spatial Analyses</strong>: Beyond the basics, the software supports expanded spatial statistics, neighborhood enrichment, proximity scores, and custom graph-building options.</p></li>
+<li><p><strong>Panel Design and Spillover Tools</strong>: Functions to assist with antibody panel QC and compensation for metal spillover.</p></li>
+<li><p><strong>Batch Processing, Automation, and Reports</strong>: Tools for end-to-end automated analysis, with exportable reports and visualizations.</p></li>
+</ul>
+<p>We recommend exploring each section of the documentation after you have completed your first analysis to take full advantage of OpenIMC’s capabilities. The documentation provides detailed step-by-step usage guides, tips, and explanations for all analysis modules.</p>
 </section>
 </section>
 
