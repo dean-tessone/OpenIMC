@@ -176,6 +176,33 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
    - Click "Create new secret key"
    - Copy the generated API key (starts with ``sk-``)
 
+DeepCell API Token Setup
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+To use the DeepCell CellSAM segmentation method, you'll need a DeepCell API token:
+
+1. **Generate API Token**
+   - Visit `DeepCell User Portal <https://users.deepcell.org/login/>`_
+   - Sign up or log in to your account
+   - Your username is your registration email without the domain suffix
+     (e.g., if your email is ``user@example.com``, your username is ``user``)
+   - Navigate to your account settings or API section
+   - Generate or copy your API token
+   - The API token is used to download the most up-to-date CellSAM model weights
+
+2. **Set the API Token**
+   You can set the API token in one of the following ways:
+   
+   **Option A: Environment Variable (Recommended for CLI)**
+   .. code-block:: bash
+      
+      export DEEPCELL_ACCESS_TOKEN="your-api-token-here"
+   
+   **Option B: GUI Settings**
+   - When using the GUI, enter your API token in the "DeepCell CellSAM Parameters"
+     section of the segmentation dialog
+   - The token will be saved in your user preferences for future use
+
 Verification
 ------------
 

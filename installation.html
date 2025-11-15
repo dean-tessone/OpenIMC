@@ -19,7 +19,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="&lt;no title&gt;" href="quickstart.html" />
+    <link rel="next" title="Quick Start" href="quickstart.html" />
     <link rel="prev" title="Overview" href="overview.html" /> 
 </head>
 
@@ -52,6 +52,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#optional-software-setup">Optional Software Setup</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#ilastik-installation">Ilastik Installation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#openai-api-key-setup">OpenAI API Key Setup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#deepcell-api-token-setup">DeepCell API Token Setup</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#verification">Verification</a></li>
@@ -61,6 +62,7 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -255,6 +257,41 @@ Python package):</p>
 - Copy the generated API key (starts with <code class="docutils literal notranslate"><span class="pre">sk-</span></code>)</p></li>
 </ol>
 </section>
+<section id="deepcell-api-token-setup">
+<h3>DeepCell API Token Setup<a class="headerlink" href="#deepcell-api-token-setup" title="Link to this heading"></a></h3>
+<p>To use the DeepCell CellSAM segmentation method, you’ll need a DeepCell API token:</p>
+<ol class="arabic">
+<li><p><strong>Generate API Token</strong>
+- Visit <a class="reference external" href="https://users.deepcell.org/login/">DeepCell User Portal</a>
+- Sign up or log in to your account
+- Your username is your registration email without the domain suffix</p>
+<blockquote>
+<div><p>(e.g., if your email is <code class="docutils literal notranslate"><span class="pre">user&#64;example.com</span></code>, your username is <code class="docutils literal notranslate"><span class="pre">user</span></code>)</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>Navigate to your account settings or API section</p></li>
+<li><p>Generate or copy your API token</p></li>
+<li><p>The API token is used to download the most up-to-date CellSAM model weights</p></li>
+</ul>
+</li>
+<li><p><strong>Set the API Token</strong>
+You can set the API token in one of the following ways:</p>
+<p><strong>Option A: Environment Variable (Recommended for CLI)</strong>
+.. code-block:: bash</p>
+<blockquote>
+<div><p>export DEEPCELL_ACCESS_TOKEN=”your-api-token-here”</p>
+</div></blockquote>
+<p><strong>Option B: GUI Settings</strong>
+- When using the GUI, enter your API token in the “DeepCell CellSAM Parameters”</p>
+<blockquote>
+<div><p>section of the segmentation dialog</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>The token will be saved in your user preferences for future use</p></li>
+</ul>
+</li>
+</ol>
+</section>
 </section>
 <section id="verification">
 <h2>Verification<a class="headerlink" href="#verification" title="Link to this heading"></a></h2>
@@ -325,7 +362,7 @@ required</p></li>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="overview.html" class="btn btn-neutral float-left" title="Overview" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="quickstart.html" class="btn btn-neutral float-right" title="&lt;no title&gt;" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="quickstart.html" class="btn btn-neutral float-right" title="Quick Start" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

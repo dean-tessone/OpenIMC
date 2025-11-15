@@ -45,12 +45,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Overview</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#design-principles">Design Principles</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#intended-audience">Intended Audience</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#additional-resources">Additional Resources</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -98,29 +97,6 @@ spillover, inconsistent panel definitions, and heterogeneous image formats
 (MCD, TXT, and OME-TIFF). OpenIMC addresses these challenges through a set of
 well-defined, modular pipelines designed to support both plated-cell IMC assays
 and tissue-based spatial proteomics.</p>
-<section id="design-principles">
-<h2>Design Principles<a class="headerlink" href="#design-principles" title="Link to this heading"></a></h2>
-<p>The platform is built on several core principles:</p>
-<ul class="simple">
-<li><p><strong>Reproducibility</strong>
-All pipelines are accessible via the CLI and use explicit configuration
-files, enabling deterministic, version-controlled processing. The same
-underlying computational functions are used by both the CLI and GUI.</p></li>
-<li><p><strong>Modularity</strong>
-Functionality is organized into clear stages: loading, preprocessing,
-segmentation, feature extraction, clustering, and spatial analysis. Advanced
-users may call these functions directly from Python.</p></li>
-<li><p><strong>Cross-platform compatibility</strong>
-OpenIMC runs on Linux, macOS, and Windows. Core functionality is continuously
-tested across all supported platforms.</p></li>
-<li><p><strong>Extensibility</strong>
-The codebase is structured for integration of new segmentation models,
-spatial metrics, dimensionality reduction methods, and downstream
-machine-learning pipelines.</p></li>
-</ul>
-</section>
-<section id="intended-audience">
-<h2>Intended Audience<a class="headerlink" href="#intended-audience" title="Link to this heading"></a></h2>
 <p>OpenIMC is designed for IMC practitioners, non-coders, computational biologists,
 pathologists, and developers building custom analysis pipelines for multiplexed
 imaging. It provides a complete workflow for users seeking either:</p>
@@ -130,7 +106,6 @@ imaging. It provides a complete workflow for users seeking either:</p>
 such as clustering, spatial modeling, or machine-learning-based
 interpretations.</p></li>
 </ul>
-</section>
 <section id="additional-resources">
 <h2>Additional Resources<a class="headerlink" href="#additional-resources" title="Link to this heading"></a></h2>
 <p>More detailed instructions for installation, CLI usage, GUI workflows, and
