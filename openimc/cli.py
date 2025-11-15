@@ -21,6 +21,39 @@
 Command-line interface for OpenIMC batch processing.
 
 This module provides CLI commands for HPC/batch processing without the GUI.
+All commands can be accessed via the ``openimc`` command-line tool.
+
+Available Commands:
+    - preprocess: Denoise and export images to OME-TIFF format
+    - segment: Perform cell segmentation using various methods (CellSAM, Cellpose, Watershed)
+    - extract-features: Extract morphological and intensity features from segmented cells
+    - cluster: Perform clustering analysis on feature data
+    - spatial: Perform spatial analysis including graph construction and community detection
+    - batch-correction: Apply batch correction methods (Harmony, ComBat)
+    - pixel-correlation: Compute pixel-level correlations between markers
+    - qc-analysis: Perform quality control analysis
+    - spillover-correction: Apply spillover correction to feature data
+    - generate-spillover-matrix: Generate spillover matrix from single-stain controls
+    - deconvolution: Apply deconvolution to high resolution IMC images
+    - spatial-enrichment: Compute pairwise spatial enrichment between clusters
+    - spatial-distance: Compute distance distributions between clusters
+    - spatial-anndata: Build spatial graph using AnnData/squidpy approach
+    - spatial-nhood-enrichment: Run neighborhood enrichment analysis
+    - spatial-cooccurrence: Run co-occurrence analysis
+    - spatial-autocorr: Run spatial autocorrelation (Moran's I) analysis
+    - spatial-ripley: Run Ripley function analysis
+    - export-anndata: Export AnnData objects from H5AD file(s)
+    - cluster-figures: Generate cluster visualization figures
+    - spatial-figures: Generate spatial analysis visualization figures
+    - workflow: Execute a complete workflow from a YAML configuration file
+
+Examples:
+    Basic usage::
+    
+        openimc preprocess input.mcd output/
+        openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI
+        openimc extract-features input.mcd features.csv --mask output/masks/
+        openimc cluster features.csv clustered.csv --method leiden --resolution 1.0
 """
 import argparse
 import json
@@ -148,8 +181,29 @@ def build_denoise_settings_for_all_channels(
 def preprocess_command(args):
     """Preprocess images: denoising and export to OME-TIFF.
     
-    Note: arcsinh normalization is not applied to exported images.
-    Only denoising is applied. Arcsinh transform should be applied on extracted intensity features.
+    This command loads IMC data from an MCD file or OME-TIFF directory, applies
+    optional denoising (hot pixel removal), and exports the processed images to
+    OME-TIFF format for downstream analysis.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file or OME-TIFF directory
+            - output: Path to output directory for processed OME-TIFF files
+            - denoise: Optional flag to apply denoising to all channels
+            - denoise_method: Denoising method ('median3' or 'n_sd_local_median')
+            - denoise_n_sd: Number of standard deviations for n_sd_local_median method
+            - denoise_settings: JSON file or string with per-channel denoise settings
+            - channel_format: Channel format for OME-TIFF files ('CHW' or 'HWC')
+    
+    Note:
+        Arcsinh normalization is not applied to exported images. Only denoising
+        is applied. Arcsinh transform should be applied during feature extraction
+        instead.
+    
+    Examples:
+        Preprocess with denoising on all channels::
+        
+            openimc preprocess input.mcd output/ --denoise all --denoise-method median3
     """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
@@ -205,7 +259,38 @@ def preprocess_command(args):
 
 
 def segment_command(args):
-    """Segment cells using DeepCell CellSAM, Cellpose, or watershed method."""
+    """Segment cells using DeepCell CellSAM, Cellpose, or watershed method.
+    
+    This command performs cell segmentation on IMC data using one of three methods:
+    
+    - **CellSAM**: DeepCell's CellSAM model via API (requires API key)
+    - **Cellpose**: Local Cellpose segmentation (supports GPU)
+    - **Watershed**: Traditional watershed segmentation
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file or OME-TIFF directory
+            - output: Path to output directory for segmentation masks
+            - method: Segmentation method ('cellsam', 'cellpose', or 'watershed')
+            - nuclear_channels: Comma-separated list of nuclear channel names
+            - cytoplasm_channels: Optional comma-separated list of cytoplasm channels
+            - acquisition: Optional acquisition ID or name (uses first if not specified)
+            - denoise: Optional flag to apply denoising before segmentation
+            - arcsinh: Optional flag to apply arcsinh normalization
+            - arcsinh_cofactor: Arcsinh cofactor (default: 10.0)
+            - Various method-specific parameters (model, diameter, thresholds, etc.)
+    
+    Examples:
+        Segment using Cellpose::
+        
+            openimc segment input.mcd output/ --method cellpose \\
+                --nuclear-channels DAPI --model cyto3 --gpu-id 0
+        
+        Segment using Watershed::
+        
+            openimc segment input.mcd output/ --method watershed \\
+                --nuclear-channels DNA1 --cytoplasm-channels CK8_CK18
+    """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
@@ -304,7 +389,40 @@ def segment_command(args):
 
 
 def extract_features_command(args):
-    """Extract features from segmented cells."""
+    """Extract features from segmented cells.
+    
+    This command extracts morphological and intensity features from segmented cells
+    in IMC data. Features are computed for each cell based on the segmentation mask
+    and channel intensities.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file or OME-TIFF directory
+            - mask: Path to segmentation mask directory or single mask file
+            - output: Path to output CSV file for extracted features
+            - acquisition: Optional acquisition ID or name
+            - morphological: Extract morphological features (default: True)
+            - intensity: Extract intensity features (default: True)
+            - arcsinh: Apply arcsinh normalization to intensity features
+            - arcsinh_cofactor: Arcsinh cofactor (default: 10.0)
+            - denoise: Optional flag to apply denoising to all channels
+            - denoise_method: Denoising method
+            - denoise_settings: JSON file or string with per-channel denoise settings
+    
+    Returns:
+        CSV file containing extracted features with one row per cell.
+    
+    Examples:
+        Extract all features::
+        
+            openimc extract-features input.mcd features.csv \\
+                --mask output/masks/ --morphological --intensity
+        
+        Extract with denoising::
+        
+            openimc extract-features input.mcd features.csv \\
+                --mask output/masks/ --denoise all --denoise-method median3
+    """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
@@ -360,7 +478,38 @@ def extract_features_command(args):
 
 
 def cluster_command(args):
-    """Perform clustering on feature data."""
+    """Perform clustering on feature data.
+    
+    This command performs clustering analysis on extracted cell features using
+    various algorithms: Leiden, Louvain, Hierarchical, K-means, or HDBSCAN.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Path to output CSV file with cluster assignments
+            - method: Clustering method ('leiden', 'louvain', 'hierarchical', 'kmeans', 'hdbscan')
+            - columns: Optional comma-separated list of columns to use for clustering
+            - scaling: Scaling method ('standard', 'robust', 'minmax', or None)
+            - n_clusters: Number of clusters (for hierarchical/kmeans)
+            - resolution: Resolution parameter (for Leiden/Louvain)
+            - n_neighbors: Number of neighbors for graph construction
+            - min_cluster_size: Minimum cluster size (for HDBSCAN)
+            - Various other method-specific parameters
+    
+    Returns:
+        CSV file with cluster assignments added as a 'cluster' column.
+    
+    Examples:
+        Leiden clustering::
+        
+            openimc cluster features.csv clustered.csv \\
+                --method leiden --resolution 1.0
+        
+        Hierarchical clustering::
+        
+            openimc cluster features.csv clustered.csv \\
+                --method hierarchical --n-clusters 10
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -404,7 +553,38 @@ def cluster_command(args):
 
 
 def spatial_command(args):
-    """Perform spatial analysis on feature data (matching GUI workflow)."""
+    """Perform spatial analysis on feature data (matching GUI workflow).
+    
+    This command performs spatial analysis including spatial graph construction,
+    community detection, and spatial statistics. It matches the functionality
+    available in the GUI workflow.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Path to output CSV file with spatial analysis results
+            - radius: Spatial radius for graph construction (required)
+            - k_neighbors: Number of k-nearest neighbors (default: 10)
+            - detect_communities: Flag to perform community detection
+            - pixel_size: Pixel size in micrometers (default: 1.0)
+            - method: Community detection method ('leiden' or 'louvain')
+            - resolution: Resolution parameter for community detection
+    
+    Returns:
+        CSV file with spatial graph edges and optional community assignments.
+    
+    Examples:
+        Basic spatial analysis::
+        
+            openimc spatial features.csv edges.csv \\
+                --radius 50 --k-neighbors 10
+        
+        With community detection::
+        
+            openimc spatial features.csv edges.csv \\
+                --radius 50 --k-neighbors 10 --detect-communities \\
+                --method leiden --resolution 1.0
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -439,7 +619,36 @@ def spatial_command(args):
 
 
 def batch_correction_command(args):
-    """Apply batch correction to feature data."""
+    """Apply batch correction to feature data.
+    
+    This command applies batch correction methods (Harmony or ComBat) to remove
+    batch effects from feature data, which is important when combining data from
+    multiple experiments or acquisition runs.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Path to output CSV file with corrected features
+            - method: Batch correction method ('harmony' or 'combat')
+            - batch_var: Column name containing batch information
+            - columns: Optional comma-separated list of feature columns to correct
+            - covariates: Optional comma-separated list of covariates (for ComBat)
+            - Method-specific parameters (n_clusters, sigma, theta, etc.)
+    
+    Returns:
+        CSV file with batch-corrected features.
+    
+    Examples:
+        Apply Harmony correction::
+        
+            openimc batch-correction features.csv corrected.csv \\
+                --method harmony --batch-var batch_id
+        
+        Apply ComBat correction::
+        
+            openimc batch-correction features.csv corrected.csv \\
+                --method combat --batch-var batch_id --covariates condition
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -463,7 +672,23 @@ def batch_correction_command(args):
 
 
 def pixel_correlation_command(args):
-    """Compute pixel-level correlations between markers."""
+    """Compute pixel-level correlations between markers.
+    
+    This command computes pairwise correlations between markers at the pixel level,
+    which can help identify co-expression patterns and potential spillover effects.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file or OME-TIFF directory
+            - output: Path to output CSV file with correlation results
+            - acquisition: Optional acquisition ID or name
+            - channels: Optional comma-separated list of channels to analyze
+            - mask: Optional path to mask file to restrict analysis
+            - multiple_testing_correction: Method for multiple testing correction
+    
+    Returns:
+        CSV file with pairwise correlation coefficients and p-values.
+    """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
@@ -527,7 +752,23 @@ def pixel_correlation_command(args):
 
 
 def qc_analysis_command(args):
-    """Perform quality control analysis."""
+    """Perform quality control analysis.
+    
+    This command performs quality control analysis on IMC data, including
+    signal-to-noise ratios, detection rates, and other QC metrics.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file or OME-TIFF directory
+            - output: Path to output CSV file with QC results
+            - acquisition: Optional acquisition ID or name
+            - channels: Optional comma-separated list of channels to analyze
+            - mask: Optional path to mask file for cell-level analysis
+            - mode: Analysis mode ('pixel' or 'cell')
+    
+    Returns:
+        CSV file with QC metrics for each channel.
+    """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
@@ -589,7 +830,23 @@ def qc_analysis_command(args):
 
 
 def spillover_correction_command(args):
-    """Apply spillover correction to feature data."""
+    """Apply spillover correction to feature data.
+    
+    This command applies spillover correction to intensity features using a
+    pre-computed spillover matrix. This corrects for spectral overlap between
+    channels in IMC data.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Path to output CSV file with corrected features
+            - spillover_matrix: Path to spillover matrix CSV file
+            - method: Correction method ('matrix_inversion' or 'nnls')
+            - arcsinh_cofactor: Arcsinh cofactor for transformation
+    
+    Returns:
+        CSV file with spillover-corrected intensity features.
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -607,7 +864,22 @@ def spillover_correction_command(args):
 
 
 def generate_spillover_matrix_command(args):
-    """Generate spillover matrix from single-stain control MCD file."""
+    """Generate spillover matrix from single-stain control MCD file.
+    
+    This command generates a spillover matrix from single-stain control data,
+    which can then be used for spillover correction in downstream analysis.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file with single-stain controls
+            - output: Path to output CSV file for spillover matrix
+            - donor_map: Optional JSON file or string mapping acquisitions to donor labels
+            - cap: Optional cap value for outlier handling
+            - aggregate: Aggregation method for multiple acquisitions
+    
+    Returns:
+        CSV file containing the spillover matrix and optional QC metrics.
+    """
     print(f"Processing MCD file: {args.input}")
             
     # Parse donor mapping if provided
@@ -636,7 +908,22 @@ def generate_spillover_matrix_command(args):
 
 
 def deconvolution_command(args):
-    """Apply deconvolution to high resolution IMC images."""
+    """Apply deconvolution to high resolution IMC images.
+    
+    This command applies deconvolution algorithms to improve the resolution
+    of IMC images by reducing blur and enhancing fine details.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input MCD file or OME-TIFF directory
+            - output: Path to output directory for deconvolved images
+            - acquisition: Optional acquisition ID or name
+            - method: Deconvolution method
+            - Various method-specific parameters
+    
+    Returns:
+        Deconvolved images saved to output directory.
+    """
     print(f"Loading data from: {args.input}")
     loader, loader_type = load_mcd(args.input, channel_format=getattr(args, 'channel_format', 'CHW'))
     
@@ -676,7 +963,24 @@ def deconvolution_command(args):
 
 
 def spatial_enrichment_command(args):
-    """Compute pairwise spatial enrichment between clusters."""
+    """Compute pairwise spatial enrichment between clusters.
+    
+    This command computes spatial enrichment scores between cluster pairs,
+    indicating whether clusters are spatially co-localized or segregated.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - edges: Path to CSV file with spatial graph edges
+            - output: Path to output CSV file with enrichment results
+            - cluster_column: Column name containing cluster assignments
+            - n_permutations: Number of permutations for statistical testing
+            - seed: Random seed for permutations
+            - roi_column: Optional column name for ROI grouping
+    
+    Returns:
+        CSV file with pairwise spatial enrichment scores and p-values.
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -698,7 +1002,22 @@ def spatial_enrichment_command(args):
 
 
 def spatial_distance_command(args):
-    """Compute distance distributions between clusters."""
+    """Compute distance distributions between clusters.
+    
+    This command computes the distribution of distances between cells of
+    different clusters, providing insights into spatial relationships.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - edges: Path to CSV file with spatial graph edges
+            - output: Path to output CSV file with distance distributions
+            - cluster_column: Column name containing cluster assignments
+            - roi_column: Optional column name for ROI grouping
+    
+    Returns:
+        CSV file with distance distribution statistics for cluster pairs.
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -718,7 +1037,27 @@ def spatial_distance_command(args):
 
 
 def spatial_anndata_command(args):
-    """Build spatial graph using AnnData/squidpy approach."""
+    """Build spatial graph using AnnData/squidpy approach.
+    
+    This command builds a spatial graph using the AnnData/squidpy framework,
+    which is useful for integration with scanpy and other single-cell analysis tools.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Optional path to output H5AD file
+            - method: Graph construction method ('kNN' or 'Radius')
+            - k_neighbors: Number of k-nearest neighbors (for kNN method)
+            - radius: Spatial radius in micrometers (for Radius method)
+            - pixel_size_um: Pixel size in micrometers (default: 1.0)
+            - roi_column: Optional column name for ROI grouping
+            - roi_id: Optional specific ROI ID to process
+            - seed: Random seed
+            - combined: Whether to combine multiple ROIs into single AnnData object
+    
+    Returns:
+        H5AD file(s) containing AnnData objects with spatial graphs (if output specified).
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -749,7 +1088,28 @@ def spatial_anndata_command(args):
 
 
 def spatial_nhood_enrichment_command(args):
-    """Run neighborhood enrichment analysis."""
+    """Run neighborhood enrichment analysis.
+    
+    This command performs neighborhood enrichment analysis to identify
+    which clusters are enriched or depleted in each other's neighborhoods.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Optional path to output H5AD file
+            - cluster_column: Column name containing cluster assignments
+            - method: Graph construction method ('kNN' or 'Radius')
+            - k_neighbors: Number of k-nearest neighbors
+            - radius: Spatial radius in micrometers (for Radius method)
+            - pixel_size_um: Pixel size in micrometers (default: 1.0)
+            - aggregation: Aggregation method for multiple ROIs
+            - roi_column: Optional column name for ROI grouping
+            - seed: Random seed
+            - combined: Whether to combine multiple ROIs into single AnnData object
+    
+    Returns:
+        H5AD file(s) with neighborhood enrichment results (if output specified).
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -788,7 +1148,29 @@ def spatial_nhood_enrichment_command(args):
 
 
 def spatial_cooccurrence_command(args):
-    """Run co-occurrence analysis."""
+    """Run co-occurrence analysis.
+    
+    This command performs co-occurrence analysis to quantify how often
+    clusters appear together at different spatial distances.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Optional path to output H5AD file
+            - cluster_column: Column name containing cluster assignments
+            - interval: Comma-separated list of distance intervals (e.g., "0,10,20,30")
+            - reference_cluster: Optional reference cluster for analysis
+            - method: Graph construction method ('kNN' or 'Radius')
+            - k_neighbors: Number of k-nearest neighbors
+            - radius: Spatial radius in micrometers (for Radius method)
+            - pixel_size_um: Pixel size in micrometers (default: 1.0)
+            - roi_column: Optional column name for ROI grouping
+            - seed: Random seed
+            - combined: Whether to combine multiple ROIs into single AnnData object
+    
+    Returns:
+        H5AD file(s) with co-occurrence results (if output specified).
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -833,7 +1215,27 @@ def spatial_cooccurrence_command(args):
 
 
 def spatial_autocorr_command(args):
-    """Run spatial autocorrelation (Moran's I) analysis."""
+    """Run spatial autocorrelation (Moran's I) analysis.
+    
+    This command computes Moran's I statistic to measure spatial autocorrelation
+    of marker expression, indicating whether similar values cluster spatially.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Optional path to output H5AD file
+            - markers: Comma-separated list of markers to analyze, or 'all'
+            - method: Graph construction method ('kNN' or 'Radius')
+            - k_neighbors: Number of k-nearest neighbors
+            - radius: Spatial radius in micrometers (for Radius method)
+            - pixel_size_um: Pixel size in micrometers (default: 1.0)
+            - roi_column: Optional column name for ROI grouping
+            - seed: Random seed
+            - combined: Whether to combine multiple ROIs into single AnnData object
+    
+    Returns:
+        H5AD file(s) with Moran's I statistics (if output specified).
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -877,7 +1279,27 @@ def spatial_autocorr_command(args):
 
 
 def spatial_ripley_command(args):
-    """Run Ripley function analysis."""
+    """Run Ripley function analysis.
+    
+    This command computes Ripley's K and L functions to analyze spatial point
+    patterns and test for clustering or dispersion of cell types.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features
+            - output: Optional path to output H5AD file
+            - cluster_column: Column name containing cluster assignments
+            - method: Graph construction method ('kNN' or 'Radius')
+            - k_neighbors: Number of k-nearest neighbors
+            - radius: Spatial radius in micrometers (for Radius method)
+            - pixel_size_um: Pixel size in micrometers (default: 1.0)
+            - roi_column: Optional column name for ROI grouping
+            - seed: Random seed
+            - combined: Whether to combine multiple ROIs into single AnnData object
+    
+    Returns:
+        H5AD file(s) with Ripley function results (if output specified).
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -917,7 +1339,20 @@ def spatial_ripley_command(args):
 
 
 def export_anndata_command(args):
-    """Export AnnData objects from H5AD file(s)."""
+    """Export AnnData objects from H5AD file(s).
+    
+    This command exports AnnData objects to various formats (CSV, Excel, etc.)
+    for downstream analysis or visualization.
+    
+    Args:
+        args: Command-line arguments containing:
+            - input: Path to input H5AD file or directory containing H5AD files
+            - output: Path to output directory for exported files
+            - combined: Whether to combine multiple AnnData objects into one export
+    
+    Returns:
+        Exported files in the specified format saved to output directory.
+    """
     try:
         import anndata as ad
     except ImportError:
@@ -942,7 +1377,26 @@ def export_anndata_command(args):
 
 
 def cluster_figures_command(args):
-    """Generate cluster visualization figures."""
+    """Generate cluster visualization figures.
+    
+    This command generates visualization figures for clustering results, including
+    UMAP embeddings colored by cluster and heatmaps of cluster mean feature values.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with clustered features (must contain 'cluster' column)
+            - output: Path to output directory for figures
+            - dpi: Figure DPI (default: 300)
+            - font_size: Font size in points (default: 10.0)
+            - width: Figure width in inches (default: 8.0)
+            - height: Figure height in inches (default: 6.0)
+            - seed: Random seed for UMAP (default: 42)
+    
+    Returns:
+        PNG files saved to output directory:
+        - cluster_umap.png: UMAP embedding colored by cluster
+        - cluster_heatmap.png: Heatmap of cluster mean feature values
+    """
     print(f"Loading clustered features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -1009,7 +1463,26 @@ def cluster_figures_command(args):
 
 
 def spatial_figures_command(args):
-    """Generate spatial analysis visualization figures."""
+    """Generate spatial analysis visualization figures.
+    
+    This command generates visualization figures for spatial analysis, including
+    spatial distribution plots and optional spatial graph visualizations.
+    
+    Args:
+        args: Command-line arguments containing:
+            - features: Path to input CSV file with features (must contain 'centroid_x' and 'centroid_y')
+            - output: Path to output directory for figures
+            - edges: Optional CSV file with spatial graph edges
+            - dpi: Figure DPI (default: 300)
+            - font_size: Font size in points (default: 10.0)
+            - width: Figure width in inches (default: 8.0)
+            - height: Figure height in inches (default: 6.0)
+    
+    Returns:
+        PNG files saved to output directory:
+        - spatial_distribution.png: Spatial scatter plot of cells
+        - spatial_graph.png: Spatial graph visualization (if edges provided)
+    """
     print(f"Loading features from: {args.features}")
     features_df = pd.read_csv(args.features)
     
@@ -1617,7 +2090,31 @@ def workflow_command(args):
 
 
 def main():
-    """Main CLI entry point."""
+    """Main CLI entry point.
+    
+    This function sets up the command-line argument parser and routes commands
+    to their respective handler functions. It serves as the entry point for the
+    OpenIMC command-line interface.
+    
+    The CLI supports multiple subcommands for different analysis tasks:
+    - preprocessing, segmentation, feature extraction
+    - clustering, spatial analysis, batch correction
+    - quality control, spillover correction, deconvolution
+    - visualization and workflow execution
+    
+    Examples:
+        Run preprocessing::
+        
+            openimc preprocess input.mcd output/
+        
+        Run segmentation::
+        
+            openimc segment input.mcd output/ --method cellpose --nuclear-channels DAPI
+        
+        Run complete workflow::
+        
+            openimc workflow config.yaml
+    """
     parser = argparse.ArgumentParser(
         description='OpenIMC CLI for batch processing without GUI',
         formatter_class=argparse.RawDescriptionHelpFormatter,
