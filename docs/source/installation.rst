@@ -182,6 +182,7 @@ DeepCell API Token Setup
 To use the DeepCell CellSAM segmentation method, you'll need a DeepCell API token:
 
 1. **Generate API Token**
+
    - Visit `DeepCell User Portal <https://users.deepcell.org/login/>`_
    - Sign up or log in to your account
    - Your username is your registration email without the domain suffix
@@ -191,17 +192,21 @@ To use the DeepCell CellSAM segmentation method, you'll need a DeepCell API toke
    - The API token is used to download the most up-to-date CellSAM model weights
 
 2. **Set the API Token**
+
    You can set the API token in one of the following ways:
-   
+
    **Option A: Environment Variable (Recommended for CLI)**
+
    .. code-block:: bash
-      
+
       export DEEPCELL_ACCESS_TOKEN="your-api-token-here"
-   
+
    **Option B: GUI Settings**
+
    - When using the GUI, enter your API token in the "DeepCell CellSAM Parameters"
      section of the segmentation dialog
    - The token will be saved in your user preferences for future use
+
 
 Verification
 ------------
@@ -222,15 +227,20 @@ Common Issues
 ~~~~~~~~~~~~~
 
 1. **"readimc is not installed"**
+
    .. code-block:: bash
-      pip install readimc>=0.9.0
+
+      pip install "readimc>=0.9.0"
 
 2. **GPU segmentation not available**
+
    .. code-block:: bash
+
       # Install PyTorch with CUDA support
       pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 3. **Ilastik not found**
+
    - Install Ilastik from https://www.ilastik.org/download
    - Ensure the ``ilastik`` command is available in your PATH
    - For headless mode, Ilastik must be properly installed and accessible from
@@ -239,18 +249,24 @@ Common Issues
      required
 
 4. **OpenAI API errors**
+
    - Verify your API key is correctly set
    - Check your OpenAI account has sufficient credits
    - Ensure internet connectivity
 
 5. **Memory issues with large datasets**
+
    - Close other applications to free RAM
    - Consider subsampling for clustering analysis
    - Use multiprocessing for feature extraction
 
 6. **datrie installation errors**
-   - If you encounter build errors with ``datrie``, install it from conda-forge
-     before running ``pip install -r requirements.txt``:
-     .. code-block:: bash
-        conda install -c conda-forge datrie
+
+   If you encounter build errors with ``datrie``, install it from conda-forge
+   before running ``pip install -r requirements.txt``:
+
+   .. code-block:: bash
+
+      conda install -c conda-forge datrie
+
 
