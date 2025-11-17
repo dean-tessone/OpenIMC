@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Advanced Spatial Analysis" href="advanced_spatial_analysis.html" />
-    <link rel="prev" title="Clustering" href="clustering.html" /> 
+    <link rel="prev" title="Spillover Matrix Generation" href="spillover_matrix.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -47,10 +47,16 @@
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Simple Spatial Analysis</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
@@ -80,7 +86,19 @@
 <li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="#spatial-analysis-visualizations">Spatial Analysis Visualizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#pairwise-enrichment-visualization">Pairwise Enrichment Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#distance-distributions-visualization">Distance Distributions Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id5">Spatial Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#spatial-communities-visualization">Spatial Communities Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -397,12 +415,268 @@
 </ol>
 </section>
 </section>
+<section id="spatial-analysis-visualizations">
+<h1>Spatial Analysis Visualizations<a class="headerlink" href="#spatial-analysis-visualizations" title="Link to this heading"></a></h1>
+<p>Simple Spatial Analysis provides several visualization options to explore spatial relationships and patterns. All visualizations are accessible from the spatial analysis dialog after building the spatial graph.</p>
+<section id="available-visualizations">
+<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Pairwise Enrichment</strong>: Heatmap showing spatial co-occurrence/avoidance between cluster pairs</p></li>
+<li><p><strong>Distance Distributions</strong>: Violin/box plots of nearest-neighbor distances between cell types</p></li>
+<li><p><strong>Spatial Visualization</strong>: Scatter plot of cells in spatial coordinates</p></li>
+<li><p><strong>Spatial Communities</strong>: Visualization of spatially coherent cell communities</p></li>
+</ol>
+</section>
+<section id="pairwise-enrichment-visualization">
+<h2>Pairwise Enrichment Visualization<a class="headerlink" href="#pairwise-enrichment-visualization" title="Link to this heading"></a></h2>
+<p>Shows a heatmap of z-scores and p-values for spatial co-occurrence or avoidance between cluster pairs.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Permutations</strong>: Number of permutations for statistical testing (default: 100, range: 10-10000)
+- More permutations provide more accurate p-values
+- Recommended: 500-1000 for publication</p></li>
+<li><p><strong>Workers</strong>: Number of parallel workers for permutation tests (default: auto)
+- More workers speed up computation
+- Default: number of CPU cores - 2</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Computes observed co-occurrence between cluster pairs in the spatial graph</p></li>
+<li><p>Performs permutation tests by randomly shuffling cluster labels</p></li>
+<li><p>Calculates z-scores: (observed - mean(permuted)) / std(permuted)</p></li>
+<li><p>Computes p-values from permutation distribution</p></li>
+<li><p>Displays results as a heatmap with z-scores color-coded</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p><strong>Positive z-score + significant p-value</strong>: Enrichment (cell types co-occur more than expected)</p></li>
+<li><p><strong>Negative z-score + significant p-value</strong>: Depletion (cell types avoid each other)</p></li>
+<li><p><strong>Non-significant</strong>: Random spatial distribution</p></li>
+<li><p>Color intensity indicates strength of association</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Options: PNG, JPG, or PDF format</p></li>
+<li><p>Adjustable DPI (default: 300)</p></li>
+<li><p>Optional font size and figure size override</p></li>
+</ul>
+</section>
+<section id="distance-distributions-visualization">
+<h2>Distance Distributions Visualization<a class="headerlink" href="#distance-distributions-visualization" title="Link to this heading"></a></h2>
+<p>Shows the distribution of nearest-neighbor distances between cell types using violin or box plots.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Clusters to display</strong>: Select which cluster pairs to visualize (multi-select)
+- Can compare distances between same cluster vs. different clusters
+- Useful for identifying spatial relationships</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>For each cell, finds the nearest neighbor of each cell type</p></li>
+<li><p>Computes Euclidean distance to nearest neighbor</p></li>
+<li><p>Converts to micrometers using pixel_size_um</p></li>
+<li><p>Aggregates distances across all cells</p></li>
+<li><p>Displays as violin/box plots grouped by cluster pair</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p><strong>Shorter distances</strong>: Cell types are spatially close</p></li>
+<li><p><strong>Longer distances</strong>: Cell types are spatially separated</p></li>
+<li><p>Compare distributions to identify spatial relationships</p></li>
+<li><p>Same-cluster distances show within-cluster spatial organization</p></li>
+<li><p>Cross-cluster distances show between-cluster spatial relationships</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="id5">
+<h2>Spatial Visualization<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
+<p>Displays cells in their spatial coordinates (x, y positions), colored by cluster or feature expression.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>ROI</strong>: Select which ROI to visualize (dropdown)
+- Each ROI is visualized separately
+- Select from available ROIs in the dataset</p></li>
+<li><p><strong>Color by</strong>: Choose how to color cells
+- <code class="docutils literal notranslate"><span class="pre">&quot;cluster&quot;</span></code>: Color by cluster assignment (default)
+- Feature columns: Color by continuous feature expression (e.g., marker intensities)
+- Searchable dropdown for easy feature selection</p></li>
+<li><p><strong>Point Size</strong>: Multiplier for point sizes (default: 1.0, range: 0.1-10.0)
+- 1.0 = default size
+- Increase for larger points (useful for sparse plots)
+- Decrease for smaller points (useful for dense plots)</p></li>
+<li><p><strong>Show edges</strong>: Checkbox to display spatial graph edges
+- Shows connections between neighboring cells
+- Can be slow for large datasets
+- Useful for visualizing graph structure</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Extracts spatial coordinates (centroid_x, centroid_y) for selected ROI</p></li>
+<li><p>Colors cells based on selected attribute (cluster or feature)</p></li>
+<li><p>Optionally draws edges from spatial graph</p></li>
+<li><p>Displays as scatter plot with legend</p></li>
+</ol>
+<p><strong>Use cases:</strong></p>
+<ul class="simple">
+<li><p>Visual inspection of spatial organization</p></li>
+<li><p>Identifying spatial patterns and domains</p></li>
+<li><p>Validating clustering results</p></li>
+<li><p>Exploring feature spatial distributions</p></li>
+<li><p>Checking for batch effects across ROIs</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="spatial-communities-visualization">
+<h2>Spatial Communities Visualization<a class="headerlink" href="#spatial-communities-visualization" title="Link to this heading"></a></h2>
+<p>Shows spatially coherent communities of cells identified using graph-based clustering.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>ROI</strong>: Select which ROI to analyze (dropdown)</p></li>
+<li><p><strong>Min cells</strong>: Minimum number of cells in a community (default: 5, range: 1-100)
+- Filters out very small communities
+- Increase to focus on larger spatial structures</p></li>
+<li><p><strong>Exclude cell types</strong>: Optionally exclude specific cell types from community detection
+- Enable exclusion checkbox
+- Multi-select clusters to exclude
+- Useful for focusing on specific cell populations</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Builds spatial graph for selected ROI</p></li>
+<li><p>Applies Leiden algorithm to identify communities</p></li>
+<li><p>Filters communities smaller than min_cells</p></li>
+<li><p>Visualizes communities as colored regions in spatial coordinates</p></li>
+<li><p>Shows community assignments and spatial organization</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p>Communities represent spatially organized cell groups</p></li>
+<li><p>May correspond to tissue structures or functional units</p></li>
+<li><p>Can be used to identify spatial niches</p></li>
+<li><p>Compare community structure across ROIs</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="exporting-plots">
+<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading"></a></h2>
+<p>All visualizations can be exported using the <strong>“Save Plot”</strong> button in each tab.</p>
+<p><strong>Export Options:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Format</strong>: Choose output format
+- <code class="docutils literal notranslate"><span class="pre">PNG</span></code>: Raster image (default, good for presentations)
+- <code class="docutils literal notranslate"><span class="pre">JPG</span></code>: Compressed raster image
+- <code class="docutils literal notranslate"><span class="pre">PDF</span></code>: Vector format (good for publications, scalable)</p></li>
+<li><p><strong>DPI (Dots Per Inch)</strong>: Resolution for raster formats
+- Default: 300 DPI (publication quality)
+- Range: 72-1200 DPI
+- Higher DPI = larger file size, better quality</p></li>
+<li><p><strong>Font Size Override</strong>: Optionally override all font sizes
+- Check “Override figure font size”
+- Set font size in points (default: 10.0, range: 6.0-72.0)
+- Useful for adjusting text size for publications</p></li>
+<li><p><strong>Figure Size Override</strong>: Optionally change figure dimensions
+- Check “Override figure size”
+- Set width and height in inches (default: 8.0 x 6.0)
+- Range: 1.0-100.0 inches</p></li>
+</ol>
+<p><strong>Export Workflow:</strong></p>
+<ol class="arabic simple">
+<li><p>Run the desired analysis (enrichment, distance, spatial viz, or communities)</p></li>
+<li><p>Adjust any parameters (point size, show edges, etc.)</p></li>
+<li><p>Click <strong>“Save Plot”</strong> button in the relevant tab</p></li>
+<li><p>In the save dialog:
+- Choose filename and location
+- Select format (PNG/JPG/PDF)
+- Set DPI (for raster formats)
+- Optionally override font size
+- Optionally override figure size</p></li>
+<li><p>Click <strong>“Save”</strong></p></li>
+</ol>
+<p><strong>Tips for Export:</strong></p>
+<ul class="simple">
+<li><p>Use <strong>PDF</strong> format for publications (vector graphics, scalable)</p></li>
+<li><p>Use <strong>PNG</strong> at 300 DPI for presentations and web</p></li>
+<li><p>Increase font size for small figures in publications</p></li>
+<li><p>Adjust figure size to match journal requirements</p></li>
+<li><p>Spatial visualizations benefit from larger figure sizes to show detail</p></li>
+</ul>
+</section>
+<section id="accessing-visualizations-in-the-gui">
+<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Build Spatial Graph</strong>: First, build the spatial graph using the controls at the top
+- Select graph construction method (kNN, Radius, or Delaunay)
+- Set parameters (k_neighbors, radius, pixel_size_um)
+- Click “Build Graph”
+- Graph must be built before visualizations are available</p></li>
+<li><p><strong>Open Spatial Analysis Dialog</strong>: Navigate to <strong>Analysis → Spatial Analysis → Simple Spatial Analysis</strong></p></li>
+<li><p><strong>Select Tab</strong>: Use the tabs to access different visualizations
+- <strong>Pairwise Enrichment</strong>: Run enrichment analysis and view heatmap
+- <strong>Distance Distributions</strong>: Run distance analysis and view distributions
+- <strong>Spatial Visualization</strong>: Generate spatial scatter plots
+- <strong>Spatial Communities</strong>: Run community detection and view communities</p></li>
+<li><p><strong>Adjust Parameters</strong>: Use controls in each tab to customize visualizations</p></li>
+<li><p><strong>Export</strong>: Click <strong>“Save Plot”</strong> in each tab to export visualizations</p></li>
+</ol>
+<p><strong>Tab-Specific Controls:</strong></p>
+<ul class="simple">
+<li><p><strong>Pairwise Enrichment</strong>: Permutations, Workers, Run button, Save Plot button</p></li>
+<li><p><strong>Distance Distributions</strong>: Cluster selection, Run button, Save Plot button</p></li>
+<li><p><strong>Spatial Visualization</strong>: ROI selection, Color by, Point Size, Show edges, Generate button, Save Plot button</p></li>
+<li><p><strong>Spatial Communities</strong>: ROI selection, Min cells, Exclude cell types, Run button, Save Plot button</p></li>
+</ul>
+</section>
+<section id="tips-and-best-practices-for-visualizations">
+<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Pairwise Enrichment:</strong>
+- Use at least 100 permutations for reliable results
+- Increase to 500-1000 for publication-quality p-values
+- Interpret z-scores in context of p-values
+- Look for consistent patterns across multiple ROIs</p></li>
+<li><p><strong>Distance Distributions:</strong>
+- Compare distances between different cell type pairs
+- Look for systematic differences indicating spatial relationships
+- Consider biological context when interpreting results
+- Compare same-cluster vs. cross-cluster distances</p></li>
+<li><p><strong>Spatial Visualization:</strong>
+- Always visually inspect spatial organization
+- Use different color encodings to explore different aspects
+- Compare across ROIs to identify consistent patterns
+- Adjust point size for optimal visibility
+- Use “Show edges” sparingly (can be slow for large datasets)</p></li>
+<li><p><strong>Spatial Communities:</strong>
+- Adjust min_cells to focus on relevant spatial scales
+- Exclude cell types that are not of interest
+- Compare community structure across ROIs
+- Use communities to identify spatial niches</p></li>
+<li><p><strong>Export:</strong>
+- Use PDF for publications (vector graphics)
+- Use PNG at 300 DPI for presentations
+- Adjust font sizes for small figures
+- Spatial visualizations may need larger figure sizes</p></li>
+</ol>
+</section>
+</section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="clustering.html" class="btn btn-neutral float-left" title="Clustering" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="spillover_matrix.html" class="btn btn-neutral float-left" title="Spillover Matrix Generation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="advanced_spatial_analysis.html" class="btn btn-neutral float-right" title="Advanced Spatial Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

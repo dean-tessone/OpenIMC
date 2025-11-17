@@ -317,3 +317,273 @@ Tips and Best Practices
    - Consider processing ROIs separately if memory is limited
    - Graph construction is fast, but enrichment analysis can be slow for many permutations
 
+Spatial Analysis Visualizations
+================================
+
+Simple Spatial Analysis provides several visualization options to explore spatial relationships and patterns. All visualizations are accessible from the spatial analysis dialog after building the spatial graph.
+
+Available Visualizations
+-------------------------
+
+1. **Pairwise Enrichment**: Heatmap showing spatial co-occurrence/avoidance between cluster pairs
+2. **Distance Distributions**: Violin/box plots of nearest-neighbor distances between cell types
+3. **Spatial Visualization**: Scatter plot of cells in spatial coordinates
+4. **Spatial Communities**: Visualization of spatially coherent cell communities
+
+Pairwise Enrichment Visualization
+----------------------------------
+
+Shows a heatmap of z-scores and p-values for spatial co-occurrence or avoidance between cluster pairs.
+
+**Parameters:**
+
+- **Permutations**: Number of permutations for statistical testing (default: 100, range: 10-10000)
+  - More permutations provide more accurate p-values
+  - Recommended: 500-1000 for publication
+- **Workers**: Number of parallel workers for permutation tests (default: auto)
+  - More workers speed up computation
+  - Default: number of CPU cores - 2
+
+**How it works:**
+
+1. Computes observed co-occurrence between cluster pairs in the spatial graph
+2. Performs permutation tests by randomly shuffling cluster labels
+3. Calculates z-scores: (observed - mean(permuted)) / std(permuted)
+4. Computes p-values from permutation distribution
+5. Displays results as a heatmap with z-scores color-coded
+
+**Interpretation:**
+
+- **Positive z-score + significant p-value**: Enrichment (cell types co-occur more than expected)
+- **Negative z-score + significant p-value**: Depletion (cell types avoid each other)
+- **Non-significant**: Random spatial distribution
+- Color intensity indicates strength of association
+
+**Export:**
+
+- Click **"Save Plot"** button to export
+- Options: PNG, JPG, or PDF format
+- Adjustable DPI (default: 300)
+- Optional font size and figure size override
+
+Distance Distributions Visualization
+-------------------------------------
+
+Shows the distribution of nearest-neighbor distances between cell types using violin or box plots.
+
+**Parameters:**
+
+- **Clusters to display**: Select which cluster pairs to visualize (multi-select)
+  - Can compare distances between same cluster vs. different clusters
+  - Useful for identifying spatial relationships
+
+**How it works:**
+
+1. For each cell, finds the nearest neighbor of each cell type
+2. Computes Euclidean distance to nearest neighbor
+3. Converts to micrometers using pixel_size_um
+4. Aggregates distances across all cells
+5. Displays as violin/box plots grouped by cluster pair
+
+**Interpretation:**
+
+- **Shorter distances**: Cell types are spatially close
+- **Longer distances**: Cell types are spatially separated
+- Compare distributions to identify spatial relationships
+- Same-cluster distances show within-cluster spatial organization
+- Cross-cluster distances show between-cluster spatial relationships
+
+**Export:**
+
+- Click **"Save Plot"** button to export
+- Same export options as other visualizations
+
+Spatial Visualization
+---------------------
+
+Displays cells in their spatial coordinates (x, y positions), colored by cluster or feature expression.
+
+**Parameters:**
+
+- **ROI**: Select which ROI to visualize (dropdown)
+  - Each ROI is visualized separately
+  - Select from available ROIs in the dataset
+- **Color by**: Choose how to color cells
+  - ``"cluster"``: Color by cluster assignment (default)
+  - Feature columns: Color by continuous feature expression (e.g., marker intensities)
+  - Searchable dropdown for easy feature selection
+- **Point Size**: Multiplier for point sizes (default: 1.0, range: 0.1-10.0)
+  - 1.0 = default size
+  - Increase for larger points (useful for sparse plots)
+  - Decrease for smaller points (useful for dense plots)
+- **Show edges**: Checkbox to display spatial graph edges
+  - Shows connections between neighboring cells
+  - Can be slow for large datasets
+  - Useful for visualizing graph structure
+
+**How it works:**
+
+1. Extracts spatial coordinates (centroid_x, centroid_y) for selected ROI
+2. Colors cells based on selected attribute (cluster or feature)
+3. Optionally draws edges from spatial graph
+4. Displays as scatter plot with legend
+
+**Use cases:**
+
+- Visual inspection of spatial organization
+- Identifying spatial patterns and domains
+- Validating clustering results
+- Exploring feature spatial distributions
+- Checking for batch effects across ROIs
+
+**Export:**
+
+- Click **"Save Plot"** button to export
+- Same export options as other visualizations
+
+Spatial Communities Visualization
+----------------------------------
+
+Shows spatially coherent communities of cells identified using graph-based clustering.
+
+**Parameters:**
+
+- **ROI**: Select which ROI to analyze (dropdown)
+- **Min cells**: Minimum number of cells in a community (default: 5, range: 1-100)
+  - Filters out very small communities
+  - Increase to focus on larger spatial structures
+- **Exclude cell types**: Optionally exclude specific cell types from community detection
+  - Enable exclusion checkbox
+  - Multi-select clusters to exclude
+  - Useful for focusing on specific cell populations
+
+**How it works:**
+
+1. Builds spatial graph for selected ROI
+2. Applies Leiden algorithm to identify communities
+3. Filters communities smaller than min_cells
+4. Visualizes communities as colored regions in spatial coordinates
+5. Shows community assignments and spatial organization
+
+**Interpretation:**
+
+- Communities represent spatially organized cell groups
+- May correspond to tissue structures or functional units
+- Can be used to identify spatial niches
+- Compare community structure across ROIs
+
+**Export:**
+
+- Click **"Save Plot"** button to export
+- Same export options as other visualizations
+
+Exporting Plots
+---------------
+
+All visualizations can be exported using the **"Save Plot"** button in each tab.
+
+**Export Options:**
+
+1. **Format**: Choose output format
+   - ``PNG``: Raster image (default, good for presentations)
+   - ``JPG``: Compressed raster image
+   - ``PDF``: Vector format (good for publications, scalable)
+
+2. **DPI (Dots Per Inch)**: Resolution for raster formats
+   - Default: 300 DPI (publication quality)
+   - Range: 72-1200 DPI
+   - Higher DPI = larger file size, better quality
+
+3. **Font Size Override**: Optionally override all font sizes
+   - Check "Override figure font size"
+   - Set font size in points (default: 10.0, range: 6.0-72.0)
+   - Useful for adjusting text size for publications
+
+4. **Figure Size Override**: Optionally change figure dimensions
+   - Check "Override figure size"
+   - Set width and height in inches (default: 8.0 x 6.0)
+   - Range: 1.0-100.0 inches
+
+**Export Workflow:**
+
+1. Run the desired analysis (enrichment, distance, spatial viz, or communities)
+2. Adjust any parameters (point size, show edges, etc.)
+3. Click **"Save Plot"** button in the relevant tab
+4. In the save dialog:
+   - Choose filename and location
+   - Select format (PNG/JPG/PDF)
+   - Set DPI (for raster formats)
+   - Optionally override font size
+   - Optionally override figure size
+5. Click **"Save"**
+
+**Tips for Export:**
+
+- Use **PDF** format for publications (vector graphics, scalable)
+- Use **PNG** at 300 DPI for presentations and web
+- Increase font size for small figures in publications
+- Adjust figure size to match journal requirements
+- Spatial visualizations benefit from larger figure sizes to show detail
+
+Accessing Visualizations in the GUI
+------------------------------------
+
+1. **Build Spatial Graph**: First, build the spatial graph using the controls at the top
+   - Select graph construction method (kNN, Radius, or Delaunay)
+   - Set parameters (k_neighbors, radius, pixel_size_um)
+   - Click "Build Graph"
+   - Graph must be built before visualizations are available
+
+2. **Open Spatial Analysis Dialog**: Navigate to **Analysis → Spatial Analysis → Simple Spatial Analysis**
+
+3. **Select Tab**: Use the tabs to access different visualizations
+   - **Pairwise Enrichment**: Run enrichment analysis and view heatmap
+   - **Distance Distributions**: Run distance analysis and view distributions
+   - **Spatial Visualization**: Generate spatial scatter plots
+   - **Spatial Communities**: Run community detection and view communities
+
+4. **Adjust Parameters**: Use controls in each tab to customize visualizations
+
+5. **Export**: Click **"Save Plot"** in each tab to export visualizations
+
+**Tab-Specific Controls:**
+
+- **Pairwise Enrichment**: Permutations, Workers, Run button, Save Plot button
+- **Distance Distributions**: Cluster selection, Run button, Save Plot button
+- **Spatial Visualization**: ROI selection, Color by, Point Size, Show edges, Generate button, Save Plot button
+- **Spatial Communities**: ROI selection, Min cells, Exclude cell types, Run button, Save Plot button
+
+Tips and Best Practices for Visualizations
+-------------------------------------------
+
+1. **Pairwise Enrichment:**
+   - Use at least 100 permutations for reliable results
+   - Increase to 500-1000 for publication-quality p-values
+   - Interpret z-scores in context of p-values
+   - Look for consistent patterns across multiple ROIs
+
+2. **Distance Distributions:**
+   - Compare distances between different cell type pairs
+   - Look for systematic differences indicating spatial relationships
+   - Consider biological context when interpreting results
+   - Compare same-cluster vs. cross-cluster distances
+
+3. **Spatial Visualization:**
+   - Always visually inspect spatial organization
+   - Use different color encodings to explore different aspects
+   - Compare across ROIs to identify consistent patterns
+   - Adjust point size for optimal visibility
+   - Use "Show edges" sparingly (can be slow for large datasets)
+
+4. **Spatial Communities:**
+   - Adjust min_cells to focus on relevant spatial scales
+   - Exclude cell types that are not of interest
+   - Compare community structure across ROIs
+   - Use communities to identify spatial niches
+
+5. **Export:**
+   - Use PDF for publications (vector graphics)
+   - Use PNG at 300 DPI for presentations
+   - Adjust font sizes for small figures
+   - Spatial visualizations may need larger figure sizes
+

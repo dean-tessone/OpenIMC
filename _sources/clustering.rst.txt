@@ -391,3 +391,368 @@ Tips and Best Practices
      - Spatial analysis
      - Population comparisons
 
+Clustering Visualizations
+==========================
+
+After clustering, OpenIMC provides multiple visualization options to explore and interpret cluster results. All visualizations are accessible from the clustering dialog after running clustering.
+
+Available Visualizations
+-------------------------
+
+1. **Heatmap**: Shows feature expression patterns across clusters
+2. **UMAP**: 2D embedding colored by various attributes
+3. **t-SNE**: 2D embedding colored by various attributes (if scikit-learn is installed)
+4. **Differential Expression**: Heatmap of top markers per cluster
+5. **Stacked Bars**: Cluster composition by grouping variable
+6. **Boxplot/Violin Plot**: Distribution of marker expression by cluster
+
+Heatmap Visualization
+---------------------
+
+The heatmap is the default visualization after clustering. It displays feature expression patterns across all cells, with cells grouped by cluster.
+
+**Parameters:**
+
+- **Heatmap of**: Choose between "Clusters" (default) or "Manual Gates" (if manual phenotypes are assigned)
+- **Scaling**: Method for normalizing features before display
+  - ``"Z-score"``: Z-score normalization (default)
+  - ``"MAD (Median Absolute Deviation)"``: Robust normalization
+  - ``"None (no scaling)"``: Raw feature values
+- **Colormap**: Color scheme for the heatmap
+  - ``"RdBu_r"``: Red-White-Blue (default, good for z-scored data)
+  - ``"viridis"``: Purple-Green-Yellow
+  - ``"plasma"``: Purple-Pink-Yellow
+  - ``"inferno"``: Purple-Red-Yellow
+  - ``"Blues"``, ``"Reds"``, ``"Greens"``, ``"Oranges"``, ``"Purples"``: Sequential colormaps
+- **Filter**: Select which clusters/phenotypes to display (click "Filter…" button)
+- **Feature label font size**: Font size for feature labels on y-axis (default: 8, range: 4-20)
+- **Patient annotation**: Show patient/source file annotation bar above cells
+  - Enable/disable with checkbox
+  - Select annotation column (source_file, batch_group, source_well)
+  - Customize patient labels (click "Customize Patient Labels…")
+  - Customize legend label (e.g., "Patient", "Sample", "Source")
+
+**Customization:**
+
+- Click **"Configure Plot"** button to open the plot configuration dialog
+- Customize feature labels (click "Customize Feature Labels…" to set friendly names)
+- Adjust dendrogram linkage method (automatic, based on data)
+
+**Export:**
+
+- Click **"Save Plot"** button to export the heatmap
+- Options: PNG, JPG, or PDF format
+- Adjustable DPI (default: 300)
+- Optional font size override
+- Optional figure size override
+
+UMAP Visualization
+------------------
+
+UMAP (Uniform Manifold Approximation and Projection) provides a 2D embedding of the high-dimensional feature space, useful for visualizing cluster structure.
+
+**Parameters:**
+
+- **Color by**: Select one or more attributes to color points (multi-select for faceted plots)
+  - ``"Cluster"``: Color by cluster assignment (default)
+  - ``"Source File"``: Color by source file/patient (visualize batch effects)
+  - ``"Phenotype"``: Color by cluster phenotype (if annotated)
+  - ``"Manual Phenotype"``: Color by manual phenotype (if assigned)
+  - Feature columns: Color by continuous feature expression (e.g., marker intensities)
+- **Point size**: Size of points in scatter plot (default: 18, range: 1-200)
+- **Point alpha**: Transparency of points (default: 0.8, range: 0.0-1.0)
+  - 0.0 = fully transparent
+  - 1.0 = fully opaque
+- **Remake UMAP**: Regenerate UMAP with different parameters
+  - Select features to use
+  - Choose scaling method
+  - Set n_neighbors parameter (default: 15)
+
+**Faceted Plotting:**
+
+- Select multiple "Color by" options to create side-by-side plots (up to 3 plots)
+- Useful for comparing different coloring schemes
+
+**Export:**
+
+- Click **"Save Plot"** button to export
+- Same export options as heatmap (format, DPI, font size, figure size)
+
+t-SNE Visualization
+-------------------
+
+t-SNE (t-Distributed Stochastic Neighbor Embedding) provides an alternative 2D embedding method. Requires scikit-learn to be installed.
+
+**Parameters:**
+
+- Same as UMAP:
+  - **Color by**: Multi-select for faceted plots
+  - **Point size**: Default 18, range 1-200
+  - **Point alpha**: Default 0.8, range 0.0-1.0
+
+**Note:** t-SNE is computationally more expensive than UMAP and may take longer for large datasets.
+
+**Export:**
+
+- Same export options as other visualizations
+
+Differential Expression Visualization
+--------------------------------------
+
+Shows a heatmap of the top N markers per cluster, highlighting which features are most characteristic of each cluster.
+
+**Parameters:**
+
+- **Top N**: Number of top markers to show per cluster (default: 5, range: 1-20)
+- **Colormap**: Color scheme (same options as heatmap)
+  - Default: ``"RdBu_r"`` (Red-White-Blue)
+- **Feature labels**: Customize feature display names (click "Customize Feature Labels…")
+
+**How it works:**
+
+1. Calculates mean expression per cluster for each feature
+2. Computes z-scores: (cluster_mean - overall_mean) / overall_std
+3. For each cluster, selects top N features with highest z-scores
+4. Displays as heatmap with z-scores color-coded
+5. Highlights top N markers for each cluster with black boxes
+
+**Interpretation:**
+
+- Positive z-scores (red): Feature is higher in this cluster than average
+- Negative z-scores (blue): Feature is lower in this cluster than average
+- Black boxes: Top N markers for each cluster
+- Z-score values are displayed as text annotations
+
+**Export:**
+
+- Same export options as other visualizations
+
+Stacked Bars Visualization
+---------------------------
+
+Shows the composition of clusters across different groups (e.g., ROIs, conditions, patients).
+
+**Parameters:**
+
+- **Group by**: Select grouping variable
+  - ``"acquisition_id"``: Group by acquisition
+  - ``"source_file"``: Group by source file/patient
+  - ``"batch_group"``: Group by batch
+  - ``"source_well"``: Group by well
+  - Other available grouping columns
+- **Feature labels**: Customize feature display names (optional)
+
+**How it works:**
+
+1. Groups cells by the selected grouping variable
+2. Calculates the fraction of each cluster within each group
+3. Displays as stacked bar chart
+4. Each bar represents one group
+5. Colors correspond to clusters (consistent with other visualizations)
+
+**Interpretation:**
+
+- Bar height: Total number of cells in that group
+- Segment height: Fraction of cells in that cluster
+- Useful for comparing cluster frequencies across conditions/patients
+
+**Export:**
+
+- Same export options as other visualizations
+
+Boxplot/Violin Plot Visualization
+-----------------------------------
+
+Shows the distribution of marker expression values across clusters, useful for identifying marker-specific differences.
+
+**Parameters:**
+
+- **Markers**: Select markers to visualize (click "Select Markers…" button)
+  - Multi-select dialog with all available markers
+  - Can select multiple markers for faceted plots
+- **Plot type**: Choose between "Violin Plot" (default) or "Boxplot"
+  - **Violin Plot**: Shows full distribution shape (KDE)
+  - **Boxplot**: Shows quartiles, median, and outliers
+- **Statistical testing**: Enable to perform pairwise comparisons
+  - **Test mode**: 
+    - ``"Pairwise (all pairs)"``: Compare all cluster pairs
+    - ``"One vs Others"``: Compare one cluster against all others
+  - **Reference cluster**: Select cluster for "One vs Others" mode
+  - **Export Statistical Results**: Export p-values to CSV
+
+**Statistical Testing:**
+
+- Uses Mann-Whitney U test (non-parametric, two-sided)
+- Applies Benjamini-Hochberg (BH) correction for multiple testing
+- Significance levels:
+  - ``***``: p < 0.001
+  - ``**``: p < 0.01
+  - ``*``: p < 0.05
+  - ``ns``: not significant (p ≥ 0.05)
+- Significance bars are drawn between significantly different clusters
+- Only significant results (adjusted p < 0.05) are shown
+
+**Export:**
+
+- **Save Plot**: Export visualization (same options as other plots)
+- **Export Statistical Results**: Export test results to CSV
+  - Columns: Marker, Cluster_1, Cluster_2, P_value, Adjusted_P_value_BH, Significant, Significance_level
+
+**Customization:**
+
+- Feature labels can be customized (click "Customize Feature Labels…")
+- Colors match cluster colors from other visualizations
+
+Exporting Plots
+---------------
+
+All visualizations can be exported using the **"Save Plot"** button.
+
+**Export Options:**
+
+1. **Format**: Choose output format
+   - ``PNG``: Raster image (default, good for presentations)
+   - ``JPG``: Compressed raster image
+   - ``PDF``: Vector format (good for publications, scalable)
+
+2. **DPI (Dots Per Inch)**: Resolution for raster formats
+   - Default: 300 DPI (publication quality)
+   - Range: 72-1200 DPI
+   - Higher DPI = larger file size, better quality
+
+3. **Font Size Override**: Optionally override all font sizes
+   - Check "Override figure font size"
+   - Set font size in points (default: 10.0, range: 6.0-72.0)
+   - Useful for adjusting text size for publications
+
+4. **Figure Size Override**: Optionally change figure dimensions
+   - Check "Override figure size"
+   - Set width and height in inches (default: 8.0 x 6.0)
+   - Range: 1.0-100.0 inches
+
+**Export Workflow:**
+
+1. Generate the desired visualization
+2. Adjust any parameters (colormap, point size, etc.)
+3. Click **"Save Plot"** button
+4. In the save dialog:
+   - Choose filename and location
+   - Select format (PNG/JPG/PDF)
+   - Set DPI (for raster formats)
+   - Optionally override font size
+   - Optionally override figure size
+5. Click **"Save"**
+
+**Tips for Export:**
+
+- Use **PDF** format for publications (vector graphics, scalable)
+- Use **PNG** at 300 DPI for presentations and web
+- Increase font size for small figures in publications
+- Adjust figure size to match journal requirements
+- Use "Override figure size" to create square plots or specific aspect ratios
+
+Customizing Font Sizes
+-----------------------
+
+Font sizes can be customized in several ways:
+
+**1. Heatmap Feature Labels:**
+
+- In the clustering dialog, use the **"Configure Plot"** button
+- In the plot configuration dialog, adjust "Feature label font size"
+- Range: 4-20 points (default: 8)
+- Applies to y-axis feature labels in heatmap
+
+**2. Export Font Size Override:**
+
+- When saving a plot, check "Override figure font size"
+- Set global font size (applies to all text elements)
+- Range: 6.0-72.0 points (default: 10.0)
+- Useful for making text larger/smaller for publications
+
+**3. Plot-Specific Font Sizes:**
+
+- Most plots use default font sizes optimized for display
+- UMAP/t-SNE: Axis labels (10pt), titles (12pt), legends (8pt)
+- Differential Expression: Feature labels (9-10pt), annotations (8-10pt)
+- Boxplot/Violin: Axis labels (9-10pt), titles (10-12pt)
+
+**Note:** Font size customization is most important for heatmaps (many feature labels) and publication figures.
+
+Customizing Feature Labels
+---------------------------
+
+All visualizations support custom feature labels for better readability.
+
+**How to Customize:**
+
+1. Click **"Customize Feature Labels…"** button (available in all views)
+2. In the dialog, set friendly display names for features
+   - Example: ``"CD3_1841_mean"`` → ``"CD3 Mean"``
+   - Example: ``"Vimentin_mean"`` → ``"Mean Vimentin"``
+3. Labels are saved and used in all visualizations
+4. Original feature names are preserved in data exports
+
+**Use Cases:**
+
+- Shorten long feature names
+- Add units or descriptions
+- Use consistent naming conventions
+- Improve readability in heatmaps and differential expression plots
+
+Accessing Visualizations in the GUI
+------------------------------------
+
+1. **Run Clustering**: Complete clustering analysis first
+2. **Open Clustering Dialog**: Navigate to **Analysis → Cell Clustering…**
+3. **Select View**: Use the dropdown at the bottom of the dialog
+   - Options: "Heatmap", "UMAP", "t-SNE", "Stacked Bars", "Differential Expression", "Boxplot/Violin Plot"
+4. **Adjust Parameters**: Use controls visible for the selected view
+5. **Configure Plot**: Click **"Configure Plot"** button for advanced settings (heatmap only)
+6. **Export**: Click **"Save Plot"** to export the current visualization
+
+**View-Specific Controls:**
+
+- Controls are automatically shown/hidden based on the selected view
+- Heatmap: Source, scaling, filter, patient annotation, colormap
+- UMAP/t-SNE: Color by, point size, point alpha, remake UMAP (UMAP only)
+- Stacked Bars: Group by
+- Differential Expression: Top N, colormap
+- Boxplot/Violin: Marker selection, plot type, statistical testing
+
+Tips and Best Practices for Visualizations
+-------------------------------------------
+
+1. **Heatmap:**
+   - Use Z-score scaling for comparing across features
+   - Filter clusters to focus on specific populations
+   - Enable patient annotation to visualize batch effects
+   - Adjust feature label font size for readability
+
+2. **UMAP/t-SNE:**
+   - Use "Cluster" coloring to assess cluster separation
+   - Use "Source File" coloring to check for batch effects
+   - Adjust point size and alpha for dense plots
+   - Use faceted plots to compare multiple colorings
+
+3. **Differential Expression:**
+   - Adjust "Top N" to show more/fewer markers
+   - Use RdBu_r colormap for z-scored data
+   - Look for black boxes highlighting top markers
+
+4. **Stacked Bars:**
+   - Choose grouping variable based on your experimental design
+   - Useful for comparing cluster frequencies across conditions
+
+5. **Boxplot/Violin Plot:**
+   - Select informative markers (known cell type markers)
+   - Use violin plots to see full distribution shape
+   - Enable statistical testing for publication figures
+   - Export statistical results for detailed analysis
+
+6. **Export:**
+   - Use PDF for publications (vector graphics)
+   - Use PNG at 300 DPI for presentations
+   - Adjust font sizes for small figures
+   - Save multiple formats if needed
+

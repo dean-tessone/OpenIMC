@@ -1,0 +1,338 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quality Control Analysis &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Spillover Matrix Generation" href="spillover_matrix.html" />
+    <link rel="prev" title="Pixel Correlation Analysis" href="pixel_correlation.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Quality Control Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-quality-control-analysis-in-the-gui">Using Quality Control Analysis in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-quality-control-analysis-in-the-cli">Using Quality Control Analysis in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-command-pixel-level">Basic Command (Pixel-level)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cell-level-command">Cell-level Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-specific-channels">With Specific Channels</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#signal-to-noise-ratio-snr">Signal-to-Noise Ratio (SNR)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qc-metrics">QC Metrics</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Quality Control Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/quality_control.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="quality-control-analysis">
+<h1>Quality Control Analysis<a class="headerlink" href="#quality-control-analysis" title="Link to this heading"></a></h1>
+<p>Quality control (QC) analysis assesses image quality by computing metrics such as Signal-to-Noise Ratio (SNR), intensity statistics, and coverage metrics for each channel.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>QC analysis helps identify:
+- <strong>Low-quality channels</strong>: Channels with poor signal-to-noise ratios
+- <strong>Detection issues</strong>: Channels with low coverage or detection rates
+- <strong>Image artifacts</strong>: Unusual intensity distributions or patterns
+- <strong>Acquisition problems</strong>: Systematic issues across acquisitions</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>QC analysis can be performed in two modes:</p>
+<ol class="arabic simple">
+<li><p><strong>Pixel-level QC</strong>: Analyzes all pixels using Otsu thresholding to separate signal from background</p></li>
+<li><p><strong>Cell-level QC</strong>: Uses segmentation masks to separate cell pixels from background pixels</p></li>
+</ol>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>mode</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;pixel&quot;</span></code>): Analysis mode
+- <code class="docutils literal notranslate"><span class="pre">&quot;pixel&quot;</span></code>: Pixel-level analysis using Otsu thresholding
+- <code class="docutils literal notranslate"><span class="pre">&quot;cell&quot;</span></code>: Cell-level analysis using segmentation masks (requires mask)</p></li>
+<li><p><strong>channels</strong> (optional): List of channel names to analyze
+- If not specified, analyzes all channels</p></li>
+<li><p><strong>mask</strong> (required for cell mode): Segmentation mask for cell-level analysis
+- Must match image dimensions
+- Pixels with mask &gt; 0 are considered cells
+- Pixels with mask == 0 are considered background</p></li>
+</ul>
+</section>
+<section id="using-quality-control-analysis-in-the-gui">
+<h2>Using Quality Control Analysis in the GUI<a class="headerlink" href="#using-quality-control-analysis-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p>Load your IMC data file (<code class="docutils literal notranslate"><span class="pre">.mcd</span></code> or OME-TIFF directory)</p></li>
+<li><p>Navigate to <strong>Analysis → QC Analysis…</strong> in the menu bar</p></li>
+<li><p>In the QC analysis dialog:
+- Select which acquisitions to analyze
+- Choose analysis mode:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><strong>Pixel-level</strong>: Uses Otsu thresholding (no mask required)</p></li>
+<li><p><strong>Cell-level</strong>: Uses segmentation masks (requires masks to be loaded)</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Optionally select specific channels (or analyze all channels)</p></li>
+<li><p>If using cell-level mode, ensure segmentation masks are available</p></li>
+<li><p>Click <strong>Run Analysis</strong> to start the process</p></li>
+</ul>
+</li>
+<li><p>Results are displayed in multiple tabs:
+- <strong>QC Metrics Table</strong>: Detailed metrics for each channel
+- <strong>SNR vs Intensity</strong>: Scatter plot showing SNR vs mean intensity
+- <strong>Distribution Plots</strong>: Boxplots showing distributions across ROIs</p></li>
+<li><p>Export results using the <strong>Export Results</strong> button</p></li>
+</ol>
+</section>
+<section id="using-quality-control-analysis-in-the-cli">
+<h2>Using Quality Control Analysis in the CLI<a class="headerlink" href="#using-quality-control-analysis-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-command-pixel-level">
+<h3>Basic Command (Pixel-level)<a class="headerlink" href="#basic-command-pixel-level" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mode<span class="w"> </span>pixel
+</pre></div>
+</div>
+</section>
+<section id="cell-level-command">
+<h3>Cell-level Command<a class="headerlink" href="#cell-level-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mode<span class="w"> </span>cell<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/
+</pre></div>
+</div>
+</section>
+<section id="with-specific-channels">
+<h3>With Specific Channels<a class="headerlink" href="#with-specific-channels" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mode<span class="w"> </span>pixel<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--channels<span class="w"> </span>CD3_1841,CD4_2293
+</pre></div>
+</div>
+</section>
+<section id="workflow-yaml-example">
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">qc_analysis</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># input: &quot;path/to/input.mcd&quot;  # Optional: uses previous step output if not specified</span>
+<span class="w">  </span><span class="c1"># output: &quot;qc_analysis.csv&quot;  # Optional: override default output location</span>
+<span class="w">  </span><span class="c1"># mask: &quot;path/to/masks/&quot;  # Optional: for cell-level QC</span>
+<span class="w">  </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pixel&quot;</span><span class="w">  </span><span class="c1"># or &quot;cell&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="signal-to-noise-ratio-snr">
+<h3>Signal-to-Noise Ratio (SNR)<a class="headerlink" href="#signal-to-noise-ratio-snr" title="Link to this heading"></a></h3>
+<p>SNR measures the strength of the signal relative to background noise. Higher SNR indicates better image quality.</p>
+<p><strong>SNR Equation:</strong></p>
+<div class="math notranslate nohighlight">
+\[\text{SNR} = \frac{\mu_{\text{signal}} - \mu_{\text{background}}}{\sigma_{\text{background}}}\]</div>
+<p>Where:
+- <span class="math notranslate nohighlight">\(\mu_{\text{signal}}\)</span> = Mean intensity of signal (foreground) pixels
+- <span class="math notranslate nohighlight">\(\mu_{\text{background}}\)</span> = Mean intensity of background pixels
+- <span class="math notranslate nohighlight">\(\sigma_{\text{background}}\)</span> = Standard deviation of background pixels</p>
+<p><strong>Robust SNR Calculation:</strong></p>
+<p>To prevent inflated SNR values when background standard deviation is extremely small, OpenIMC uses a minimum background standard deviation:</p>
+<div class="math notranslate nohighlight">
+\[ \begin{align}\begin{aligned}\sigma_{\text{min}} = \max(\sigma_{\text{background}}, 0.001 \times |\mu_{\text{background}}|, 0.0001 \times \text{range}, 10^{-6})\\\text{SNR} = \frac{\mu_{\text{signal}} - \mu_{\text{background}}}{\sigma_{\text{min}}}\end{aligned}\end{align} \]</div>
+<p>Where:
+- <span class="math notranslate nohighlight">\(\text{range}\)</span> = Image intensity range (max - min)</p>
+<p>This ensures SNR values remain reasonable even for very uniform backgrounds or very low-intensity channels.</p>
+<p><strong>Pixel-level Mode:</strong>
+- Uses Otsu thresholding to separate foreground (signal) from background
+- Otsu method automatically determines optimal threshold
+- Foreground: pixels above threshold
+- Background: pixels at or below threshold</p>
+<p><strong>Cell-level Mode:</strong>
+- Uses segmentation masks to separate cells from background
+- Signal: pixels within cells (mask &gt; 0)
+- Background: pixels outside cells (mask == 0)</p>
+<p><strong>Citation:</strong>
+- Otsu, N. (1979). “A threshold selection method from gray-level histograms.” IEEE Transactions on Systems, Man, and Cybernetics, 9(1), 62-66. <a class="reference external" href="https://doi.org/10.1109/TSMC.1979.4310076">DOI: 10.1109/TSMC.1979.4310076</a>
+- Implementation: <a class="reference external" href="https://scikit-image.org/docs/stable/api/skimage.filters.html#skimage.filters.threshold_otsu">scikit-image filters.threshold_otsu</a></p>
+</section>
+<section id="qc-metrics">
+<h3>QC Metrics<a class="headerlink" href="#qc-metrics" title="Link to this heading"></a></h3>
+<p>The following metrics are computed for each channel:</p>
+<p><strong>Intensity Metrics:</strong>
+- <strong>mean_intensity</strong>: Mean pixel intensity
+- <strong>median_intensity</strong>: Median pixel intensity
+- <strong>max_intensity</strong>: Maximum pixel intensity
+- <strong>min_intensity</strong>: Minimum pixel intensity
+- <strong>std_intensity</strong>: Standard deviation of intensities</p>
+<p><strong>Signal Metrics (foreground/cells):</strong>
+- <strong>signal_mean</strong>: Mean intensity of signal pixels
+- <strong>signal_std</strong>: Standard deviation of signal pixels</p>
+<p><strong>Background Metrics:</strong>
+- <strong>background_mean</strong>: Mean intensity of background pixels
+- <strong>background_std</strong>: Standard deviation of background pixels</p>
+<p><strong>Quality Metrics:</strong>
+- <strong>snr</strong>: Signal-to-Noise Ratio (see equation above)
+- <strong>coverage_pct</strong>: Percentage of pixels covered by signal/cells
+- <strong>cell_density</strong> (cell mode only): Number of cells per unit area</p>
+<p><strong>Percentile Metrics (pixel mode only):</strong>
+- <strong>p1, p25, p75, p99</strong>: 1st, 25th, 75th, and 99th percentiles</p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p><strong>Mode Selection</strong>:
+- Use <strong>pixel-level</strong> mode for quick assessment without segmentation
+- Use <strong>cell-level</strong> mode for more accurate SNR when segmentation is available</p></li>
+<li><p><strong>SNR Interpretation</strong>:
+- <strong>SNR &gt; 10</strong>: Excellent signal quality
+- <strong>SNR 5-10</strong>: Good signal quality
+- <strong>SNR 2-5</strong>: Acceptable but may need optimization
+- <strong>SNR &lt; 2</strong>: Poor signal quality, consider excluding or optimizing</p></li>
+<li><p><strong>Coverage Interpretation</strong>:
+- Low coverage may indicate:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Sparse marker expression</p></li>
+<li><p>Poor staining</p></li>
+<li><p>Threshold issues (pixel mode)</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>High coverage may indicate:
+- Ubiquitous marker expression
+- Background contamination</p></li>
+</ul>
+</li>
+<li><p><strong>Cross-ROI Comparison</strong>:
+- Compare metrics across ROIs to identify systematic issues
+- Look for consistent patterns vs. outliers</p></li>
+<li><p><strong>Channel Filtering</strong>:
+- Use QC metrics to identify and exclude low-quality channels
+- Set minimum SNR thresholds for downstream analysis</p></li>
+<li><p><strong>Validation</strong>:
+- Check SNR vs Intensity plot for expected relationships
+- High-intensity channels should generally have higher SNR
+- Investigate outliers in the SNR vs Intensity plot</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="pixel_correlation.html" class="btn btn-neutral float-left" title="Pixel Correlation Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="spillover_matrix.html" class="btn btn-neutral float-right" title="Spillover Matrix Generation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

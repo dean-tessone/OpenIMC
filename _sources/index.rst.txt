@@ -13,10 +13,15 @@ OpenIMC Documentation
    overview
    installation
    quickstart
+   image_visualization
    segmentation
    feature_extraction
    batch_correction
    clustering
+   llm_phenotyping
+   pixel_correlation
+   quality_control
+   spillover_matrix
    simple_spatial_analysis
    advanced_spatial_analysis
 

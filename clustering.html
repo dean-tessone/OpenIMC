@@ -19,7 +19,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Simple Spatial Analysis" href="simple_spatial_analysis.html" />
+    <link rel="next" title="LLM-Based Phenotyping" href="llm_phenotyping.html" />
     <link rel="prev" title="Batch Correction" href="batch_correction.html" /> 
 </head>
 
@@ -47,6 +47,7 @@
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
@@ -82,8 +83,29 @@
 <li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="#clustering-visualizations">Clustering Visualizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#heatmap-visualization">Heatmap Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#umap-visualization">UMAP Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#t-sne-visualization">t-SNE Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#differential-expression-visualization">Differential Expression Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stacked-bars-visualization">Stacked Bars Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#boxplot-violin-plot-visualization">Boxplot/Violin Plot Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#customizing-font-sizes">Customizing Font Sizes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#customizing-feature-labels">Customizing Feature Labels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -465,13 +487,368 @@
 </ol>
 </section>
 </section>
+<section id="clustering-visualizations">
+<h1>Clustering Visualizations<a class="headerlink" href="#clustering-visualizations" title="Link to this heading"></a></h1>
+<p>After clustering, OpenIMC provides multiple visualization options to explore and interpret cluster results. All visualizations are accessible from the clustering dialog after running clustering.</p>
+<section id="available-visualizations">
+<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Heatmap</strong>: Shows feature expression patterns across clusters</p></li>
+<li><p><strong>UMAP</strong>: 2D embedding colored by various attributes</p></li>
+<li><p><strong>t-SNE</strong>: 2D embedding colored by various attributes (if scikit-learn is installed)</p></li>
+<li><p><strong>Differential Expression</strong>: Heatmap of top markers per cluster</p></li>
+<li><p><strong>Stacked Bars</strong>: Cluster composition by grouping variable</p></li>
+<li><p><strong>Boxplot/Violin Plot</strong>: Distribution of marker expression by cluster</p></li>
+</ol>
+</section>
+<section id="heatmap-visualization">
+<h2>Heatmap Visualization<a class="headerlink" href="#heatmap-visualization" title="Link to this heading"></a></h2>
+<p>The heatmap is the default visualization after clustering. It displays feature expression patterns across all cells, with cells grouped by cluster.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Heatmap of</strong>: Choose between “Clusters” (default) or “Manual Gates” (if manual phenotypes are assigned)</p></li>
+<li><p><strong>Scaling</strong>: Method for normalizing features before display
+- <code class="docutils literal notranslate"><span class="pre">&quot;Z-score&quot;</span></code>: Z-score normalization (default)
+- <code class="docutils literal notranslate"><span class="pre">&quot;MAD</span> <span class="pre">(Median</span> <span class="pre">Absolute</span> <span class="pre">Deviation)&quot;</span></code>: Robust normalization
+- <code class="docutils literal notranslate"><span class="pre">&quot;None</span> <span class="pre">(no</span> <span class="pre">scaling)&quot;</span></code>: Raw feature values</p></li>
+<li><p><strong>Colormap</strong>: Color scheme for the heatmap
+- <code class="docutils literal notranslate"><span class="pre">&quot;RdBu_r&quot;</span></code>: Red-White-Blue (default, good for z-scored data)
+- <code class="docutils literal notranslate"><span class="pre">&quot;viridis&quot;</span></code>: Purple-Green-Yellow
+- <code class="docutils literal notranslate"><span class="pre">&quot;plasma&quot;</span></code>: Purple-Pink-Yellow
+- <code class="docutils literal notranslate"><span class="pre">&quot;inferno&quot;</span></code>: Purple-Red-Yellow
+- <code class="docutils literal notranslate"><span class="pre">&quot;Blues&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Reds&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Greens&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Oranges&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Purples&quot;</span></code>: Sequential colormaps</p></li>
+<li><p><strong>Filter</strong>: Select which clusters/phenotypes to display (click “Filter…” button)</p></li>
+<li><p><strong>Feature label font size</strong>: Font size for feature labels on y-axis (default: 8, range: 4-20)</p></li>
+<li><p><strong>Patient annotation</strong>: Show patient/source file annotation bar above cells
+- Enable/disable with checkbox
+- Select annotation column (source_file, batch_group, source_well)
+- Customize patient labels (click “Customize Patient Labels…”)
+- Customize legend label (e.g., “Patient”, “Sample”, “Source”)</p></li>
+</ul>
+<p><strong>Customization:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Configure Plot”</strong> button to open the plot configuration dialog</p></li>
+<li><p>Customize feature labels (click “Customize Feature Labels…” to set friendly names)</p></li>
+<li><p>Adjust dendrogram linkage method (automatic, based on data)</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export the heatmap</p></li>
+<li><p>Options: PNG, JPG, or PDF format</p></li>
+<li><p>Adjustable DPI (default: 300)</p></li>
+<li><p>Optional font size override</p></li>
+<li><p>Optional figure size override</p></li>
+</ul>
+</section>
+<section id="umap-visualization">
+<h2>UMAP Visualization<a class="headerlink" href="#umap-visualization" title="Link to this heading"></a></h2>
+<p>UMAP (Uniform Manifold Approximation and Projection) provides a 2D embedding of the high-dimensional feature space, useful for visualizing cluster structure.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Color by</strong>: Select one or more attributes to color points (multi-select for faceted plots)
+- <code class="docutils literal notranslate"><span class="pre">&quot;Cluster&quot;</span></code>: Color by cluster assignment (default)
+- <code class="docutils literal notranslate"><span class="pre">&quot;Source</span> <span class="pre">File&quot;</span></code>: Color by source file/patient (visualize batch effects)
+- <code class="docutils literal notranslate"><span class="pre">&quot;Phenotype&quot;</span></code>: Color by cluster phenotype (if annotated)
+- <code class="docutils literal notranslate"><span class="pre">&quot;Manual</span> <span class="pre">Phenotype&quot;</span></code>: Color by manual phenotype (if assigned)
+- Feature columns: Color by continuous feature expression (e.g., marker intensities)</p></li>
+<li><p><strong>Point size</strong>: Size of points in scatter plot (default: 18, range: 1-200)</p></li>
+<li><p><strong>Point alpha</strong>: Transparency of points (default: 0.8, range: 0.0-1.0)
+- 0.0 = fully transparent
+- 1.0 = fully opaque</p></li>
+<li><p><strong>Remake UMAP</strong>: Regenerate UMAP with different parameters
+- Select features to use
+- Choose scaling method
+- Set n_neighbors parameter (default: 15)</p></li>
+</ul>
+<p><strong>Faceted Plotting:</strong></p>
+<ul class="simple">
+<li><p>Select multiple “Color by” options to create side-by-side plots (up to 3 plots)</p></li>
+<li><p>Useful for comparing different coloring schemes</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as heatmap (format, DPI, font size, figure size)</p></li>
+</ul>
+</section>
+<section id="t-sne-visualization">
+<h2>t-SNE Visualization<a class="headerlink" href="#t-sne-visualization" title="Link to this heading"></a></h2>
+<p>t-SNE (t-Distributed Stochastic Neighbor Embedding) provides an alternative 2D embedding method. Requires scikit-learn to be installed.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p>Same as UMAP:
+- <strong>Color by</strong>: Multi-select for faceted plots
+- <strong>Point size</strong>: Default 18, range 1-200
+- <strong>Point alpha</strong>: Default 0.8, range 0.0-1.0</p></li>
+</ul>
+<p><strong>Note:</strong> t-SNE is computationally more expensive than UMAP and may take longer for large datasets.</p>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="differential-expression-visualization">
+<h2>Differential Expression Visualization<a class="headerlink" href="#differential-expression-visualization" title="Link to this heading"></a></h2>
+<p>Shows a heatmap of the top N markers per cluster, highlighting which features are most characteristic of each cluster.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Top N</strong>: Number of top markers to show per cluster (default: 5, range: 1-20)</p></li>
+<li><p><strong>Colormap</strong>: Color scheme (same options as heatmap)
+- Default: <code class="docutils literal notranslate"><span class="pre">&quot;RdBu_r&quot;</span></code> (Red-White-Blue)</p></li>
+<li><p><strong>Feature labels</strong>: Customize feature display names (click “Customize Feature Labels…”)</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Calculates mean expression per cluster for each feature</p></li>
+<li><p>Computes z-scores: (cluster_mean - overall_mean) / overall_std</p></li>
+<li><p>For each cluster, selects top N features with highest z-scores</p></li>
+<li><p>Displays as heatmap with z-scores color-coded</p></li>
+<li><p>Highlights top N markers for each cluster with black boxes</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p>Positive z-scores (red): Feature is higher in this cluster than average</p></li>
+<li><p>Negative z-scores (blue): Feature is lower in this cluster than average</p></li>
+<li><p>Black boxes: Top N markers for each cluster</p></li>
+<li><p>Z-score values are displayed as text annotations</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="stacked-bars-visualization">
+<h2>Stacked Bars Visualization<a class="headerlink" href="#stacked-bars-visualization" title="Link to this heading"></a></h2>
+<p>Shows the composition of clusters across different groups (e.g., ROIs, conditions, patients).</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Group by</strong>: Select grouping variable
+- <code class="docutils literal notranslate"><span class="pre">&quot;acquisition_id&quot;</span></code>: Group by acquisition
+- <code class="docutils literal notranslate"><span class="pre">&quot;source_file&quot;</span></code>: Group by source file/patient
+- <code class="docutils literal notranslate"><span class="pre">&quot;batch_group&quot;</span></code>: Group by batch
+- <code class="docutils literal notranslate"><span class="pre">&quot;source_well&quot;</span></code>: Group by well
+- Other available grouping columns</p></li>
+<li><p><strong>Feature labels</strong>: Customize feature display names (optional)</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Groups cells by the selected grouping variable</p></li>
+<li><p>Calculates the fraction of each cluster within each group</p></li>
+<li><p>Displays as stacked bar chart</p></li>
+<li><p>Each bar represents one group</p></li>
+<li><p>Colors correspond to clusters (consistent with other visualizations)</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p>Bar height: Total number of cells in that group</p></li>
+<li><p>Segment height: Fraction of cells in that cluster</p></li>
+<li><p>Useful for comparing cluster frequencies across conditions/patients</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="boxplot-violin-plot-visualization">
+<h2>Boxplot/Violin Plot Visualization<a class="headerlink" href="#boxplot-violin-plot-visualization" title="Link to this heading"></a></h2>
+<p>Shows the distribution of marker expression values across clusters, useful for identifying marker-specific differences.</p>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><p><strong>Markers</strong>: Select markers to visualize (click “Select Markers…” button)
+- Multi-select dialog with all available markers
+- Can select multiple markers for faceted plots</p></li>
+<li><p><strong>Plot type</strong>: Choose between “Violin Plot” (default) or “Boxplot”
+- <strong>Violin Plot</strong>: Shows full distribution shape (KDE)
+- <strong>Boxplot</strong>: Shows quartiles, median, and outliers</p></li>
+<li><p><strong>Statistical testing</strong>: Enable to perform pairwise comparisons
+- <strong>Test mode</strong>:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;Pairwise</span> <span class="pre">(all</span> <span class="pre">pairs)&quot;</span></code>: Compare all cluster pairs</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;One</span> <span class="pre">vs</span> <span class="pre">Others&quot;</span></code>: Compare one cluster against all others</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p><strong>Reference cluster</strong>: Select cluster for “One vs Others” mode</p></li>
+<li><p><strong>Export Statistical Results</strong>: Export p-values to CSV</p></li>
+</ul>
+</li>
+</ul>
+<p><strong>Statistical Testing:</strong></p>
+<ul class="simple">
+<li><p>Uses Mann-Whitney U test (non-parametric, two-sided)</p></li>
+<li><p>Applies Benjamini-Hochberg (BH) correction for multiple testing</p></li>
+<li><p>Significance levels:
+- <code class="docutils literal notranslate"><span class="pre">***</span></code>: p &lt; 0.001
+- <code class="docutils literal notranslate"><span class="pre">**</span></code>: p &lt; 0.01
+- <code class="docutils literal notranslate"><span class="pre">*</span></code>: p &lt; 0.05
+- <code class="docutils literal notranslate"><span class="pre">ns</span></code>: not significant (p ≥ 0.05)</p></li>
+<li><p>Significance bars are drawn between significantly different clusters</p></li>
+<li><p>Only significant results (adjusted p &lt; 0.05) are shown</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p><strong>Save Plot</strong>: Export visualization (same options as other plots)</p></li>
+<li><p><strong>Export Statistical Results</strong>: Export test results to CSV
+- Columns: Marker, Cluster_1, Cluster_2, P_value, Adjusted_P_value_BH, Significant, Significance_level</p></li>
+</ul>
+<p><strong>Customization:</strong></p>
+<ul class="simple">
+<li><p>Feature labels can be customized (click “Customize Feature Labels…”)</p></li>
+<li><p>Colors match cluster colors from other visualizations</p></li>
+</ul>
+</section>
+<section id="exporting-plots">
+<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading"></a></h2>
+<p>All visualizations can be exported using the <strong>“Save Plot”</strong> button.</p>
+<p><strong>Export Options:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Format</strong>: Choose output format
+- <code class="docutils literal notranslate"><span class="pre">PNG</span></code>: Raster image (default, good for presentations)
+- <code class="docutils literal notranslate"><span class="pre">JPG</span></code>: Compressed raster image
+- <code class="docutils literal notranslate"><span class="pre">PDF</span></code>: Vector format (good for publications, scalable)</p></li>
+<li><p><strong>DPI (Dots Per Inch)</strong>: Resolution for raster formats
+- Default: 300 DPI (publication quality)
+- Range: 72-1200 DPI
+- Higher DPI = larger file size, better quality</p></li>
+<li><p><strong>Font Size Override</strong>: Optionally override all font sizes
+- Check “Override figure font size”
+- Set font size in points (default: 10.0, range: 6.0-72.0)
+- Useful for adjusting text size for publications</p></li>
+<li><p><strong>Figure Size Override</strong>: Optionally change figure dimensions
+- Check “Override figure size”
+- Set width and height in inches (default: 8.0 x 6.0)
+- Range: 1.0-100.0 inches</p></li>
+</ol>
+<p><strong>Export Workflow:</strong></p>
+<ol class="arabic simple">
+<li><p>Generate the desired visualization</p></li>
+<li><p>Adjust any parameters (colormap, point size, etc.)</p></li>
+<li><p>Click <strong>“Save Plot”</strong> button</p></li>
+<li><p>In the save dialog:
+- Choose filename and location
+- Select format (PNG/JPG/PDF)
+- Set DPI (for raster formats)
+- Optionally override font size
+- Optionally override figure size</p></li>
+<li><p>Click <strong>“Save”</strong></p></li>
+</ol>
+<p><strong>Tips for Export:</strong></p>
+<ul class="simple">
+<li><p>Use <strong>PDF</strong> format for publications (vector graphics, scalable)</p></li>
+<li><p>Use <strong>PNG</strong> at 300 DPI for presentations and web</p></li>
+<li><p>Increase font size for small figures in publications</p></li>
+<li><p>Adjust figure size to match journal requirements</p></li>
+<li><p>Use “Override figure size” to create square plots or specific aspect ratios</p></li>
+</ul>
+</section>
+<section id="customizing-font-sizes">
+<h2>Customizing Font Sizes<a class="headerlink" href="#customizing-font-sizes" title="Link to this heading"></a></h2>
+<p>Font sizes can be customized in several ways:</p>
+<p><strong>1. Heatmap Feature Labels:</strong></p>
+<ul class="simple">
+<li><p>In the clustering dialog, use the <strong>“Configure Plot”</strong> button</p></li>
+<li><p>In the plot configuration dialog, adjust “Feature label font size”</p></li>
+<li><p>Range: 4-20 points (default: 8)</p></li>
+<li><p>Applies to y-axis feature labels in heatmap</p></li>
+</ul>
+<p><strong>2. Export Font Size Override:</strong></p>
+<ul class="simple">
+<li><p>When saving a plot, check “Override figure font size”</p></li>
+<li><p>Set global font size (applies to all text elements)</p></li>
+<li><p>Range: 6.0-72.0 points (default: 10.0)</p></li>
+<li><p>Useful for making text larger/smaller for publications</p></li>
+</ul>
+<p><strong>3. Plot-Specific Font Sizes:</strong></p>
+<ul class="simple">
+<li><p>Most plots use default font sizes optimized for display</p></li>
+<li><p>UMAP/t-SNE: Axis labels (10pt), titles (12pt), legends (8pt)</p></li>
+<li><p>Differential Expression: Feature labels (9-10pt), annotations (8-10pt)</p></li>
+<li><p>Boxplot/Violin: Axis labels (9-10pt), titles (10-12pt)</p></li>
+</ul>
+<p><strong>Note:</strong> Font size customization is most important for heatmaps (many feature labels) and publication figures.</p>
+</section>
+<section id="customizing-feature-labels">
+<h2>Customizing Feature Labels<a class="headerlink" href="#customizing-feature-labels" title="Link to this heading"></a></h2>
+<p>All visualizations support custom feature labels for better readability.</p>
+<p><strong>How to Customize:</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>“Customize Feature Labels…”</strong> button (available in all views)</p></li>
+<li><p>In the dialog, set friendly display names for features
+- Example: <code class="docutils literal notranslate"><span class="pre">&quot;CD3_1841_mean&quot;</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;CD3</span> <span class="pre">Mean&quot;</span></code>
+- Example: <code class="docutils literal notranslate"><span class="pre">&quot;Vimentin_mean&quot;</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;Mean</span> <span class="pre">Vimentin&quot;</span></code></p></li>
+<li><p>Labels are saved and used in all visualizations</p></li>
+<li><p>Original feature names are preserved in data exports</p></li>
+</ol>
+<p><strong>Use Cases:</strong></p>
+<ul class="simple">
+<li><p>Shorten long feature names</p></li>
+<li><p>Add units or descriptions</p></li>
+<li><p>Use consistent naming conventions</p></li>
+<li><p>Improve readability in heatmaps and differential expression plots</p></li>
+</ul>
+</section>
+<section id="accessing-visualizations-in-the-gui">
+<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Run Clustering</strong>: Complete clustering analysis first</p></li>
+<li><p><strong>Open Clustering Dialog</strong>: Navigate to <strong>Analysis → Cell Clustering…</strong></p></li>
+<li><p><strong>Select View</strong>: Use the dropdown at the bottom of the dialog
+- Options: “Heatmap”, “UMAP”, “t-SNE”, “Stacked Bars”, “Differential Expression”, “Boxplot/Violin Plot”</p></li>
+<li><p><strong>Adjust Parameters</strong>: Use controls visible for the selected view</p></li>
+<li><p><strong>Configure Plot</strong>: Click <strong>“Configure Plot”</strong> button for advanced settings (heatmap only)</p></li>
+<li><p><strong>Export</strong>: Click <strong>“Save Plot”</strong> to export the current visualization</p></li>
+</ol>
+<p><strong>View-Specific Controls:</strong></p>
+<ul class="simple">
+<li><p>Controls are automatically shown/hidden based on the selected view</p></li>
+<li><p>Heatmap: Source, scaling, filter, patient annotation, colormap</p></li>
+<li><p>UMAP/t-SNE: Color by, point size, point alpha, remake UMAP (UMAP only)</p></li>
+<li><p>Stacked Bars: Group by</p></li>
+<li><p>Differential Expression: Top N, colormap</p></li>
+<li><p>Boxplot/Violin: Marker selection, plot type, statistical testing</p></li>
+</ul>
+</section>
+<section id="tips-and-best-practices-for-visualizations">
+<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Heatmap:</strong>
+- Use Z-score scaling for comparing across features
+- Filter clusters to focus on specific populations
+- Enable patient annotation to visualize batch effects
+- Adjust feature label font size for readability</p></li>
+<li><p><strong>UMAP/t-SNE:</strong>
+- Use “Cluster” coloring to assess cluster separation
+- Use “Source File” coloring to check for batch effects
+- Adjust point size and alpha for dense plots
+- Use faceted plots to compare multiple colorings</p></li>
+<li><p><strong>Differential Expression:</strong>
+- Adjust “Top N” to show more/fewer markers
+- Use RdBu_r colormap for z-scored data
+- Look for black boxes highlighting top markers</p></li>
+<li><p><strong>Stacked Bars:</strong>
+- Choose grouping variable based on your experimental design
+- Useful for comparing cluster frequencies across conditions</p></li>
+<li><p><strong>Boxplot/Violin Plot:</strong>
+- Select informative markers (known cell type markers)
+- Use violin plots to see full distribution shape
+- Enable statistical testing for publication figures
+- Export statistical results for detailed analysis</p></li>
+<li><p><strong>Export:</strong>
+- Use PDF for publications (vector graphics)
+- Use PNG at 300 DPI for presentations
+- Adjust font sizes for small figures
+- Save multiple formats if needed</p></li>
+</ol>
+</section>
+</section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="batch_correction.html" class="btn btn-neutral float-left" title="Batch Correction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="simple_spatial_analysis.html" class="btn btn-neutral float-right" title="Simple Spatial Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="llm_phenotyping.html" class="btn btn-neutral float-right" title="LLM-Based Phenotyping" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

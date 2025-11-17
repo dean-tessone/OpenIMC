@@ -1,0 +1,623 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM-Based Phenotyping &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Pixel Correlation Analysis" href="pixel_correlation.html" />
+    <link rel="prev" title="Clustering" href="clustering.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">LLM-Based Phenotyping</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#model-selection">Model Selection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#inputs">Inputs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#outputs">Outputs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#fine-vs-broad-mode">Fine vs. Broad Mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-llm-based-phenotyping-in-the-gui">Using LLM-Based Phenotyping in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#important-warnings-and-limitations">Important Warnings and Limitations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#example-workflow">Example Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">LLM-Based Phenotyping</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/llm_phenotyping.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="llm-based-phenotyping">
+<h1>LLM-Based Phenotyping<a class="headerlink" href="#llm-based-phenotyping" title="Link to this heading"></a></h1>
+<p>LLM-based phenotyping uses large language models to suggest cell type annotations for clusters based on marker expression statistics. This feature provides AI-assisted phenotype suggestions to help accelerate cell type annotation workflows.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>LLM suggestions are purely suggestive and not definitive outcomes.</strong> Always manually review and validate all LLM suggestions before using them in your analysis. The LLM may make errors, and its suggestions should be treated as starting points for manual annotation, not as ground truth.</p>
+</div>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>After clustering, identifying cell types (phenotyping) is a critical but time-consuming step. LLM-based phenotyping uses OpenAI’s language models to analyze marker expression patterns and suggest likely cell types for each cluster.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Statistics Computation</strong>: For each cluster, computes marker expression statistics:
+- Top-K markers with highest expression (positive markers)
+- Top-K markers with lowest expression (negative markers)
+- Z-scores, log fold-changes, AUROC, and other metrics</p></li>
+<li><p><strong>LLM Analysis</strong>: Sends marker statistics to the selected LLM model along with:
+- System prompt (fine vs. broad mode)
+- User context (tissue type, cancer type, etc.)
+- Feature mode (markers only, morphometrics only, or both)</p></li>
+<li><p><strong>Suggestion Generation</strong>: LLM returns 3 phenotype suggestions per cluster with:
+- Phenotype name
+- Confidence percentage
+- Rationale explaining the suggestion</p></li>
+<li><p><strong>User Selection</strong>: You review and select from the suggestions for each cluster</p></li>
+</ol>
+<p><strong>Key Features:</strong></p>
+<ul class="simple">
+<li><p><strong>Multiple Model Options</strong>: Choose from different models based on speed, accuracy, cost, and reasoning capability</p></li>
+<li><p><strong>Fine vs. Broad Mode</strong>: Control the level of detail in phenotype suggestions</p></li>
+<li><p><strong>Context-Aware</strong>: Provide tissue/cancer type context for better suggestions</p></li>
+<li><p><strong>Feature Selection</strong>: Choose which features to use (markers, morphometrics, or both)</p></li>
+<li><p><strong>Caching</strong>: Results are cached to avoid redundant API calls</p></li>
+<li><p><strong>Cost</strong>: Approximately $0.10 (10 cents) per query</p></li>
+</ul>
+</section>
+<section id="model-selection">
+<h2>Model Selection<a class="headerlink" href="#model-selection" title="Link to this heading"></a></h2>
+<p>OpenIMC supports multiple OpenAI models, each with different characteristics:</p>
+<p><strong>Available Models:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>gpt-5.1</strong> (default): Latest model with reasoning capabilities
+- <strong>Speed</strong>: Moderate (slower than smaller models)
+- <strong>Accuracy</strong>: Highest
+- <strong>Cost</strong>: Highest
+- <strong>Reasoning</strong>: Yes (configurable: none, low, medium, high)
+- <strong>Use case</strong>: Best for complex datasets requiring detailed analysis</p></li>
+<li><p><strong>gpt-5</strong>: Standard GPT-5 model
+- <strong>Speed</strong>: Moderate
+- <strong>Accuracy</strong>: High
+- <strong>Cost</strong>: High
+- <strong>Reasoning</strong>: No
+- <strong>Use case</strong>: Good balance of accuracy and speed</p></li>
+<li><p><strong>gpt-5-mini</strong>: Smaller, faster version
+- <strong>Speed</strong>: Fast
+- <strong>Accuracy</strong>: Good
+- <strong>Cost</strong>: Moderate
+- <strong>Reasoning</strong>: No
+- <strong>Use case</strong>: Faster suggestions with good accuracy</p></li>
+<li><p><strong>gpt-5-nano</strong>: Smallest, fastest version
+- <strong>Speed</strong>: Very fast
+- <strong>Accuracy</strong>: Moderate
+- <strong>Cost</strong>: Low
+- <strong>Reasoning</strong>: No
+- <strong>Use case</strong>: Quick suggestions for simple datasets</p></li>
+<li><p><strong>gpt-4.1</strong>: Previous generation model
+- <strong>Speed</strong>: Moderate
+- <strong>Accuracy</strong>: High
+- <strong>Cost</strong>: High
+- <strong>Reasoning</strong>: No
+- <strong>Use case</strong>: Alternative to GPT-5 if needed</p></li>
+</ol>
+<p><strong>Reasoning Level (gpt-5.1 only):</strong></p>
+<p>When using gpt-5.1, you can configure the reasoning effort:</p>
+<ul class="simple">
+<li><p><strong>none</strong> (default): No additional reasoning, fastest</p></li>
+<li><p><strong>low</strong>: Minimal reasoning, slightly slower</p></li>
+<li><p><strong>medium</strong>: Moderate reasoning, slower but more thorough</p></li>
+<li><p><strong>high</strong>: Maximum reasoning, slowest but most thorough</p></li>
+</ul>
+<p><strong>Model Selection Guidelines:</strong></p>
+<ul class="simple">
+<li><p><strong>For speed</strong>: Use <code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code> or <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code></p></li>
+<li><p><strong>For accuracy</strong>: Use <code class="docutils literal notranslate"><span class="pre">gpt-5.1</span></code> with medium/high reasoning</p></li>
+<li><p><strong>For cost efficiency</strong>: Use <code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code> or <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code></p></li>
+<li><p><strong>For complex datasets</strong>: Use <code class="docutils literal notranslate"><span class="pre">gpt-5.1</span></code> with reasoning enabled</p></li>
+<li><p><strong>For simple datasets</strong>: Use <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code> or <code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code></p></li>
+</ul>
+<p><strong>Cost Considerations:</strong></p>
+<ul class="simple">
+<li><p>Models are charged per token (input + output)</p></li>
+<li><p>Larger models (gpt-5.1, gpt-5) cost more per token</p></li>
+<li><p>Reasoning increases cost and time</p></li>
+<li><p><strong>Estimated cost per query</strong>: Approximately $0.10 (10 cents) per cluster
+- Cost varies by model, reasoning level, and number of markers
+- Smaller models (gpt-5-nano, gpt-5-mini) may cost less
+- Larger models with reasoning may cost more</p></li>
+<li><p>Monitor your OpenAI account usage to avoid unexpected charges</p></li>
+</ul>
+</section>
+<section id="inputs">
+<h2>Inputs<a class="headerlink" href="#inputs" title="Link to this heading"></a></h2>
+<p>The LLM receives several inputs to generate phenotype suggestions:</p>
+<p><strong>1. Marker Statistics (Computed Automatically):</strong></p>
+<p>For each cluster, the following statistics are computed:</p>
+<ul class="simple">
+<li><p><strong>Top-K Positive Markers</strong>: Markers with highest expression in the cluster
+- Z-score (across clusters)
+- Log fold-change (vs. other clusters)
+- AUROC (area under ROC curve)
+- Mean expression
+- Percent positive cells
+- Within-cluster distribution (min, mean, median, max)
+- Range across clusters</p></li>
+<li><p><strong>Top-K Negative Markers</strong>: Markers with lowest expression in the cluster
+- Same statistics as positive markers</p></li>
+</ul>
+<p><strong>2. Feature Mode:</strong></p>
+<p>Controls which features are included in the analysis:</p>
+<ul class="simple">
+<li><p><strong>Markers only</strong>: Uses only intensity features (marker expression)
+- Includes: <code class="docutils literal notranslate"><span class="pre">_mean</span></code>, <code class="docutils literal notranslate"><span class="pre">_median</span></code>, <code class="docutils literal notranslate"><span class="pre">_std</span></code>, <code class="docutils literal notranslate"><span class="pre">_mad</span></code>, <code class="docutils literal notranslate"><span class="pre">_p10</span></code>, <code class="docutils literal notranslate"><span class="pre">_p90</span></code>, <code class="docutils literal notranslate"><span class="pre">_integrated</span></code>, <code class="docutils literal notranslate"><span class="pre">_frac_pos</span></code>
+- Excludes: Morphometric features (area, perimeter, etc.)
+- Top-K intensity: Number of top markers to include (default: 5, range: 1-30)</p></li>
+<li><p><strong>Morphometrics only</strong>: Uses only morphometric features
+- Includes: Area, perimeter, eccentricity, solidity, etc.
+- Excludes: Intensity features
+- Top-K morphometric: Number of top morphometric features to include (default: 5, range: 1-30)</p></li>
+<li><p><strong>Both</strong> (default): Uses both markers and morphometrics
+- Includes both intensity and morphometric features
+- Top-K intensity: Number of top markers (default: 5)
+- Top-K morphometric: Number of top morphometric features (default: 5)</p></li>
+</ul>
+<p><strong>3. Context (Optional):</strong></p>
+<p>User-provided context about the dataset:</p>
+<ul class="simple">
+<li><p><strong>Cohort/tissue context</strong>: Free-text description
+- Examples: “human colorectal cancer”, “mouse liver tissue”, “breast cancer TMA”
+- Helps LLM provide context-appropriate suggestions
+- Optional but recommended for better accuracy</p></li>
+</ul>
+<p><strong>4. System Prompt Mode:</strong></p>
+<p>Controls the level of detail in suggestions:</p>
+<ul class="simple">
+<li><p><strong>Fine cell types (detailed)</strong> (default): Suggests specific cell types
+- Examples: “CD4+ T cells”, “M1 Macrophages”, “Epithelial cells”
+- More detailed but may be less confident
+- Better for well-characterized datasets</p></li>
+<li><p><strong>Broad cell types</strong>: Suggests broad categories first
+- Examples: “Lymphoid”, “Myeloid”, “Stroma”, “Tumor”
+- More confident but less specific
+- Can specify subtypes when confidence is high (&gt;50%)
+- Better for exploratory analysis or uncertain datasets</p></li>
+</ul>
+<p><strong>5. Normalization Context:</strong></p>
+<p>Automatically detected from your feature extraction settings:</p>
+<ul class="simple">
+<li><p>If arcsinh transformation was used: “intensities are arcsinh-transformed”</p></li>
+<li><p>If raw values: “intensities are raw values”</p></li>
+<li><p>Helps LLM interpret marker expression values correctly</p></li>
+</ul>
+</section>
+<section id="outputs">
+<h2>Outputs<a class="headerlink" href="#outputs" title="Link to this heading"></a></h2>
+<p>The LLM returns structured JSON with phenotype suggestions for each cluster:</p>
+<p><strong>Output Structure:</strong></p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;cluster_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;phenotype_guesses&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CD4+ T cells&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;rationale&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;High expression of CD3, CD4, and CD45. Low expression of CD8 and CD20.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">75.5</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Helper T cells&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;rationale&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CD3+ CD4+ profile consistent with helper T cell lineage.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">20.0</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T cells&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;rationale&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;General T cell markers present, but subtype uncertain.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.5</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;key_markers_positive&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;CD3&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CD4&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CD45&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;key_markers_negative&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;CD8&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CD20&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;notes&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Strong T cell signature with helper T cell characteristics.&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Output Fields:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>phenotype_guesses</strong>: Array of 3 phenotype suggestions (ranked by confidence)
+- <strong>name</strong>: Suggested cell type name
+- <strong>rationale</strong>: Explanation of why this phenotype was suggested
+- <strong>confidence</strong>: Confidence percentage (0-100%, must sum to 100% across all 3)</p></li>
+<li><p><strong>key_markers_positive</strong>: List of markers that support this phenotype
+- Markers with high expression in this cluster</p></li>
+<li><p><strong>key_markers_negative</strong>: List of markers that argue against this phenotype
+- Markers with low expression in this cluster</p></li>
+<li><p><strong>notes</strong>: Additional observations or caveats</p></li>
+</ol>
+<p><strong>Display in GUI:</strong></p>
+<ul class="simple">
+<li><p>Each cluster shows a radio button group with 3 phenotype options</p></li>
+<li><p>Options are ranked by confidence (highest first)</p></li>
+<li><p>Confidence percentages are displayed</p></li>
+<li><p>Rationale is shown below each option</p></li>
+<li><p>You can select any of the 3 options or manually edit</p></li>
+</ul>
+</section>
+<section id="fine-vs-broad-mode">
+<h2>Fine vs. Broad Mode<a class="headerlink" href="#fine-vs-broad-mode" title="Link to this heading"></a></h2>
+<p>The system prompt mode controls whether the LLM suggests detailed or broad cell types.</p>
+<p><strong>Fine Cell Types Mode (Default):</strong></p>
+<ul class="simple">
+<li><p><strong>Goal</strong>: Suggest specific, detailed cell types</p></li>
+<li><p><strong>Examples</strong>:
+- “CD4+ T cells”
+- “M1 Macrophages”
+- “Epithelial cells”
+- “Endothelial cells”</p></li>
+<li><p><strong>Use when</strong>:
+- You have a well-characterized panel
+- You need specific cell type annotations
+- You have high confidence in marker specificity</p></li>
+<li><p><strong>Advantages</strong>:
+- More informative annotations
+- Better for publication figures
+- More actionable results</p></li>
+<li><p><strong>Disadvantages</strong>:
+- May be less confident
+- Can suggest incorrect specific types if markers are ambiguous</p></li>
+</ul>
+<p><strong>Broad Cell Types Mode:</strong></p>
+<ul class="simple">
+<li><p><strong>Goal</strong>: Suggest broad categories first, with optional specificity</p></li>
+<li><p><strong>Examples</strong>:
+- “Lymphoid” (or “T cells” if confidence &gt;50%)
+- “Myeloid” (or “Macrophages” if confidence &gt;50%)
+- “Stroma”
+- “Tumor”</p></li>
+<li><p><strong>Use when</strong>:
+- You’re doing exploratory analysis
+- Your panel has limited specificity
+- You want more conservative suggestions</p></li>
+<li><p><strong>Advantages</strong>:
+- More confident suggestions
+- Less likely to be wrong
+- Good starting point for manual refinement</p></li>
+<li><p><strong>Disadvantages</strong>:
+- Less informative
+- May need manual refinement to specific types</p></li>
+</ul>
+<p><strong>Mode Selection Guidelines:</strong></p>
+<ul class="simple">
+<li><p>Start with <strong>Broad mode</strong> for exploratory analysis</p></li>
+<li><p>Switch to <strong>Fine mode</strong> once you understand your data better</p></li>
+<li><p>Use <strong>Fine mode</strong> for publication-ready annotations</p></li>
+<li><p>Use <strong>Broad mode</strong> if suggestions seem too specific or uncertain</p></li>
+</ul>
+</section>
+<section id="using-llm-based-phenotyping-in-the-gui">
+<h2>Using LLM-Based Phenotyping in the GUI<a class="headerlink" href="#using-llm-based-phenotyping-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p><strong>Complete Clustering</strong>: Ensure clustering has been run and clusters are available</p></li>
+<li><p><strong>Open Phenotype Annotation Dialog</strong>:
+- In the clustering dialog, click <strong>“Annotate Phenotypes”</strong> button
+- This opens the phenotype annotation dialog</p></li>
+<li><p><strong>Open LLM Suggestion Dialog</strong>:
+- Click <strong>“Suggest phenotypes with LLM…”</strong> button
+- This opens the LLM phenotyping dialog</p></li>
+<li><p><strong>Configure LLM Settings</strong>:
+- <strong>OpenAI API Key</strong>: Enter your OpenAI API key (required)</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Get an API key from <a class="reference external" href="https://openai.com/">https://openai.com/</a></p></li>
+<li><p>Key is masked for security</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p><strong>Cohort/tissue context</strong>: Enter optional context (e.g., “human colorectal cancer”)</p></li>
+<li><p><strong>Model</strong>: Select model (default: gpt-5.1)</p></li>
+<li><p><strong>Reasoning level</strong>: Select reasoning level if using gpt-5.1 (default: none)</p></li>
+<li><p><strong>System prompt</strong>: Choose “Fine cell types” or “Broad cell types”</p></li>
+<li><p><strong>Feature mode</strong>: Choose “Markers only”, “Morphometrics only”, or “Both”</p></li>
+<li><p><strong>Top-K intensity</strong>: Number of top markers to include (default: 5)</p></li>
+<li><p><strong>Top-K morphometric</strong>: Number of top morphometric features (default: 5, only if “Both” mode)</p></li>
+</ul>
+</li>
+<li><p><strong>Run Suggestions</strong>:
+- Click <strong>“Run Suggestion”</strong> button
+- Progress bar shows analysis progress
+- Results are cached to avoid redundant API calls</p></li>
+<li><p><strong>Review Suggestions</strong>:
+- For each cluster, review the 3 suggested phenotypes
+- Read the rationale for each suggestion
+- Check confidence percentages
+- Select the most appropriate option using radio buttons</p></li>
+<li><p><strong>Apply Names</strong>:
+- Click <strong>“Apply Names”</strong> button to apply selected phenotypes
+- Selected phenotypes are applied to clusters
+- You can still manually edit after applying</p></li>
+<li><p><strong>Close Dialog</strong>:
+- Click <strong>“Close”</strong> to return to clustering dialog
+- Cached results are preserved for future use</p></li>
+</ol>
+<p><strong>Caching:</strong></p>
+<ul class="simple">
+<li><p>Results are automatically cached based on cluster IDs and settings</p></li>
+<li><p>If you re-run with the same clusters, cached results are displayed immediately</p></li>
+<li><p>Cache persists until you close the clustering dialog</p></li>
+<li><p>To refresh suggestions, re-run the analysis</p></li>
+</ul>
+</section>
+<section id="important-warnings-and-limitations">
+<h2>Important Warnings and Limitations<a class="headerlink" href="#important-warnings-and-limitations" title="Link to this heading"></a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>LLM suggestions are not definitive.</strong> Always manually review and validate all suggestions before using them in your analysis.</p>
+</div>
+<p><strong>Key Limitations:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Not Ground Truth</strong>: LLM suggestions are AI-generated and may contain errors
+- Always verify against known marker profiles
+- Cross-reference with literature or expert knowledge
+- Use suggestions as starting points, not final answers</p></li>
+<li><p><strong>Model Limitations</strong>: Language models have limitations
+- May not recognize novel or rare cell types
+- May misinterpret ambiguous marker profiles
+- May suggest incorrect phenotypes if markers are non-specific
+- Performance varies by model and dataset</p></li>
+<li><p><strong>Cost Considerations</strong>: API calls incur costs
+- <strong>Estimated cost</strong>: Approximately $0.10 (10 cents)  query
+- Models are charged per token (input + output)
+- Larger models and reasoning increase costs
+- Monitor your OpenAI account usage
+- Consider using smaller models for initial exploration</p></li>
+<li><p><strong>Data Quality Dependency</strong>: Suggestions depend on data quality
+- Poor clustering leads to poor suggestions
+- Missing or incorrect markers affect accuracy
+- Normalization artifacts can mislead the LLM</p></li>
+<li><p><strong>Context Dependency</strong>: Suggestions are context-dependent
+- Provide accurate tissue/cancer type context
+- Context helps but doesn’t guarantee accuracy
+- Different contexts may yield different suggestions</p></li>
+</ol>
+<p><strong>Best Practices:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Always Validate</strong>: Never use LLM suggestions without manual review</p></li>
+<li><p><strong>Start Broad</strong>: Use broad mode for initial exploration</p></li>
+<li><p><strong>Refine Manually</strong>: Use suggestions as starting points for manual annotation</p></li>
+<li><p><strong>Check Marker Profiles</strong>: Verify suggestions against known marker profiles</p></li>
+<li><p><strong>Use Multiple Models</strong>: Try different models if suggestions seem off</p></li>
+<li><p><strong>Provide Context</strong>: Always provide accurate tissue/cancer type context</p></li>
+<li><p><strong>Monitor Costs</strong>: Keep track of API usage to avoid unexpected charges</p></li>
+<li><p><strong>Cache Results</strong>: Results are cached automatically to save costs</p></li>
+</ol>
+<p><strong>When to Use LLM Phenotyping:</strong></p>
+<ul class="simple">
+<li><p>✅ <strong>Good for</strong>: Initial exploration, getting started, brainstorming</p></li>
+<li><p>✅ <strong>Good for</strong>: Well-characterized panels with known markers</p></li>
+<li><p>✅ <strong>Good for</strong>: Standard cell types (T cells, B cells, macrophages, etc.)</p></li>
+<li><p>❌ <strong>Not ideal for</strong>: Novel or rare cell types</p></li>
+<li><p>❌ <strong>Not ideal for</strong>: Datasets with poor clustering quality</p></li>
+<li><p>❌ <strong>Not ideal for</strong>: Panels with non-specific markers</p></li>
+</ul>
+<p><strong>When NOT to Use LLM Phenotyping:</strong></p>
+<ul class="simple">
+<li><p>If you don’t have an OpenAI API key</p></li>
+<li><p>If you need definitive, publication-ready annotations immediately</p></li>
+<li><p>If your dataset has very novel or rare cell types</p></li>
+<li><p>If cost is a major concern and you have many clusters</p></li>
+</ul>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Model Selection</strong>:
+- Start with <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code> for quick exploration
+- Use <code class="docutils literal notranslate"><span class="pre">gpt-5.1</span></code> with reasoning for complex datasets
+- Use <code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code> for cost-sensitive workflows</p></li>
+<li><p><strong>Mode Selection</strong>:
+- Use <strong>Broad mode</strong> for initial exploration
+- Switch to <strong>Fine mode</strong> once you understand your data
+- Fine mode is better for publication figures</p></li>
+<li><p><strong>Feature Selection</strong>:
+- Use <strong>“Both”</strong> mode to include all available information
+- Use <strong>“Markers only”</strong> if morphometrics are not informative
+- Adjust Top-K values based on your panel size</p></li>
+<li><p><strong>Context Provision</strong>:
+- Always provide accurate tissue/cancer type context
+- Include relevant treatment information if applicable
+- More context = better suggestions</p></li>
+<li><p><strong>Validation Workflow</strong>:
+- Review all suggestions before applying
+- Check marker profiles in heatmaps/differential expression plots
+- Compare suggestions across different models
+- Manually correct incorrect suggestions</p></li>
+<li><p><strong>Cost Management</strong>:
+- <strong>Estimated cost</strong>: ~$0.10 per query
+- Use smaller models for initial exploration (may reduce cost)
+- Cache results to avoid redundant API calls
+- Monitor your OpenAI account usage</p></li>
+<li><p><strong>Iterative Refinement</strong>:
+- Start with broad suggestions
+- Refine manually based on marker profiles
+- Re-run with fine mode for final annotations
+- Combine LLM suggestions with manual annotation</p></li>
+<li><p><strong>Quality Control</strong>:
+- Verify suggestions make biological sense
+- Check that marker profiles match suggested phenotypes
+- Look for consistency across similar clusters
+- Flag uncertain suggestions for manual review</p></li>
+</ol>
+</section>
+<section id="example-workflow">
+<h2>Example Workflow<a class="headerlink" href="#example-workflow" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Initial Exploration</strong>:
+- Run clustering
+- Open LLM phenotyping dialog
+- Select <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code> model
+- Choose “Broad cell types” mode
+- Provide tissue context
+- Run suggestions</p></li>
+<li><p><strong>Review Suggestions</strong>:
+- Review all cluster suggestions
+- Check confidence levels
+- Read rationales
+- Identify clusters needing manual review</p></li>
+<li><p><strong>Refinement</strong>:
+- Apply broad suggestions
+- Manually refine uncertain clusters
+- Re-run with “Fine cell types” mode for specific clusters
+- Use <code class="docutils literal notranslate"><span class="pre">gpt-5.1</span></code> with reasoning for difficult cases</p></li>
+<li><p><strong>Final Annotation</strong>:
+- Combine LLM suggestions with manual annotations
+- Verify all annotations in heatmaps/UMAPs
+- Export final annotations</p></li>
+</ol>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<p><strong>Common Issues:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>“API Key Required” Error</strong>:
+- Ensure you’ve entered a valid OpenAI API key
+- Check that the key starts with “sk-”
+- Verify your account has credits</p></li>
+<li><p><strong>“No Clusters” Error</strong>:
+- Run clustering first before using LLM phenotyping
+- Ensure clusters are available in the clustering dialog</p></li>
+<li><p><strong>Poor Suggestions</strong>:
+- Try a different model (e.g., gpt-5.1 with reasoning)
+- Switch between fine and broad mode
+- Provide more context
+- Check that clustering quality is good
+- Verify marker panel is appropriate</p></li>
+<li><p><strong>High Costs</strong>:
+- Use smaller models (gpt-5-nano, gpt-5-mini)
+- Disable reasoning for gpt-5.1
+- Reduce Top-K values
+- Cache results to avoid redundant calls</p></li>
+<li><p><strong>Slow Performance</strong>:
+- Use faster models (gpt-5-nano, gpt-5-mini)
+- Disable reasoning
+- Process clusters in batches
+- Check internet connection</p></li>
+<li><p><strong>Invalid JSON Errors</strong>:
+- The system automatically retries with repair instructions
+- If persistent, try a different model
+- Check that your API key has access to the selected model</p></li>
+</ol>
+<p><strong>Getting Help:</strong></p>
+<ul class="simple">
+<li><p>Check OpenAI API status if experiencing connection issues</p></li>
+<li><p>Verify your API key permissions</p></li>
+<li><p>Review OpenAI documentation for model availability</p></li>
+<li><p>Check OpenIMC documentation for updates</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="clustering.html" class="btn btn-neutral float-left" title="Clustering" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="pixel_correlation.html" class="btn btn-neutral float-right" title="Pixel Correlation Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

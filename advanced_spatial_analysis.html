@@ -47,11 +47,18 @@
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Advanced Spatial Analysis</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
@@ -69,6 +76,8 @@
 <li class="toctree-l3"><a class="reference internal" href="#id2">Co-occurrence Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id3">Spatial Autocorrelation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id4">Ripley Functions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#build-spatial-graph-and-export-anndata">Build Spatial Graph and Export AnnData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#export-anndata-objects">Export AnnData Objects</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
@@ -76,10 +85,21 @@
 <li class="toctree-l3"><a class="reference internal" href="#id6">Co-occurrence Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id7">Spatial Autocorrelation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#id8">Ripley Functions</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#squidpy-integration">Squidpy Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#squidpy-and-anndata-integration">Squidpy and AnnData Integration</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#neighborhood-enrichment-visualization">Neighborhood Enrichment Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#co-occurrence-analysis-visualization">Co-occurrence Analysis Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#spatial-autocorrelation-visualization">Spatial Autocorrelation Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ripley-functions-visualization">Ripley Functions Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
 </ul>
 </li>
 </ul>
@@ -119,9 +139,13 @@
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
 <p>Advanced Spatial Analysis extends Simple Spatial Analysis with additional methods from the squidpy package, enabling more sophisticated spatial pattern analysis, statistical testing, and spatial statistics.</p>
+<p><strong>Key Features:</strong>
+- <strong>Squidpy Integration</strong>: All analyses are implemented using the squidpy package
+- <strong>AnnData Format</strong>: Data is converted to AnnData format for compatibility with the scverse ecosystem
+- <strong>Export Capability</strong>: AnnData objects can be exported to H5AD files for downstream analysis in other tools</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Advanced Spatial Analysis requires the <code class="docutils literal notranslate"><span class="pre">squidpy</span></code> package to be installed. Install with: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">squidpy</span></code></p>
+<p>Advanced Spatial Analysis requires the <code class="docutils literal notranslate"><span class="pre">squidpy</span></code> and <code class="docutils literal notranslate"><span class="pre">anndata</span></code> packages to be installed. Install with: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">squidpy</span> <span class="pre">anndata</span></code></p>
 </div>
 </section>
 <section id="options">
@@ -195,33 +219,58 @@
 </section>
 <section id="using-advanced-spatial-analysis-in-the-gui">
 <h2>Using Advanced Spatial Analysis in the GUI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-gui" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
+<ol class="arabic">
 <li><p>Ensure clustering has been completed</p></li>
-<li><p>Navigate to <strong>Analysis → Spatial Analysis → Advanced Spatial Analysis</strong></p></li>
+<li><p>Navigate to <strong>Analysis → Spatial Analysis → Advanced Spatial Analysis</strong> in the menu bar</p></li>
 <li><p>In the advanced spatial analysis dialog:
-- <strong>Build Spatial Graph</strong> (same as Simple Spatial Analysis)</p>
+- <strong>Build Spatial Graph</strong>:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Select graph construction method (kNN, Radius, or Delaunay)</p></li>
+<li><p>Set parameters (k_neighbors, radius, pixel_size_um)</p></li>
+<li><p>Click “Build Graph”</p></li>
+<li><p>This converts your data to AnnData format and builds spatial graphs using squidpy</p></li>
+</ul>
+</div></blockquote>
 <ul class="simple">
 <li><p><strong>Neighborhood Enrichment Tab</strong>:
 - Set number of permutations
 - Click “Run Neighborhood Enrichment”
-- Results show enrichment scores and p-values</p></li>
+- Results show enrichment scores and p-values
+- Results are stored in AnnData objects</p></li>
 <li><p><strong>Co-occurrence Analysis Tab</strong>:
 - Select analysis method (pairwise or one-vs-others)
 - Optionally specify reference cluster
-- Click “Run Co-occurrence Analysis”</p></li>
+- Click “Run Co-occurrence Analysis”
+- Results are stored in AnnData objects</p></li>
 <li><p><strong>Spatial Autocorrelation Tab</strong>:
 - Select feature to analyze
-- Choose autocorrelation method
+- Choose autocorrelation method (Moran’s I or Geary’s C)
 - Set number of permutations
-- Click “Run Autocorrelation Analysis”</p></li>
+- Click “Run Autocorrelation Analysis”
+- Results are stored in AnnData objects</p></li>
 <li><p><strong>Ripley Functions Tab</strong>:
 - Select cluster column
 - Choose function type (K or L)
 - Set maximum distance
-- Click “Run Ripley Analysis”</p></li>
+- Click “Run Ripley Analysis”
+- Results are stored in AnnData objects</p></li>
 </ul>
 </li>
-<li><p>Export results using the export buttons</p></li>
+<li><p><strong>Export AnnData</strong>:
+- Click “Export AnnData” button to save AnnData objects
+- Choose to export as:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><strong>Combined file</strong>: Single H5AD file with all ROIs</p></li>
+<li><p><strong>Separate files</strong>: One H5AD file per ROI</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Exported H5AD files can be used in other tools (scanpy, squidpy, etc.)</p></li>
+</ul>
+</li>
+<li><p>Export analysis results using the export buttons</p></li>
 </ol>
 </section>
 <section id="using-advanced-spatial-analysis-in-the-cli">
@@ -259,6 +308,23 @@
 <span class="w">    </span>--mode<span class="w"> </span>K<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--max-dist<span class="w"> </span><span class="m">100</span>.0<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--pixel-size-um<span class="w"> </span><span class="m">1</span>.0
+</pre></div>
+</div>
+</section>
+<section id="build-spatial-graph-and-export-anndata">
+<h3>Build Spatial Graph and Export AnnData<a class="headerlink" href="#build-spatial-graph-and-export-anndata" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-anndata<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>spatial_graph.h5ad<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>kNN<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--k-neighbors<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--pixel-size-um<span class="w"> </span><span class="m">1</span>.0<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--combined
+</pre></div>
+</div>
+</section>
+<section id="export-anndata-objects">
+<h3>Export AnnData Objects<a class="headerlink" href="#export-anndata-objects" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>export-anndata<span class="w"> </span>input.h5ad<span class="w"> </span>output.h5ad<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--combined
 </pre></div>
 </div>
 </section>
@@ -357,13 +423,46 @@
 - Ripley, B. D. (1977). “Modelling spatial patterns.” Journal of the Royal Statistical Society: Series B, 39(2), 172-192. <a class="reference external" href="https://doi.org/10.1111/j.2517-6161.1977.tb01615.x">DOI: 10.1111/j.2517-6161.1977.tb01615.x</a>
 - Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.ripley.html">squidpy.gr.ripley</a></p>
 </section>
-<section id="squidpy-integration">
-<h3>Squidpy Integration<a class="headerlink" href="#squidpy-integration" title="Link to this heading"></a></h3>
-<p>Advanced Spatial Analysis uses the squidpy package, which provides a comprehensive toolkit for spatial omics analysis.</p>
+<section id="squidpy-and-anndata-integration">
+<h3>Squidpy and AnnData Integration<a class="headerlink" href="#squidpy-and-anndata-integration" title="Link to this heading"></a></h3>
+<p>Advanced Spatial Analysis uses the squidpy package, which provides a comprehensive toolkit for spatial omics analysis. All analyses are performed using AnnData objects, which provide a standardized format for single-cell and spatial omics data.</p>
+<p><strong>Data Flow:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Input</strong>: Feature DataFrame (CSV) with cell features and spatial coordinates</p></li>
+<li><p><strong>Conversion</strong>: DataFrame is converted to AnnData format using <code class="docutils literal notranslate"><span class="pre">dataframe_to_anndata()</span></code>
+- Features stored in <code class="docutils literal notranslate"><span class="pre">adata.X</span></code> or <code class="docutils literal notranslate"><span class="pre">adata.obs</span></code>
+- Spatial coordinates stored in <code class="docutils literal notranslate"><span class="pre">adata.obsm['spatial']</span></code>
+- Metadata stored in <code class="docutils literal notranslate"><span class="pre">adata.obs</span></code></p></li>
+<li><p><strong>Graph Construction</strong>: Spatial graphs are built using squidpy
+- Graphs stored in <code class="docutils literal notranslate"><span class="pre">adata.obsp['spatial_connectivities']</span></code> and <code class="docutils literal notranslate"><span class="pre">adata.obsp['spatial_distances']</span></code></p></li>
+<li><p><strong>Analysis</strong>: Squidpy functions operate on AnnData objects
+- Results stored in <code class="docutils literal notranslate"><span class="pre">adata.uns</span></code>, <code class="docutils literal notranslate"><span class="pre">adata.obs</span></code>, or <code class="docutils literal notranslate"><span class="pre">adata.obsm</span></code></p></li>
+<li><p><strong>Export</strong>: AnnData objects can be exported to H5AD files for use in other tools</p></li>
+</ol>
+<p><strong>AnnData Export:</strong></p>
+<p>AnnData objects can be exported in two formats:</p>
+<ul class="simple">
+<li><p><strong>Combined Export</strong>: All ROIs combined into a single H5AD file
+- Useful for downstream analysis in scanpy or other tools
+- Preserves ROI information in <code class="docutils literal notranslate"><span class="pre">adata.obs</span></code></p></li>
+<li><p><strong>Separate Export</strong>: One H5AD file per ROI
+- Useful when analyzing ROIs independently
+- Files named as <code class="docutils literal notranslate"><span class="pre">anndata_roi_{roi_id}.h5ad</span></code></p></li>
+</ul>
+<p><strong>Using Exported AnnData:</strong></p>
+<p>Exported H5AD files can be used in:</p>
+<ul class="simple">
+<li><p><strong>scanpy</strong>: For additional single-cell analysis</p></li>
+<li><p><strong>squidpy</strong>: For additional spatial analysis methods</p></li>
+<li><p><strong>Python scripts</strong>: Load with <code class="docutils literal notranslate"><span class="pre">anndata.read_h5ad()</span></code></p></li>
+<li><p><strong>R/Bioconductor</strong>: Using the <code class="docutils literal notranslate"><span class="pre">zellkonverter</span></code> package</p></li>
+</ul>
 <p><strong>Citation:</strong>
 - Palla, G., et al. (2022). “Squidpy: a scalable framework for spatial omics analysis.” Nature Methods, 19(2), 171-178. <a class="reference external" href="https://doi.org/10.1038/s41592-021-01358-2">DOI: 10.1038/s41592-021-01358-2</a>
 - <a class="reference external" href="https://squidpy.readthedocs.io/">squidpy Documentation</a>
-- <a class="reference external" href="https://github.com/scverse/squidpy">squidpy GitHub</a></p>
+- <a class="reference external" href="https://github.com/scverse/squidpy">squidpy GitHub</a>
+- AnnData: Virshup, I., et al. (2023). “The scverse project provides a computational ecosystem for single-cell omics data analysis.” Nature Biotechnology, 41(5), 604-606. <a class="reference external" href="https://doi.org/10.1038/s41587-023-01733-8">DOI: 10.1038/s41587-023-01733-8</a>
+- <a class="reference external" href="https://anndata.readthedocs.io/">AnnData Documentation</a></p>
 </section>
 </section>
 <section id="tips-and-best-practices">
@@ -394,6 +493,287 @@
 - Use Simple Spatial Analysis for initial exploration
 - Use Advanced Spatial Analysis for detailed statistical testing
 - Combine results from both for comprehensive spatial analysis</p></li>
+<li><p><strong>AnnData Export</strong>:
+- Export AnnData objects after building graphs or running analyses
+- Use combined export for multi-ROI analysis in other tools
+- Use separate export for ROI-specific analysis
+- Exported H5AD files are compatible with the entire scverse ecosystem</p></li>
+<li><p><strong>Workflow Integration</strong>:
+- Build spatial graphs first (creates AnnData objects)
+- Run analyses (results stored in AnnData)
+- Export AnnData for downstream analysis or visualization
+- Can reload exported AnnData files for further analysis</p></li>
+</ol>
+</section>
+</section>
+<section id="advanced-spatial-analysis-visualizations">
+<h1>Advanced Spatial Analysis Visualizations<a class="headerlink" href="#advanced-spatial-analysis-visualizations" title="Link to this heading"></a></h1>
+<p>Advanced Spatial Analysis provides sophisticated visualization options for exploring spatial patterns using squidpy methods. All visualizations are accessible from the advanced spatial analysis dialog after building the spatial graph.</p>
+<section id="available-visualizations">
+<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Neighborhood Enrichment</strong>: Heatmap showing enrichment/depletion of cell types in neighborhoods</p></li>
+<li><p><strong>Co-occurrence Analysis</strong>: Heatmap showing spatial co-occurrence patterns</p></li>
+<li><p><strong>Spatial Autocorrelation</strong>: Visualization of spatial autocorrelation statistics</p></li>
+<li><p><strong>Ripley Functions</strong>: Plots of Ripley’s K and L functions for spatial point patterns</p></li>
+</ol>
+</section>
+<section id="neighborhood-enrichment-visualization">
+<h2>Neighborhood Enrichment Visualization<a class="headerlink" href="#neighborhood-enrichment-visualization" title="Link to this heading"></a></h2>
+<p>Shows a heatmap of enrichment scores indicating whether cell types are enriched or depleted in the neighborhoods of other cell types.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>n_permutations</strong> (default: <code class="docutils literal notranslate"><span class="pre">100</span></code>): Number of permutations for statistical testing
+- More permutations provide more accurate p-values
+- Recommended: 500-1000 for publication
+- Range: 10-10000</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>For each cell, defines its neighborhood (spatially adjacent cells)</p></li>
+<li><p>Computes observed composition of cell types in each cell’s neighborhood</p></li>
+<li><p>Computes expected composition under random spatial distribution</p></li>
+<li><p>Calculates enrichment scores: (observed - expected) / expected</p></li>
+<li><p>Performs permutation tests to assess significance</p></li>
+<li><p>Displays results as heatmap with enrichment scores and p-values</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p><strong>Positive score + significant p-value</strong>: Enrichment (cell type A is more common in neighborhoods of cell type B than expected)</p></li>
+<li><p><strong>Negative score + significant p-value</strong>: Depletion (cell type A is less common in neighborhoods of cell type B than expected)</p></li>
+<li><p><strong>Non-significant</strong>: Random spatial distribution</p></li>
+<li><p>Color intensity indicates strength of enrichment/depletion</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Options: PNG, JPG, or PDF format</p></li>
+<li><p>Adjustable DPI (default: 300)</p></li>
+<li><p>Optional font size and figure size override</p></li>
+</ul>
+</section>
+<section id="co-occurrence-analysis-visualization">
+<h2>Co-occurrence Analysis Visualization<a class="headerlink" href="#co-occurrence-analysis-visualization" title="Link to this heading"></a></h2>
+<p>Shows a heatmap of co-occurrence scores indicating whether cell types tend to appear together in spatial proximity.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Method</strong>: Analysis method
+- <code class="docutils literal notranslate"><span class="pre">&quot;pairwise&quot;</span></code>: Compare all cluster pairs (default)
+- <code class="docutils literal notranslate"><span class="pre">&quot;one_vs_others&quot;</span></code>: Compare reference cluster against all others</p></li>
+<li><p><strong>Reference cluster</strong> (for one_vs_others mode): Select cluster to compare against all others</p></li>
+</ul>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Defines spatial proximity based on spatial graph (kNN, Radius, etc.)</p></li>
+<li><p>Counts observed co-occurrence of cell type pairs in proximity</p></li>
+<li><p>Computes expected co-occurrence under random distribution</p></li>
+<li><p>Performs permutation tests to assess significance</p></li>
+<li><p>Displays results as heatmap with co-occurrence scores and p-values</p></li>
+</ol>
+<p><strong>Pairwise Mode</strong>: Compares all pairs of cell types</p>
+<p><strong>One-vs-Others Mode</strong>: Compares a reference cell type against all others</p>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p><strong>Positive score + significant p-value</strong>: Co-occurrence (cell types appear together more than expected)</p></li>
+<li><p><strong>Negative score + significant p-value</strong>: Avoidance (cell types appear together less than expected)</p></li>
+<li><p><strong>Non-significant</strong>: Random spatial distribution</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="spatial-autocorrelation-visualization">
+<h2>Spatial Autocorrelation Visualization<a class="headerlink" href="#spatial-autocorrelation-visualization" title="Link to this heading"></a></h2>
+<p>Shows spatial autocorrelation statistics (Moran’s I or Geary’s C) for selected features, indicating spatial clustering or dispersion.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Feature</strong>: Select feature column to analyze (required)
+- Can be a marker expression or other numeric feature
+- Dropdown with all available features</p></li>
+<li><p><strong>Method</strong>: Autocorrelation method
+- <code class="docutils literal notranslate"><span class="pre">&quot;moran&quot;</span></code>: Moran’s I statistic (default)
+- <code class="docutils literal notranslate"><span class="pre">&quot;geary&quot;</span></code>: Geary’s C statistic</p></li>
+<li><p><strong>n_permutations</strong> (default: <code class="docutils literal notranslate"><span class="pre">100</span></code>): Number of permutations for significance testing
+- Recommended: 500-1000 for publication</p></li>
+</ul>
+<p><strong>Moran’s I:</strong>
+- Range: -1 to 1
+- Positive values: Similar values cluster together (positive autocorrelation)
+- Negative values: Dissimilar values cluster together (negative autocorrelation)
+- Near 0: No spatial autocorrelation (random spatial distribution)</p>
+<p><strong>Geary’s C:</strong>
+- Range: 0 to 2
+- Values &lt; 1: Positive autocorrelation
+- Values &gt; 1: Negative autocorrelation
+- Values near 1: No autocorrelation</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Defines spatial weights matrix based on spatial graph</p></li>
+<li><p>Computes Moran’s I or Geary’s C using spatial weights</p></li>
+<li><p>Performs permutation tests to assess significance</p></li>
+<li><p>Displays statistic value, p-value, and visualization</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p><strong>Positive autocorrelation</strong>: Feature values are spatially clustered</p></li>
+<li><p><strong>Negative autocorrelation</strong>: Feature values are spatially dispersed</p></li>
+<li><p>Useful for identifying spatial gradients or domains</p></li>
+<li><p>High autocorrelation indicates spatial structure in feature expression</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="ripley-functions-visualization">
+<h2>Ripley Functions Visualization<a class="headerlink" href="#ripley-functions-visualization" title="Link to this heading"></a></h2>
+<p>Shows Ripley’s K or L functions for analyzing spatial point patterns, testing for clustering or dispersion.</p>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Cluster column</strong>: Column name containing cluster assignments (default: <code class="docutils literal notranslate"><span class="pre">&quot;cluster&quot;</span></code>)</p></li>
+<li><p><strong>Mode</strong>: Ripley function type
+- <code class="docutils literal notranslate"><span class="pre">&quot;K&quot;</span></code>: Ripley’s K function (default)
+- <code class="docutils literal notranslate"><span class="pre">&quot;L&quot;</span></code>: Ripley’s L function (normalized K function)</p></li>
+<li><p><strong>max_dist</strong> (optional): Maximum distance to compute function
+- If not specified, uses a default based on data extent
+- Should cover relevant spatial scales (1-5 cell diameters)</p></li>
+</ul>
+<p><strong>Ripley’s K Function:</strong>
+- Measures the expected number of points within distance r of a randomly chosen point
+- Under complete spatial randomness (CSR): K(r) = πr²
+- K(r) &gt; πr²: Clustering
+- K(r) &lt; πr²: Dispersion</p>
+<p><strong>Ripley’s L Function:</strong>
+- Normalized version: L(r) = √(K(r)/π) - r
+- Under CSR: L(r) = 0
+- L(r) &gt; 0: Clustering
+- L(r) &lt; 0: Dispersion</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>For each point, counts neighbors within distance r</p></li>
+<li><p>Applies edge correction for points near ROI boundaries</p></li>
+<li><p>Computes K(r) or L(r) for a range of distances</p></li>
+<li><p>Compares observed function to expected under complete spatial randomness</p></li>
+<li><p>Displays function plot with confidence intervals</p></li>
+</ol>
+<p><strong>Interpretation:</strong></p>
+<ul class="simple">
+<li><p><strong>Clustering</strong>: Cell type is more clustered than random</p></li>
+<li><p><strong>Dispersion</strong>: Cell type is more dispersed than random</p></li>
+<li><p>Useful for identifying spatial organization patterns</p></li>
+<li><p>Compare functions across different cell types</p></li>
+<li><p>Look for peaks (clustering) or valleys (dispersion) at specific distances</p></li>
+</ul>
+<p><strong>Export:</strong></p>
+<ul class="simple">
+<li><p>Click <strong>“Save Plot”</strong> button to export</p></li>
+<li><p>Same export options as other visualizations</p></li>
+</ul>
+</section>
+<section id="exporting-plots">
+<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading"></a></h2>
+<p>All visualizations can be exported using the <strong>“Save Plot”</strong> button in each tab.</p>
+<p><strong>Export Options:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Format</strong>: Choose output format
+- <code class="docutils literal notranslate"><span class="pre">PNG</span></code>: Raster image (default, good for presentations)
+- <code class="docutils literal notranslate"><span class="pre">JPG</span></code>: Compressed raster image
+- <code class="docutils literal notranslate"><span class="pre">PDF</span></code>: Vector format (good for publications, scalable)</p></li>
+<li><p><strong>DPI (Dots Per Inch)</strong>: Resolution for raster formats
+- Default: 300 DPI (publication quality)
+- Range: 72-1200 DPI
+- Higher DPI = larger file size, better quality</p></li>
+<li><p><strong>Font Size Override</strong>: Optionally override all font sizes
+- Check “Override figure font size”
+- Set font size in points (default: 10.0, range: 6.0-72.0)
+- Useful for adjusting text size for publications</p></li>
+<li><p><strong>Figure Size Override</strong>: Optionally change figure dimensions
+- Check “Override figure size”
+- Set width and height in inches (default: 8.0 x 6.0)
+- Range: 1.0-100.0 inches</p></li>
+</ol>
+<p><strong>Export Workflow:</strong></p>
+<ol class="arabic simple">
+<li><p>Build spatial graph (creates AnnData objects)</p></li>
+<li><p>Run the desired analysis (neighborhood enrichment, co-occurrence, autocorrelation, or Ripley)</p></li>
+<li><p>Adjust any parameters</p></li>
+<li><p>Click <strong>“Save Plot”</strong> button in the relevant tab</p></li>
+<li><p>In the save dialog:
+- Choose filename and location
+- Select format (PNG/JPG/PDF)
+- Set DPI (for raster formats)
+- Optionally override font size
+- Optionally override figure size</p></li>
+<li><p>Click <strong>“Save”</strong></p></li>
+</ol>
+<p><strong>Tips for Export:</strong></p>
+<ul class="simple">
+<li><p>Use <strong>PDF</strong> format for publications (vector graphics, scalable)</p></li>
+<li><p>Use <strong>PNG</strong> at 300 DPI for presentations and web</p></li>
+<li><p>Increase font size for small figures in publications</p></li>
+<li><p>Adjust figure size to match journal requirements</p></li>
+<li><p>Heatmaps may need larger figure sizes to show all labels clearly</p></li>
+</ul>
+</section>
+<section id="accessing-visualizations-in-the-gui">
+<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Build Spatial Graph</strong>: First, build the spatial graph using the controls at the top
+- Select graph construction method (kNN, Radius, or Delaunay)
+- Set parameters (k_neighbors, radius, pixel_size_um)
+- Click “Build Graph”
+- This converts data to AnnData format and builds spatial graphs using squidpy
+- Graph must be built before analyses are available</p></li>
+<li><p><strong>Open Advanced Spatial Analysis Dialog</strong>: Navigate to <strong>Analysis → Spatial Analysis → Advanced Spatial Analysis</strong> in the menu bar</p></li>
+<li><p><strong>Select Tab</strong>: Use the tabs to access different analyses and visualizations
+- <strong>Neighborhood Enrichment</strong>: Run enrichment analysis and view heatmap
+- <strong>Co-occurrence Analysis</strong>: Run co-occurrence analysis and view heatmap
+- <strong>Spatial Autocorrelation</strong>: Run autocorrelation analysis and view results
+- <strong>Ripley Functions</strong>: Run Ripley analysis and view function plots</p></li>
+<li><p><strong>Adjust Parameters</strong>: Use controls in each tab to customize analyses</p></li>
+<li><p><strong>Export</strong>: Click <strong>“Save Plot”</strong> in each tab to export visualizations</p></li>
+<li><p><strong>Export AnnData</strong>: Click <strong>“Export AnnData”</strong> button to save AnnData objects for downstream analysis</p></li>
+</ol>
+<p><strong>Tab-Specific Controls:</strong></p>
+<ul class="simple">
+<li><p><strong>Neighborhood Enrichment</strong>: n_permutations, Run button, Save Plot button</p></li>
+<li><p><strong>Co-occurrence Analysis</strong>: Method, Reference cluster (for one_vs_others), Run button, Save Plot button</p></li>
+<li><p><strong>Spatial Autocorrelation</strong>: Feature selection, Method, n_permutations, Run button, Save Plot button</p></li>
+<li><p><strong>Ripley Functions</strong>: Cluster column, Mode, max_dist, Run button, Save Plot button</p></li>
+</ul>
+</section>
+<section id="tips-and-best-practices-for-visualizations">
+<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Neighborhood Enrichment:</strong>
+- Use at least 100 permutations, preferably 500-1000 for publication
+- Interpret enrichment scores in context of p-values
+- Look for consistent patterns across multiple ROIs
+- Consider biological context when interpreting results</p></li>
+<li><p><strong>Co-occurrence Analysis:</strong>
+- Use pairwise mode to explore all relationships
+- Use one_vs_others mode to focus on specific cell types
+- Compare results across different graph construction methods
+- Consider multiple testing correction for many comparisons</p></li>
+<li><p><strong>Spatial Autocorrelation:</strong>
+- Select informative features (known spatial markers)
+- Use Moran’s I for most cases (more commonly used)
+- Use Geary’s C for alternative perspective
+- High autocorrelation indicates spatial structure</p></li>
+<li><p><strong>Ripley Functions:</strong>
+- Set max_dist to cover relevant spatial scales (1-5 cell diameters)
+- Compare functions across different cell types
+- Look for peaks (clustering) or valleys (dispersion) at specific distances
+- Consider edge effects near ROI boundaries</p></li>
+<li><p><strong>Export:</strong>
+- Use PDF for publications (vector graphics)
+- Use PNG at 300 DPI for presentations
+- Adjust font sizes for small figures
+- Heatmaps may need larger figure sizes
+- Export AnnData objects for further analysis in other tools</p></li>
 </ol>
 </section>
 </section>

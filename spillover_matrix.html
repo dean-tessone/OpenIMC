@@ -1,0 +1,389 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spillover Matrix Generation &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Simple Spatial Analysis" href="simple_spatial_analysis.html" />
+    <link rel="prev" title="Quality Control Analysis" href="quality_control.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Spillover Matrix Generation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#input-parameters">Input Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#computation-parameters">Computation Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#using-spillover-matrix-generation-in-the-gui">Using Spillover Matrix Generation in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-spillover-matrix-generation-in-the-cli">Using Spillover Matrix Generation in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-command">Basic Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-custom-parameters">With Custom Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-manual-donor-mapping">With Manual Donor Mapping</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#spillover-coefficient-estimation">Spillover Coefficient Estimation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#matrix-structure">Matrix Structure</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qc-metrics">QC Metrics</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Spillover Matrix Generation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/spillover_matrix.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="spillover-matrix-generation">
+<h1>Spillover Matrix Generation<a class="headerlink" href="#spillover-matrix-generation" title="Link to this heading"></a></h1>
+<p>Spillover matrix generation estimates spectral overlap between channels from single-stain control data, enabling compensation for spillover effects in IMC data.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>In IMC, spectral overlap occurs when the signal from one metal isotope is detected in other channels. Spillover matrices quantify these overlaps and are used to correct for them. OpenIMC generates spillover matrices from single-stain control MCD files, where each acquisition contains cells stained with a single metal isotope.</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>Spillover matrix generation:
+- Analyzes pixel-level data from single-stain controls
+- Automatically detects donor channels from acquisition/well names
+- Estimates spillover coefficients between all channel pairs
+- Provides QC metrics for matrix quality assessment</p>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<section id="input-parameters">
+<h3>Input Parameters<a class="headerlink" href="#input-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>mcd_path</strong> (required): Path to MCD file containing single-stain controls
+- Each acquisition should contain a single-stain control for one channel
+- Multiple acquisitions per donor are supported (aggregated)</p></li>
+<li><p><strong>donor_label_per_acq</strong> (optional): Manual mapping from acquisition ID/name to donor channel
+- If not provided, auto-detection is attempted based on well/acquisition names
+- Format: <code class="docutils literal notranslate"><span class="pre">{&quot;acquisition_id&quot;:</span> <span class="pre">&quot;donor_channel_name&quot;}</span></code>
+- Example: <code class="docutils literal notranslate"><span class="pre">{&quot;acq_1&quot;:</span> <span class="pre">&quot;Yb176&quot;,</span> <span class="pre">&quot;acq_2&quot;:</span> <span class="pre">&quot;Er170&quot;}</span></code></p></li>
+</ul>
+</section>
+<section id="computation-parameters">
+<h3>Computation Parameters<a class="headerlink" href="#computation-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>cap</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.3</span></code>): Maximum spillover coefficient
+- Spillover coefficients above this value are capped
+- Prevents unrealistic spillover estimates
+- Typical range: 0.2-0.5</p></li>
+<li><p><strong>aggregate</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;median&quot;</span></code>): Aggregation method when multiple acquisitions per donor
+- <code class="docutils literal notranslate"><span class="pre">&quot;median&quot;</span></code>: Use median spillover estimate (more robust to outliers)
+- <code class="docutils literal notranslate"><span class="pre">&quot;mean&quot;</span></code>: Use mean spillover estimate</p></li>
+<li><p><strong>p_low</strong> (default: <code class="docutils literal notranslate"><span class="pre">90.0</span></code>): Lower percentile for foreground pixel selection
+- Pixels above this percentile are considered foreground (signal)
+- Higher values (95-99) select only brightest pixels
+- Lower values (80-90) include more pixels</p></li>
+<li><p><strong>p_high_clip</strong> (default: <code class="docutils literal notranslate"><span class="pre">99.9</span></code>): Upper percentile for intensity clipping
+- Intensities above this percentile are clipped
+- Prevents extreme outliers from affecting estimates
+- Typical range: 99.0-99.9</p></li>
+<li><p><strong>channel_name_field</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;name&quot;</span></code>): Field to use for channel names from MCD
+- <code class="docutils literal notranslate"><span class="pre">&quot;name&quot;</span></code>: Use channel name field
+- <code class="docutils literal notranslate"><span class="pre">&quot;fullname&quot;</span></code>: Use full channel name field</p></li>
+</ul>
+</section>
+</section>
+<section id="using-spillover-matrix-generation-in-the-gui">
+<h2>Using Spillover Matrix Generation in the GUI<a class="headerlink" href="#using-spillover-matrix-generation-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p>Prepare your single-stain control MCD file:
+- Each acquisition should contain cells stained with a single metal isotope
+- Well names or acquisition names should ideally indicate the donor channel (e.g., “Yb176”, “Er170”)</p></li>
+<li><p>Navigate to <strong>Analysis → Generate Spillover Matrix…</strong> in the menu bar</p></li>
+<li><p>In the spillover matrix dialog:
+- <strong>Configuration Tab</strong>:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Click <strong>Browse…</strong> to select your single-stain control MCD file</p></li>
+<li><p>The tool will automatically detect acquisitions and attempt to map them to donor channels</p></li>
+<li><p>Review the <strong>Acquisition to Donor Channel Mapping</strong> table</p></li>
+<li><p>Use <strong>Auto-detect Donors</strong> to re-run auto-detection if needed</p></li>
+<li><p>Manually adjust donor channel assignments in the dropdown menus if auto-detection is incorrect</p></li>
+<li><p>Adjust computation parameters if needed:
+- <strong>Max spillover</strong>: Maximum allowed spillover coefficient (default: 0.3)
+- <strong>Aggregation</strong>: How to combine multiple acquisitions per donor (median or mean)
+- <strong>Percentile (low)</strong>: Lower percentile for foreground selection (default: 90.0)
+- <strong>Percentile (high)</strong>: Upper percentile for clipping (default: 99.9)</p></li>
+<li><p>Click <strong>Generate Matrix</strong> to start computation</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p><strong>Matrix Visualization Tab</strong>:
+- Heatmap showing spillover coefficients
+- Diagonal = 1.0 (self-spillover)
+- Off-diagonal = spillover from donor (row) to receiver (column)</p></li>
+<li><p><strong>Matrix Table Tab</strong>:
+- Detailed table with all spillover coefficients
+- Color-coded: diagonal (green), off-diagonal &gt; 0 (yellow/orange)</p></li>
+<li><p><strong>QC Metrics Tab</strong>:
+- Quality control metrics for each donor channel
+- Includes: number of acquisitions, off-diagonal sum, maximum spillover, pixels used</p></li>
+</ul>
+</li>
+<li><p>Save the matrix using <strong>Save Matrix…</strong> button (saves as CSV)</p></li>
+</ol>
+</section>
+<section id="using-spillover-matrix-generation-in-the-cli">
+<h2>Using Spillover Matrix Generation in the CLI<a class="headerlink" href="#using-spillover-matrix-generation-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-command">
+<h3>Basic Command<a class="headerlink" href="#basic-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv
+</pre></div>
+</div>
+</section>
+<section id="with-custom-parameters">
+<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cap<span class="w"> </span><span class="m">0</span>.3<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--aggregate<span class="w"> </span>median<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--p-low<span class="w"> </span><span class="m">90</span>.0<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--p-high<span class="w"> </span><span class="m">99</span>.9
+</pre></div>
+</div>
+</section>
+<section id="with-manual-donor-mapping">
+<h3>With Manual Donor Mapping<a class="headerlink" href="#with-manual-donor-mapping" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--donor-mapping<span class="w"> </span><span class="s1">&#39;{&quot;acq_1&quot;: &quot;Yb176&quot;, &quot;acq_2&quot;: &quot;Er170&quot;}&#39;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="spillover-coefficient-estimation">
+<h3>Spillover Coefficient Estimation<a class="headerlink" href="#spillover-coefficient-estimation" title="Link to this heading"></a></h3>
+<p>Spillover coefficients are estimated from pixel-level data using linear regression (slope estimation without intercept).</p>
+<p><strong>Pixel-Level Method:</strong></p>
+<p>For each donor channel <span class="math notranslate nohighlight">\(i\)</span> and receiver channel <span class="math notranslate nohighlight">\(j\)</span>, the spillover coefficient <span class="math notranslate nohighlight">\(S_{ij}\)</span> is computed as:</p>
+<ol class="arabic">
+<li><p><strong>Foreground Selection</strong>: Select foreground pixels from the donor channel
+- Pixels between <span class="math notranslate nohighlight">\(p_{\text{low}}\)</span> and <span class="math notranslate nohighlight">\(p_{\text{high}}\)</span> percentiles are selected
+- Intensities above <span class="math notranslate nohighlight">\(p_{\text{high}}\)</span> are clipped to prevent outlier effects
+- This focuses on signal pixels where spillover is most apparent</p></li>
+<li><p><strong>Slope Estimation</strong>: Compute slope without intercept using linear regression
+- <span class="math notranslate nohighlight">\(S_{ij} = \frac{\mathbf{x}_i^T \mathbf{y}_j}{\mathbf{x}_i^T \mathbf{x}_i}\)</span></p>
+<p>Where:
+- <span class="math notranslate nohighlight">\(\mathbf{x}_i\)</span> = Donor channel intensities for foreground pixels
+- <span class="math notranslate nohighlight">\(\mathbf{y}_j\)</span> = Receiver channel intensities for the same foreground pixels</p>
+</li>
+<li><p><strong>Capping</strong>: Apply maximum spillover cap
+- <span class="math notranslate nohighlight">\(S_{ij} = \min(S_{ij}, \text{cap})\)</span>
+- Prevents unrealistic spillover estimates</p></li>
+<li><p><strong>Aggregation</strong>: When multiple acquisitions per donor exist
+- Use median (default) or mean of spillover estimates across acquisitions
+- Median is more robust to outliers</p></li>
+</ol>
+<p><strong>Alternative Method (for cell-level data):</strong></p>
+<p>For cell-level or event-level data, OpenIMC also supports the CATALYST-style ratio method:</p>
+<ol class="arabic simple">
+<li><p><strong>Background Subtraction</strong>: Subtract background from both channels
+- Background estimated using trimmed mean (10% trim) of negative control events
+- <span class="math notranslate nohighlight">\(\text{bg}_i = \text{trimmed\_mean}(\text{neg}_i, 0.10)\)</span>
+- <span class="math notranslate nohighlight">\(\text{bg}_j = \text{trimmed\_mean}(\text{neg}_j, 0.10)\)</span></p></li>
+<li><p><strong>Signal Calculation</strong>: Compute signal above background
+- <span class="math notranslate nohighlight">\(\text{spiller} = \max(\text{pos}_i - \text{bg}_i, 0)\)</span>
+- <span class="math notranslate nohighlight">\(\text{receiver} = \max(\text{pos}_j - \text{bg}_j, 0)\)</span></p></li>
+<li><p><strong>Ratio Calculation</strong>: Compute event-wise ratios
+- <span class="math notranslate nohighlight">\(\text{ratio} = \frac{\text{receiver}}{\max(\text{spiller}, 10^{-12})}\)</span></p></li>
+<li><p><strong>Coefficient Estimation</strong>: Use median of ratios
+- <span class="math notranslate nohighlight">\(S_{ij} = \text{median}(\text{ratio})\)</span></p></li>
+</ol>
+<p><strong>Spillover Candidate Selection:</strong></p>
+<p>Only plausible spillover pairs are estimated:
+- <strong>M±1 amu</strong>: Channels at mass ±1 atomic mass unit
+- <strong>M+16</strong>: Oxide formation (mass +16)
+- <strong>Isotopic neighbors</strong>: Other isotopes of the same metal (from isotope list)</p>
+<p>This reduces computation and focuses on physically plausible spillover.</p>
+<p><strong>Foreground Selection:</strong></p>
+<p>For pixel-level analysis:
+- Pixels above the <span class="math notranslate nohighlight">\(p_{\text{low}}\)</span> percentile are considered foreground
+- Intensities above the <span class="math notranslate nohighlight">\(p_{\text{high}}\)</span> percentile are clipped
+- This focuses on signal pixels and reduces outlier effects</p>
+<p><strong>Citation:</strong>
+- Chevrier, S., et al. (2018). “Compensation of Signal Spillover in Suspension and Imaging Mass Cytometry.” Cell Systems, 6(5), 612-620. <a class="reference external" href="https://doi.org/10.1016/j.cels.2018.02.010">DOI: 10.1016/j.cels.2018.02.010</a>
+- Implementation based on CATALYST R package: <a class="reference external" href="https://github.com/HelenaLC/CATALYST">CATALYST</a></p>
+</section>
+<section id="matrix-structure">
+<h3>Matrix Structure<a class="headerlink" href="#matrix-structure" title="Link to this heading"></a></h3>
+<p>The spillover matrix is a square matrix where:
+- <strong>Rows</strong>: Donor channels (emitting signal)
+- <strong>Columns</strong>: Receiver channels (receiving spillover)
+- <strong>Diagonal</strong>: Self-spillover (always 1.0)
+- <strong>Off-diagonal</strong>: Spillover from donor to receiver (0.0 to cap)</p>
+<p>Example matrix structure:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>         Yb176  Er170  Dy164  ...
+Yb176    1.000  0.023  0.015  ...
+Er170    0.018  1.000  0.031  ...
+Dy164    0.012  0.027  1.000  ...
+...
+</pre></div>
+</div>
+</section>
+<section id="qc-metrics">
+<h3>QC Metrics<a class="headerlink" href="#qc-metrics" title="Link to this heading"></a></h3>
+<p>Quality control metrics are computed for each donor channel:</p>
+<ul class="simple">
+<li><p><strong>n_acqs</strong>: Number of acquisitions used per donor</p></li>
+<li><p><strong>offdiag_sum</strong>: Sum of off-diagonal spillover values (total spillover)</p></li>
+<li><p><strong>offdiag_max</strong>: Maximum off-diagonal spillover value</p></li>
+<li><p><strong>pixels_used_median</strong>: Median number of pixels used for estimation</p></li>
+</ul>
+<p>These metrics help assess:
+- <strong>Matrix quality</strong>: High off-diagonal sums may indicate issues
+- <strong>Estimation reliability</strong>: More acquisitions and pixels improve reliability
+- <strong>Spillover magnitude</strong>: Maximum spillover indicates worst-case overlap</p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Single-Stain Controls</strong>:
+- Use high-quality single-stain controls
+- Ensure each acquisition contains only one metal isotope
+- Use similar cell types and staining conditions as your experimental data</p></li>
+<li><p><strong>Donor Mapping</strong>:
+- Well names like “Yb176” or “Er170” enable auto-detection
+- Manually verify auto-detected mappings
+- Correct any mis-mapped acquisitions before generation</p></li>
+<li><p><strong>Parameter Tuning</strong>:
+- <strong>cap</strong>: Adjust based on expected spillover (typically 0.2-0.5)
+- <strong>p_low</strong>: Higher values (95-99) for cleaner signal, lower (80-90) for more pixels
+- <strong>p_high</strong>: Keep at 99.0-99.9 to clip extreme outliers</p></li>
+<li><p><strong>Multiple Acquisitions</strong>:
+- Multiple acquisitions per donor improve reliability
+- Use median aggregation (default) for robustness to outliers</p></li>
+<li><p><strong>Validation</strong>:
+- Check QC metrics for each donor
+- Verify that spillover values are physically plausible
+- Compare with known spillover patterns (e.g., M+1, M+16)</p></li>
+<li><p><strong>Matrix Usage</strong>:
+- Save the matrix as CSV for use in spillover correction
+- Use the same matrix for all data acquired with the same panel and instrument settings
+- Regenerate if instrument settings or panel change</p></li>
+<li><p><strong>Troubleshooting</strong>:
+- Low spillover estimates: Check foreground selection (p_low may be too high)
+- High spillover estimates: Check for contamination or mis-mapped donors
+- Missing entries: Verify donor mapping covers all channels</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="quality_control.html" class="btn btn-neutral float-left" title="Quality Control Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="simple_spatial_analysis.html" class="btn btn-neutral float-right" title="Simple Spatial Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

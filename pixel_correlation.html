@@ -1,0 +1,309 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixel Correlation Analysis &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Quality Control Analysis" href="quality_control.html" />
+    <link rel="prev" title="LLM-Based Phenotyping" href="llm_phenotyping.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Pixel Correlation Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-pixel-correlation-analysis-in-the-gui">Using Pixel Correlation Analysis in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-pixel-correlation-analysis-in-the-cli">Using Pixel Correlation Analysis in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-command">Basic Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-specific-channels">With Specific Channels</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-segmentation-mask">With Segmentation Mask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-multiple-testing-correction">With Multiple Testing Correction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#correlation-computation">Correlation Computation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Pixel Correlation Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/pixel_correlation.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pixel-correlation-analysis">
+<h1>Pixel Correlation Analysis<a class="headerlink" href="#pixel-correlation-analysis" title="Link to this heading"></a></h1>
+<p>Pixel correlation analysis computes pairwise correlations between markers at the pixel level, helping identify co-expression patterns, spatial co-localization, and potential spillover effects.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>Pixel correlation analysis examines how marker intensities co-vary at the pixel level across the image. This can reveal:
+- <strong>Co-expression patterns</strong>: Markers that are expressed together in the same cells
+- <strong>Spatial co-localization</strong>: Markers that are spatially close
+- <strong>Potential spillover</strong>: Unusually high correlations that may indicate spectral overlap
+- <strong>Biological relationships</strong>: Functional associations between markers</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>Pixel correlation analysis can be performed:
+- <strong>Across entire ROI</strong>: Analyzes all pixels in the image
+- <strong>Within cells only</strong>: Restricts analysis to pixels within segmented cells (requires segmentation mask)</p>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>channels</strong> (optional): List of channel names to analyze
+- If not specified, analyzes all channels
+- Can be used to focus on specific marker pairs</p></li>
+<li><p><strong>mask</strong> (optional): Segmentation mask to restrict analysis to cell pixels
+- If provided, only pixels within cells (mask &gt; 0) are analyzed
+- If not provided, all pixels in the image are analyzed
+- Must match image dimensions</p></li>
+<li><p><strong>multiple_testing_correction</strong> (optional): Method for multiple testing correction
+- <code class="docutils literal notranslate"><span class="pre">&quot;bonferroni&quot;</span></code>: Bonferroni correction (conservative)
+- <code class="docutils literal notranslate"><span class="pre">&quot;fdr_bh&quot;</span></code>: Benjamini-Hochberg FDR correction (less conservative)
+- If not specified, no correction is applied
+- Recommended when analyzing many channel pairs</p></li>
+</ul>
+</section>
+<section id="using-pixel-correlation-analysis-in-the-gui">
+<h2>Using Pixel Correlation Analysis in the GUI<a class="headerlink" href="#using-pixel-correlation-analysis-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Load your IMC data file (<code class="docutils literal notranslate"><span class="pre">.mcd</span></code> or OME-TIFF directory)</p></li>
+<li><p>Navigate to <strong>Analysis → Pixel-Level Correlation…</strong> in the menu bar</p></li>
+<li><p>In the pixel correlation dialog:
+- Select which acquisitions to analyze
+- Optionally select specific channels (or analyze all channels)
+- Optionally load a segmentation mask to restrict analysis to cell pixels
+- Choose multiple testing correction method if desired
+- Click <strong>Run Analysis</strong> to start the process</p></li>
+<li><p>Results are displayed as:
+- <strong>Correlation matrix</strong>: Heatmap showing pairwise correlations
+- <strong>Correlation table</strong>: Detailed table with correlation coefficients and p-values
+- <strong>Condition comparison</strong>: If multiple conditions are present, comparisons across conditions</p></li>
+<li><p>Export results using the <strong>Export Results</strong> button</p></li>
+</ol>
+</section>
+<section id="using-pixel-correlation-analysis-in-the-cli">
+<h2>Using Pixel Correlation Analysis in the CLI<a class="headerlink" href="#using-pixel-correlation-analysis-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-command">
+<h3>Basic Command<a class="headerlink" href="#basic-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>output.csv
+</pre></div>
+</div>
+</section>
+<section id="with-specific-channels">
+<h3>With Specific Channels<a class="headerlink" href="#with-specific-channels" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--channels<span class="w"> </span>CD3_1841,CD4_2293,CD8_1941
+</pre></div>
+</div>
+</section>
+<section id="with-segmentation-mask">
+<h3>With Segmentation Mask<a class="headerlink" href="#with-segmentation-mask" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/mask.tif
+</pre></div>
+</div>
+</section>
+<section id="with-multiple-testing-correction">
+<h3>With Multiple Testing Correction<a class="headerlink" href="#with-multiple-testing-correction" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--multiple-testing-correction<span class="w"> </span>fdr_bh
+</pre></div>
+</div>
+</section>
+<section id="workflow-yaml-example">
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pixel_correlation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># input: &quot;path/to/input.mcd&quot;  # Optional: uses previous step output if not specified</span>
+<span class="w">  </span><span class="c1"># output: &quot;pixel_correlation.csv&quot;  # Optional: override default output location</span>
+<span class="w">  </span><span class="c1"># mask: &quot;path/to/masks/&quot;  # Optional: restrict to cell pixels</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="correlation-computation">
+<h3>Correlation Computation<a class="headerlink" href="#correlation-computation" title="Link to this heading"></a></h3>
+<p>Pixel correlation analysis uses <strong>Spearman rank correlation</strong> to measure the relationship between marker intensities at the pixel level.</p>
+<p><strong>Spearman Correlation:</strong>
+- Non-parametric measure of monotonic relationship
+- Ranks pixel intensities rather than using raw values
+- Robust to outliers and non-linear relationships
+- Range: -1 to +1</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>+1: Perfect positive correlation</p></li>
+<li><p>0: No correlation</p></li>
+<li><p>-1: Perfect negative correlation</p></li>
+</ul>
+</div></blockquote>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Pixel Extraction</strong>: For each channel, extract pixel intensities
+- If mask provided: Only pixels within cells (mask &gt; 0)
+- If no mask: All pixels in the image</p></li>
+<li><p><strong>Data Cleaning</strong>: Remove NaN and infinite values</p></li>
+<li><p><strong>Pairwise Correlation</strong>: For each pair of channels:
+- Compute Spearman rank correlation coefficient
+- Compute p-value for significance testing
+- Record number of pixels used</p></li>
+<li><p><strong>Multiple Testing Correction</strong> (optional): Apply correction to p-values if many channel pairs are tested</p></li>
+</ol>
+<p><strong>Interpretation:</strong>
+- <strong>High positive correlation (&gt;0.7)</strong>: Markers are co-expressed or co-localized
+- <strong>High negative correlation (&lt;-0.7)</strong>: Markers are mutually exclusive
+- <strong>Low correlation (near 0)</strong>: Markers are independent
+- <strong>Significant p-value</strong>: Correlation is statistically significant</p>
+<p><strong>Citation:</strong>
+- Spearman, C. (1904). “The proof and measurement of association between two things.” American Journal of Psychology, 15(1), 72-101. <a class="reference external" href="https://doi.org/10.2307/1412159">DOI: 10.2307/1412159</a>
+- Implementation: <a class="reference external" href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.spearmanr.html">scipy.stats.spearmanr</a></p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p><strong>Mask Usage</strong>:
+- Use segmentation masks to focus on cell pixels and reduce background noise
+- Without masks, background pixels may dilute correlations</p></li>
+<li><p><strong>Channel Selection</strong>:
+- Analyze all channels for comprehensive overview
+- Focus on specific channels to investigate particular relationships</p></li>
+<li><p><strong>Multiple Testing Correction</strong>:
+- Always use correction when analyzing many channel pairs
+- FDR (Benjamini-Hochberg) is less conservative than Bonferroni</p></li>
+<li><p><strong>Interpretation</strong>:
+- High correlations may indicate:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>True co-expression (biological relationship)</p></li>
+<li><p>Spillover (spectral overlap - check spillover matrix)</p></li>
+<li><p>Spatial proximity (markers in same cell types)</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Validate findings with biological knowledge</p></li>
+</ul>
+</li>
+<li><p><strong>Validation</strong>:
+- Compare correlations across different ROIs or conditions
+- Check for consistency in expected relationships
+- Use spatial visualization to confirm co-localization</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="llm_phenotyping.html" class="btn btn-neutral float-left" title="LLM-Based Phenotyping" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="quality_control.html" class="btn btn-neutral float-right" title="Quality Control Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
