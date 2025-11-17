@@ -1,0 +1,500 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clustering &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Simple Spatial Analysis" href="simple_spatial_analysis.html" />
+    <link rel="prev" title="Batch Correction" href="batch_correction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Clustering</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#common-parameters">Common Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#leiden-louvain-parameters">Leiden/Louvain Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hierarchical-parameters">Hierarchical Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#k-means-parameters">K-means Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hdbscan-parameters">HDBSCAN Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#using-clustering-in-the-gui">Using Clustering in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-clustering-in-the-cli">Using Clustering in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-leiden-command">Basic Leiden Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-custom-parameters">With Custom Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hierarchical-command">Hierarchical Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#k-means-command">K-means Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hdbscan-command">HDBSCAN Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#leiden-algorithm">Leiden Algorithm</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#louvain-algorithm">Louvain Algorithm</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hierarchical-clustering">Hierarchical Clustering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#k-means-clustering">K-means Clustering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#hdbscan">HDBSCAN</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Clustering</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/clustering.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="clustering">
+<h1>Clustering<a class="headerlink" href="#clustering" title="Link to this heading"></a></h1>
+<p>Clustering groups cells into phenotypically similar populations based on their extracted features, enabling cell type identification and population analysis.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>Clustering is a fundamental step in single-cell analysis that identifies distinct cell populations. OpenIMC supports multiple clustering algorithms, each with different characteristics suited to different data types and analysis goals.</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>OpenIMC supports five clustering methods:</p>
+<ol class="arabic simple">
+<li><p><strong>Leiden</strong> (default): Graph-based clustering using the Leiden algorithm</p></li>
+<li><p><strong>Louvain</strong>: Graph-based clustering using the Louvain algorithm</p></li>
+<li><p><strong>Hierarchical</strong>: Agglomerative hierarchical clustering</p></li>
+<li><p><strong>K-means</strong>: Partition-based clustering with k clusters</p></li>
+<li><p><strong>HDBSCAN</strong>: Density-based clustering that identifies clusters of varying density</p></li>
+</ol>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<section id="common-parameters">
+<h3>Common Parameters<a class="headerlink" href="#common-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;leiden&quot;</span></code>): Clustering method
+- Options: <code class="docutils literal notranslate"><span class="pre">&quot;leiden&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;louvain&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hierarchical&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;kmeans&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hdbscan&quot;</span></code></p></li>
+<li><p><strong>columns</strong> (optional): List of feature column names to use for clustering
+- If not specified, auto-detects all numeric feature columns
+- Excludes metadata columns (cell_id, centroid_x, centroid_y, cluster, etc.)
+- Recommended: Use intensity features, optionally including morphological features</p></li>
+<li><p><strong>scaling</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;zscore&quot;</span></code>): Feature scaling method before clustering
+- <code class="docutils literal notranslate"><span class="pre">&quot;none&quot;</span></code>: No scaling (use raw features)
+- <code class="docutils literal notranslate"><span class="pre">&quot;zscore&quot;</span></code>: Z-score normalization (mean=0, std=1)
+- <code class="docutils literal notranslate"><span class="pre">&quot;mad&quot;</span></code>: Median Absolute Deviation normalization (robust to outliers)</p></li>
+<li><p><strong>seed</strong> (default: <code class="docutils literal notranslate"><span class="pre">42</span></code>): Random seed for reproducibility
+- Ensures consistent results across runs
+- Change to explore different initializations</p></li>
+</ul>
+</section>
+<section id="leiden-louvain-parameters">
+<h3>Leiden/Louvain Parameters<a class="headerlink" href="#leiden-louvain-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>resolution</strong> (default: <code class="docutils literal notranslate"><span class="pre">1.0</span></code>): Resolution parameter controlling cluster granularity
+- Higher values (1.5-3.0) create more, smaller clusters
+- Lower values (0.3-0.8) create fewer, larger clusters
+- Typical range: 0.5-2.0
+- Adjust to find optimal cluster granularity</p></li>
+<li><p><strong>n_neighbors</strong> (default: <code class="docutils literal notranslate"><span class="pre">15</span></code>): Number of neighbors for k-NN graph construction
+- More neighbors (20-30) create denser graphs, smoother clusters
+- Fewer neighbors (5-10) create sparser graphs, more distinct clusters
+- Typical range: 10-30</p></li>
+<li><p><strong>metric</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;euclidean&quot;</span></code>): Distance metric for k-NN graph
+- <code class="docutils literal notranslate"><span class="pre">&quot;euclidean&quot;</span></code>: Standard Euclidean distance
+- <code class="docutils literal notranslate"><span class="pre">&quot;manhattan&quot;</span></code>: Manhattan (L1) distance
+- <code class="docutils literal notranslate"><span class="pre">&quot;cosine&quot;</span></code>: Cosine similarity (good for high-dimensional data)</p></li>
+</ul>
+</section>
+<section id="hierarchical-parameters">
+<h3>Hierarchical Parameters<a class="headerlink" href="#hierarchical-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>n_clusters</strong> (required): Number of clusters to identify
+- Must be specified for hierarchical clustering
+- Use domain knowledge or methods like elbow plot to determine optimal k</p></li>
+<li><p><strong>linkage</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;ward&quot;</span></code>): Linkage criterion for merging clusters
+- <code class="docutils literal notranslate"><span class="pre">&quot;ward&quot;</span></code>: Minimizes within-cluster variance (recommended for Euclidean distance)
+- <code class="docutils literal notranslate"><span class="pre">&quot;complete&quot;</span></code>: Maximum distance between clusters
+- <code class="docutils literal notranslate"><span class="pre">&quot;average&quot;</span></code>: Average distance between clusters</p></li>
+</ul>
+</section>
+<section id="k-means-parameters">
+<h3>K-means Parameters<a class="headerlink" href="#k-means-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>n_clusters</strong> (required): Number of clusters to identify
+- Must be specified for K-means
+- Use domain knowledge or methods like elbow plot to determine optimal k</p></li>
+<li><p><strong>n_init</strong> (default: <code class="docutils literal notranslate"><span class="pre">10</span></code>): Number of initializations
+- K-means is sensitive to initialization
+- More initializations (10-20) improve stability
+- Final result uses the best initialization</p></li>
+</ul>
+</section>
+<section id="hdbscan-parameters">
+<h3>HDBSCAN Parameters<a class="headerlink" href="#hdbscan-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>min_cluster_size</strong> (default: <code class="docutils literal notranslate"><span class="pre">10</span></code>): Minimum number of cells in a cluster
+- Smaller values (5-10) identify more, smaller clusters
+- Larger values (20-50) identify fewer, larger clusters
+- Cells not meeting this criterion are marked as noise</p></li>
+<li><p><strong>min_samples</strong> (default: <code class="docutils literal notranslate"><span class="pre">5</span></code>): Minimum samples in neighborhood for core point
+- Controls cluster density requirement
+- Lower values (3-5) allow sparser clusters
+- Higher values (10-20) require denser clusters</p></li>
+<li><p><strong>cluster_selection_method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;eom&quot;</span></code>): Method for selecting clusters from tree
+- <code class="docutils literal notranslate"><span class="pre">&quot;eom&quot;</span></code>: Excess of Mass (recommended, more stable)
+- <code class="docutils literal notranslate"><span class="pre">&quot;leaf&quot;</span></code>: Leaf selection (more clusters, may be less stable)</p></li>
+<li><p><strong>hdbscan_metric</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;euclidean&quot;</span></code>): Distance metric
+- <code class="docutils literal notranslate"><span class="pre">&quot;euclidean&quot;</span></code>: Standard Euclidean distance
+- <code class="docutils literal notranslate"><span class="pre">&quot;manhattan&quot;</span></code>: Manhattan (L1) distance</p></li>
+</ul>
+</section>
+</section>
+<section id="using-clustering-in-the-gui">
+<h2>Using Clustering in the GUI<a class="headerlink" href="#using-clustering-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p>Ensure feature extraction (and optionally batch correction) has been completed</p></li>
+<li><p>Navigate to <strong>Analysis → Clustering</strong> or click the clustering button</p></li>
+<li><p>In the clustering dialog:
+- Select the clustering method
+- Choose feature columns to use (or use auto-detected)
+- Select scaling method
+- Adjust method-specific parameters:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>For Leiden/Louvain: Set resolution and n_neighbors</p></li>
+<li><p>For Hierarchical/K-means: Set n_clusters and linkage (hierarchical)</p></li>
+<li><p>For HDBSCAN: Set min_cluster_size and min_samples</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Optionally use “Find Optimal K” tool for hierarchical/K-means</p></li>
+</ul>
+</li>
+<li><p>Click <strong>Run Clustering</strong> to start the process</p></li>
+<li><p>Cluster assignments are added to the features dataframe in a <code class="docutils literal notranslate"><span class="pre">cluster</span></code> column</p></li>
+<li><p>Results can be visualized and exported</p></li>
+</ol>
+</section>
+<section id="using-clustering-in-the-cli">
+<h2>Using Clustering in the CLI<a class="headerlink" href="#using-clustering-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-leiden-command">
+<h3>Basic Leiden Command<a class="headerlink" href="#basic-leiden-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>leiden<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--resolution<span class="w"> </span><span class="m">1</span>.0
+</pre></div>
+</div>
+</section>
+<section id="with-custom-parameters">
+<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>leiden<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--resolution<span class="w"> </span><span class="m">1</span>.5<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-neighbors<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--metric<span class="w"> </span>euclidean<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--scaling<span class="w"> </span>zscore
+</pre></div>
+</div>
+</section>
+<section id="hierarchical-command">
+<h3>Hierarchical Command<a class="headerlink" href="#hierarchical-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>hierarchical<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-clusters<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--linkage<span class="w"> </span>ward
+</pre></div>
+</div>
+</section>
+<section id="k-means-command">
+<h3>K-means Command<a class="headerlink" href="#k-means-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>kmeans<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-clusters<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-init<span class="w"> </span><span class="m">20</span>
+</pre></div>
+</div>
+</section>
+<section id="hdbscan-command">
+<h3>HDBSCAN Command<a class="headerlink" href="#hdbscan-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>hdbscan<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--min-cluster-size<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--min-samples<span class="w"> </span><span class="m">5</span>
+</pre></div>
+</div>
+</section>
+<section id="workflow-yaml-example">
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">clustering</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;leiden&quot;</span>
+<span class="w">  </span><span class="nt">columns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Auto-detect</span>
+<span class="w">  </span><span class="nt">scaling</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;zscore&quot;</span>
+<span class="w">  </span><span class="nt">resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<span class="w">  </span><span class="nt">n_neighbors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+<span class="w">  </span><span class="nt">metric</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;euclidean&quot;</span>
+<span class="w">  </span><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">42</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="leiden-algorithm">
+<h3>Leiden Algorithm<a class="headerlink" href="#leiden-algorithm" title="Link to this heading"></a></h3>
+<p>The Leiden algorithm is a graph-based clustering method that optimizes modularity, a measure of cluster quality.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Graph Construction</strong>: Builds a k-nearest neighbor (k-NN) graph from feature space
+- Each cell is a node
+- Edges connect to k nearest neighbors based on distance metric</p></li>
+<li><p><strong>Modularity Optimization</strong>: Iteratively optimizes modularity by moving cells between clusters
+- Modularity measures how well clusters are separated
+- Resolution parameter controls the trade-off between cluster size and number</p></li>
+<li><p><strong>Refinement</strong>: Applies local refinement to improve cluster quality</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Fast and scalable
+- Handles large datasets well
+- Resolution parameter provides control over granularity
+- Works well with high-dimensional data</p>
+<p><strong>Limitations:</strong>
+- Requires tuning of resolution parameter
+- Graph construction depends on n_neighbors parameter</p>
+<p><strong>Citation:</strong>
+- Traag, V. A., et al. (2019). “From Louvain to Leiden: guaranteeing well-connected communities.” Scientific Reports, 9(1), 5233. <a class="reference external" href="https://doi.org/10.1038/s41598-019-41695-z">DOI: 10.1038/s41598-019-41695-z</a>
+- <a class="reference external" href="https://github.com/vtraag/leidenalg">leidenalg Python Package</a></p>
+</section>
+<section id="louvain-algorithm">
+<h3>Louvain Algorithm<a class="headerlink" href="#louvain-algorithm" title="Link to this heading"></a></h3>
+<p>The Louvain algorithm is similar to Leiden but uses a different optimization strategy.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Graph Construction</strong>: Same as Leiden (k-NN graph)</p></li>
+<li><p><strong>Modularity Optimization</strong>: Two-phase iterative optimization
+- Local optimization: Move nodes to maximize modularity
+- Aggregation: Merge nodes in same cluster, repeat</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Fast and widely used
+- Good default choice for many applications</p>
+<p><strong>Limitations:</strong>
+- May produce disconnected communities (Leiden fixes this)
+- Requires tuning of resolution parameter</p>
+<p><strong>Citation:</strong>
+- Blondel, V. D., et al. (2008). “Fast unfolding of communities in large networks.” Journal of Statistical Mechanics: Theory and Experiment, 2008(10), P10008. <a class="reference external" href="https://doi.org/10.1088/1742-5468/2008/10/P10008">DOI: 10.1088/1742-5468/2008/10/P10008</a></p>
+</section>
+<section id="hierarchical-clustering">
+<h3>Hierarchical Clustering<a class="headerlink" href="#hierarchical-clustering" title="Link to this heading"></a></h3>
+<p>Hierarchical clustering builds a tree (dendrogram) of clusters by iteratively merging the closest clusters.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Initialization</strong>: Each cell starts as its own cluster</p></li>
+<li><p><strong>Iterative Merging</strong>: At each step, merge the two closest clusters
+- Distance between clusters determined by linkage criterion
+- Ward linkage minimizes within-cluster variance</p></li>
+<li><p><strong>Cut Tree</strong>: Cut the dendrogram at the specified number of clusters (n_clusters)</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Provides hierarchical structure (can explore at different resolutions)
+- Deterministic results
+- Works well with small to medium datasets</p>
+<p><strong>Limitations:</strong>
+- Computationally expensive for large datasets (O(n³) complexity)
+- Requires specifying number of clusters
+- Sensitive to outliers</p>
+<p><strong>Citation:</strong>
+- Murtagh, F., &amp; Contreras, P. (2012). “Algorithms for hierarchical clustering: an overview.” Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery, 2(1), 86-97. <a class="reference external" href="https://doi.org/10.1002/widm.53">DOI: 10.1002/widm.53</a>
+- Implementation: <a class="reference external" href="https://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html">scipy.cluster.hierarchy</a></p>
+</section>
+<section id="k-means-clustering">
+<h3>K-means Clustering<a class="headerlink" href="#k-means-clustering" title="Link to this heading"></a></h3>
+<p>K-means partitions cells into k clusters by minimizing within-cluster variance.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Initialization</strong>: Randomly assign k cluster centers</p></li>
+<li><p><strong>Assignment</strong>: Assign each cell to the nearest cluster center</p></li>
+<li><p><strong>Update</strong>: Recompute cluster centers as means of assigned cells</p></li>
+<li><p><strong>Iteration</strong>: Repeat steps 2-3 until convergence</p></li>
+<li><p><strong>Multiple Runs</strong>: Run with different initializations, keep best result</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Simple and fast
+- Works well with spherical clusters
+- Deterministic given initialization</p>
+<p><strong>Limitations:</strong>
+- Requires specifying number of clusters
+- Assumes clusters are spherical
+- Sensitive to initialization (mitigated by n_init)</p>
+<p><strong>Citation:</strong>
+- MacQueen, J. (1967). “Some methods for classification and analysis of multivariate observations.” Proceedings of the Fifth Berkeley Symposium on Mathematical Statistics and Probability, 1, 281-297.
+- Implementation: <a class="reference external" href="https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html">scikit-learn KMeans</a></p>
+</section>
+<section id="hdbscan">
+<h3>HDBSCAN<a class="headerlink" href="#hdbscan" title="Link to this heading"></a></h3>
+<p>HDBSCAN (Hierarchical Density-Based Spatial Clustering of Applications with Noise) identifies clusters of varying density and handles noise.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Mutual Reachability Graph</strong>: Builds a graph based on mutual reachability distance
+- Accounts for local density variations</p></li>
+<li><p><strong>Minimum Spanning Tree</strong>: Constructs MST from the graph</p></li>
+<li><p><strong>Hierarchical Clustering</strong>: Performs hierarchical clustering on the MST</p></li>
+<li><p><strong>Cluster Selection</strong>: Extracts clusters from the hierarchy using selection method
+- EOM (Excess of Mass): More stable, recommended
+- Leaf: More clusters, may be less stable</p></li>
+<li><p><strong>Noise Assignment</strong>: Cells not meeting min_cluster_size are marked as noise (-1, converted to 0)</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Identifies clusters of varying density
+- Handles noise/outliers automatically
+- Does not require specifying number of clusters
+- Robust to outliers</p>
+<p><strong>Limitations:</strong>
+- Slower than graph-based methods
+- Parameters (min_cluster_size, min_samples) need tuning
+- May mark many cells as noise if parameters are too strict</p>
+<p><strong>Citation:</strong>
+- McInnes, L., et al. (2017). “Accelerated Hierarchical Density Based Clustering.” 2017 IEEE International Conference on Data Mining Workshops (ICDMW), 33-42. <a class="reference external" href="https://doi.org/10.1109/ICDMW.2017.12">DOI: 10.1109/ICDMW.2017.12</a>
+- <a class="reference external" href="https://github.com/scikit-learn-contrib/hdbscan">HDBSCAN Python Package</a></p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p><strong>Method Selection</strong>:
+- Use <strong>Leiden</strong> for most cases (fast, scalable, good results)
+- Use <strong>Hierarchical</strong> for small datasets or when you need hierarchical structure
+- Use <strong>K-means</strong> when you know the number of clusters and they are spherical
+- Use <strong>HDBSCAN</strong> when you have varying density clusters or want automatic noise detection</p></li>
+<li><p><strong>Feature Selection</strong>:
+- Use intensity features (marker expression) as primary features
+- Optionally include morphological features if they are informative
+- Exclude features that are not biologically relevant</p></li>
+<li><p><strong>Scaling</strong>:
+- Always use scaling (zscore or mad) unless features are already on the same scale
+- Z-score is standard, MAD is more robust to outliers</p></li>
+<li><p><strong>Parameter Tuning</strong>:
+- For Leiden/Louvain: Start with resolution=1.0, adjust based on cluster number
+- For Hierarchical/K-means: Use elbow plot or domain knowledge to determine k
+- For HDBSCAN: Adjust min_cluster_size based on expected cluster sizes</p></li>
+<li><p><strong>Validation</strong>:
+- Visualize clusters in 2D (e.g., UMAP, t-SNE) to assess quality
+- Check that clusters are biologically meaningful
+- Verify that known cell types are separated</p></li>
+<li><p><strong>Resolution Parameter (Leiden/Louvain)</strong>:
+- Lower resolution → fewer, larger clusters
+- Higher resolution → more, smaller clusters
+- Adjust iteratively to find optimal granularity</p></li>
+<li><p><strong>Downstream Analysis</strong>:
+- Use cluster assignments for:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Cell type annotation</p></li>
+<li><p>Differential expression analysis</p></li>
+<li><p>Spatial analysis</p></li>
+<li><p>Population comparisons</p></li>
+</ul>
+</div></blockquote>
+</li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="batch_correction.html" class="btn btn-neutral float-left" title="Batch Correction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="simple_spatial_analysis.html" class="btn btn-neutral float-right" title="Simple Spatial Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -13,6 +13,12 @@ OpenIMC Documentation
    overview
    installation
    quickstart
+   segmentation
+   feature_extraction
+   batch_correction
+   clustering
+   simple_spatial_analysis
+   advanced_spatial_analysis
 
 .. toctree::
    :maxdepth: 2

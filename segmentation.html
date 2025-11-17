@@ -1,0 +1,481 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Segmentation &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Feature Extraction" href="feature_extraction.html" />
+    <link rel="prev" title="Quick Start" href="quickstart.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Segmentation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#common-parameters">Common Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cellsam-parameters">CellSAM Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cellpose-parameters">Cellpose Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#watershed-parameters">Watershed Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ilastik-parameters">Ilastik Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#using-segmentation-in-the-gui">Using Segmentation in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-segmentation-in-the-cli">Using Segmentation in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-command">Basic Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cellsam-example">CellSAM Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cellpose-example">Cellpose Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#watershed-example">Watershed Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ilastik-example">Ilastik Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#cellsam">CellSAM</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cellpose">Cellpose</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#watershed">Watershed</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ilastik">Ilastik</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Segmentation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/segmentation.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="segmentation">
+<h1>Segmentation<a class="headerlink" href="#segmentation" title="Link to this heading"></a></h1>
+<p>Segmentation is the process of identifying and delineating individual cells in IMC images. OpenIMC provides four segmentation methods: CellSAM (via DeepCell API), Cellpose, Watershed, and Ilastik.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>Cell segmentation is a critical first step in IMC analysis, as it defines the boundaries of individual cells from which features will be extracted. The choice of segmentation method depends on your data characteristics, computational resources, and accuracy requirements.</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>OpenIMC supports four segmentation methods:</p>
+<ol class="arabic simple">
+<li><p><strong>CellSAM</strong> (default): Deep learning-based segmentation using DeepCell’s CellSAM model via API</p></li>
+<li><p><strong>Cellpose</strong>: Local deep learning-based segmentation (supports GPU acceleration)</p></li>
+<li><p><strong>Watershed</strong>: Traditional marker-controlled watershed segmentation</p></li>
+<li><p><strong>Ilastik</strong>: Segmentation using pre-trained Ilastik models (<code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project files)</p></li>
+</ol>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<section id="common-parameters">
+<h3>Common Parameters<a class="headerlink" href="#common-parameters" title="Link to this heading"></a></h3>
+<p>These parameters apply to all segmentation methods:</p>
+<ul class="simple">
+<li><p><strong>nuclear_channels</strong> (required): List of channel names to use for nuclear detection
+- Example: <code class="docutils literal notranslate"><span class="pre">[&quot;DNA1_Ir191&quot;,</span> <span class="pre">&quot;DNA2_Ir193&quot;]</span></code>
+- Used to identify cell nuclei for seeding segmentation</p></li>
+<li><p><strong>cytoplasm_channels</strong> (optional for CellSAM/Cellpose, required for Watershed): List of channel names for cytoplasm detection
+- Example: <code class="docutils literal notranslate"><span class="pre">[&quot;CD3_1841&quot;,</span> <span class="pre">&quot;CD4_2293&quot;]</span></code>
+- Used to define cell boundaries</p></li>
+<li><p><strong>nuclear_fusion_method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;mean&quot;</span></code>): Method to combine multiple nuclear channels
+- Options: <code class="docutils literal notranslate"><span class="pre">&quot;single&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;mean&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;weighted&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;max&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;pca1&quot;</span></code>
+- <code class="docutils literal notranslate"><span class="pre">&quot;single&quot;</span></code>: Use only the first channel
+- <code class="docutils literal notranslate"><span class="pre">&quot;mean&quot;</span></code>: Average all channels
+- <code class="docutils literal notranslate"><span class="pre">&quot;weighted&quot;</span></code>: Weighted average (requires <code class="docutils literal notranslate"><span class="pre">nuclear_weights</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">&quot;max&quot;</span></code>: Maximum intensity across channels
+- <code class="docutils literal notranslate"><span class="pre">&quot;pca1&quot;</span></code>: First principal component</p></li>
+<li><p><strong>cyto_fusion_method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;mean&quot;</span></code>): Method to combine cytoplasm channels (same options as nuclear_fusion_method)</p></li>
+<li><p><strong>nuclear_weights</strong> (optional): List of weights for weighted fusion of nuclear channels
+- Example: <code class="docutils literal notranslate"><span class="pre">[0.5,</span> <span class="pre">0.3,</span> <span class="pre">0.2]</span></code>
+- Must match the number of nuclear channels</p></li>
+<li><p><strong>cyto_weights</strong> (optional): List of weights for weighted fusion of cytoplasm channels</p></li>
+<li><p><strong>normalization_method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;None&quot;</span></code>): Normalization method to apply before segmentation
+- <code class="docutils literal notranslate"><span class="pre">&quot;None&quot;</span></code>: No normalization
+- <code class="docutils literal notranslate"><span class="pre">&quot;arcsinh&quot;</span></code>: Arcsinh transformation (helps normalize intensity distributions, recommended for data with high dynamic range)
+- <code class="docutils literal notranslate"><span class="pre">&quot;channelwise_minmax&quot;</span></code>: Min-max normalization per channel (scales each channel independently to 0-1 range, useful when channels have different intensity ranges)
+- <code class="docutils literal notranslate"><span class="pre">&quot;percentile_clip&quot;</span></code>: Percentile-based clipping normalization</p></li>
+<li><p><strong>arcsinh_cofactor</strong> (default: <code class="docutils literal notranslate"><span class="pre">10.0</span></code>): Cofactor for arcsinh transformation (only used if normalization_method is “arcsinh”)
+- Lower values increase compression of high intensities
+- Typical range: 5.0-20.0</p></li>
+<li><p><strong>arcsinh</strong> (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>): Legacy parameter, equivalent to setting normalization_method to “arcsinh”
+- Deprecated: Use normalization_method instead</p></li>
+<li><p><strong>denoise_settings</strong> (optional): Dictionary with denoise settings per channel
+- Format: <code class="docutils literal notranslate"><span class="pre">{&quot;Channel1&quot;:</span> <span class="pre">{&quot;method&quot;:</span> <span class="pre">&quot;gaussian&quot;,</span> <span class="pre">&quot;sigma&quot;:</span> <span class="pre">1.0}}</span></code>
+- Can also be a path to a JSON file</p></li>
+<li><p><strong>acquisition</strong> (optional): Specific acquisition ID or name to segment
+- If not specified, processes all acquisitions</p></li>
+</ul>
+</section>
+<section id="cellsam-parameters">
+<h3>CellSAM Parameters<a class="headerlink" href="#cellsam-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>deepcell_api_key</strong> (optional): DeepCell API access token
+- If not provided, uses <code class="docutils literal notranslate"><span class="pre">DEEPCELL_ACCESS_TOKEN</span></code> environment variable
+- Required for CellSAM method
+- Get your API key from <a class="reference external" href="https://deepcell.org/">DeepCell</a></p></li>
+<li><p><strong>bbox_threshold</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.4</span></code>): Bounding box detection threshold
+- Lower values (0.01-0.1) detect fainter cells
+- Higher values (0.4-0.8) detect only bright cells
+- Adjust based on cell visibility in your data</p></li>
+<li><p><strong>use_wsi</strong> (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>): Use whole-slide imaging (WSI) mode
+- Enable for ROIs with &gt;500 cells
+- Improves performance for large images</p></li>
+<li><p><strong>low_contrast_enhancement</strong> (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>): Apply low contrast enhancement
+- Helps with faint or low-contrast cells</p></li>
+<li><p><strong>gauge_cell_size</strong> (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>): Automatically gauge cell size
+- Can improve segmentation for variable cell sizes</p></li>
+</ul>
+</section>
+<section id="cellpose-parameters">
+<h3>Cellpose Parameters<a class="headerlink" href="#cellpose-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>model</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;cyto3&quot;</span></code>): Cellpose model type
+- <code class="docutils literal notranslate"><span class="pre">&quot;cyto3&quot;</span></code>: General cytoplasm segmentation (requires cytoplasm channels)
+- <code class="docutils literal notranslate"><span class="pre">&quot;nuclei&quot;</span></code>: Nuclear segmentation only</p></li>
+<li><p><strong>diameter</strong> (optional): Expected cell diameter in pixels
+- If not specified, Cellpose estimates automatically
+- Specify if you know the approximate cell size</p></li>
+<li><p><strong>flow_threshold</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.4</span></code>): Flow field threshold
+- Lower values (0.0-0.2) allow more cell boundaries
+- Higher values (0.4-0.8) require stronger boundaries
+- Adjust if cells are over- or under-segmented</p></li>
+<li><p><strong>cellprob_threshold</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.0</span></code>): Cell probability threshold
+- Lower values (negative) include more uncertain regions
+- Higher values (0.0-0.5) require higher confidence
+- Typically kept at 0.0 for best results</p></li>
+<li><p><strong>gpu_id</strong> (optional): GPU device ID to use for acceleration
+- Example: <code class="docutils literal notranslate"><span class="pre">0</span></code> for first GPU, <code class="docutils literal notranslate"><span class="pre">1</span></code> for second GPU
+- If not specified, uses CPU (slower but works on all systems)</p></li>
+</ul>
+</section>
+<section id="watershed-parameters">
+<h3>Watershed Parameters<a class="headerlink" href="#watershed-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>min_cell_area</strong> (default: <code class="docutils literal notranslate"><span class="pre">100</span></code>): Minimum cell area in pixels
+- Filters out small objects (likely noise)
+- Increase if you have many small false positives</p></li>
+<li><p><strong>max_cell_area</strong> (default: <code class="docutils literal notranslate"><span class="pre">10000</span></code>): Maximum cell area in pixels
+- Filters out very large objects (likely merged cells)
+- Decrease if cells are being merged</p></li>
+<li><p><strong>compactness</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.01</span></code>): Watershed compactness parameter
+- Lower values (0.001-0.01) allow irregular shapes
+- Higher values (0.01-0.1) prefer compact, round shapes
+- Adjust based on expected cell morphology</p></li>
+</ul>
+</section>
+<section id="ilastik-parameters">
+<h3>Ilastik Parameters<a class="headerlink" href="#ilastik-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>ilp_file</strong> (required): Path to Ilastik project file (<code class="docutils literal notranslate"><span class="pre">.ilp</span></code>)
+- Must be a trained Ilastik project file
+- Train your model in Ilastik GUI and save as <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> file
+- The model should be trained on similar data for best results</p></li>
+<li><p><strong>output_format</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;Simple</span> <span class="pre">Segmentation&quot;</span></code>): Output format from Ilastik
+- <code class="docutils literal notranslate"><span class="pre">&quot;Simple</span> <span class="pre">Segmentation&quot;</span></code>: Segmentation masks (default)
+- <code class="docutils literal notranslate"><span class="pre">&quot;Probabilities&quot;</span></code>: Probability maps for each class</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Ilastik must be installed separately and available in your PATH. See the <a class="reference internal" href="installation.html"><span class="doc">Installation</span></a> guide for details.</p>
+</div>
+</section>
+</section>
+<section id="using-segmentation-in-the-gui">
+<h2>Using Segmentation in the GUI<a class="headerlink" href="#using-segmentation-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Load your IMC data file (<code class="docutils literal notranslate"><span class="pre">.mcd</span></code> or OME-TIFF directory)</p></li>
+<li><p>Navigate to <strong>Analysis → Segmentation</strong> or click the segmentation button in the toolbar</p></li>
+<li><p>In the segmentation dialog:
+- Select the segmentation method (CellSAM, Cellpose, Watershed, or Ilastik)
+- Choose nuclear channels from the channel list (not required for Ilastik)
+- Optionally select cytoplasm channels (not required for Ilastik)
+- For Ilastik: Browse and select your trained <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project file
+- Adjust method-specific parameters
+- Configure preprocessing options (denoising, normalization)</p></li>
+<li><p>Click <strong>Run Segmentation</strong> to start the process</p></li>
+<li><p>Segmentation masks are automatically saved and can be visualized in the image viewer</p></li>
+<li><p>Masks are stored per acquisition and can be used for subsequent feature extraction</p></li>
+</ol>
+</section>
+<section id="using-segmentation-in-the-cli">
+<h2>Using Segmentation in the CLI<a class="headerlink" href="#using-segmentation-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-command">
+<h3>Basic Command<a class="headerlink" href="#basic-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>cellpose<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--nuclear-channels<span class="w"> </span>DNA1_Ir191,DNA2_Ir193<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cytoplasm-channels<span class="w"> </span>CD3_1841,CD4_2293
+</pre></div>
+</div>
+</section>
+<section id="cellsam-example">
+<h3>CellSAM Example<a class="headerlink" href="#cellsam-example" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>cellsam<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--nuclear-channels<span class="w"> </span>DNA1_Ir191,DNA2_Ir193<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cytoplasm-channels<span class="w"> </span>CD3_1841<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--bbox-threshold<span class="w"> </span><span class="m">0</span>.3<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--use-wsi
+</pre></div>
+</div>
+</section>
+<section id="cellpose-example">
+<h3>Cellpose Example<a class="headerlink" href="#cellpose-example" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>cellpose<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--nuclear-channels<span class="w"> </span>DNA1_Ir191<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cytoplasm-channels<span class="w"> </span>CD3_1841,CD4_2293<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--model<span class="w"> </span>cyto3<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--diameter<span class="w"> </span><span class="m">30</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--flow-threshold<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--gpu-id<span class="w"> </span><span class="m">0</span>
+</pre></div>
+</div>
+</section>
+<section id="watershed-example">
+<h3>Watershed Example<a class="headerlink" href="#watershed-example" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>watershed<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--nuclear-channels<span class="w"> </span>DNA1_Ir191,DNA2_Ir193<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cytoplasm-channels<span class="w"> </span>CD3_1841<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--min-cell-area<span class="w"> </span><span class="m">100</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--max-cell-area<span class="w"> </span><span class="m">10000</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--compactness<span class="w"> </span><span class="m">0</span>.01
+</pre></div>
+</div>
+</section>
+<section id="ilastik-example">
+<h3>Ilastik Example<a class="headerlink" href="#ilastik-example" title="Link to this heading"></a></h3>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Ilastik segmentation is primarily available through the GUI. For CLI usage, ensure Ilastik is installed and the <code class="docutils literal notranslate"><span class="pre">ilastik</span></code> command is available in your PATH.</p>
+</div>
+<p>In the GUI, select “Ilastik” as the segmentation method and browse to your trained <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project file.</p>
+</section>
+<section id="workflow-yaml-example">
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">segmentation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cellsam&quot;</span>
+<span class="w">  </span><span class="nt">nuclear_channels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;DNA1_Ir191&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;DNA2_Ir193&quot;</span>
+<span class="w">  </span><span class="nt">cytoplasm_channels</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;CD3_1841&quot;</span>
+<span class="w">  </span><span class="nt">nuclear_fusion_method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mean&quot;</span>
+<span class="w">  </span><span class="nt">cyto_fusion_method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mean&quot;</span>
+<span class="w">  </span><span class="nt">normalization_method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;channelwise_minmax&quot;</span><span class="w">  </span><span class="c1"># Options: &quot;None&quot;, &quot;arcsinh&quot;, &quot;channelwise_minmax&quot;, &quot;percentile_clip&quot;</span>
+<span class="w">  </span><span class="nt">arcsinh_cofactor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<span class="w">  </span><span class="nt">bbox_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span>
+<span class="w">  </span><span class="nt">use_wsi</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="cellsam">
+<h3>CellSAM<a class="headerlink" href="#cellsam" title="Link to this heading"></a></h3>
+<p>CellSAM uses DeepCell’s CellSAM model, which is a state-of-the-art deep learning model for cell segmentation. It leverages the Segment Anything Model (SAM) architecture adapted for cell segmentation tasks.</p>
+<p><strong>How it works:</strong>
+1. Nuclear channels are combined using the specified fusion method
+2. The combined nuclear image is sent to DeepCell’s API
+3. CellSAM detects cell bounding boxes using the bbox_threshold
+4. Within each bounding box, precise cell boundaries are segmented
+5. Results are returned as segmentation masks</p>
+<p><strong>Advantages:</strong>
+- High accuracy, especially for complex cell morphologies
+- Handles variable cell sizes well
+- No local GPU required (uses cloud API)</p>
+<p><strong>Limitations:</strong>
+- Requires internet connection and API key
+- Processing time depends on API availability
+- May have usage limits depending on API plan</p>
+<p><strong>Citation:</strong>
+- DeepCell CellSAM: <a class="reference external" href="https://deepcell.org/">DeepCell Platform</a>
+- Segment Anything Model: Kirillov, A., et al. (2023). “Segment Anything.” arXiv:2304.02643</p>
+</section>
+<section id="cellpose">
+<h3>Cellpose<a class="headerlink" href="#cellpose" title="Link to this heading"></a></h3>
+<p>Cellpose is a generalist algorithm for cell segmentation that uses a deep neural network trained on diverse cell types.</p>
+<p><strong>How it works:</strong>
+1. Nuclear and/or cytoplasm channels are preprocessed and combined
+2. The Cellpose model predicts a flow field and cell probability map
+3. The flow field guides cell boundary detection
+4. Thresholds (flow_threshold, cellprob_threshold) filter the results
+5. Final segmentation masks are generated</p>
+<p><strong>Advantages:</strong>
+- Works offline (no API required)
+- Supports GPU acceleration for faster processing
+- Generalizable across many cell types
+- Can be fine-tuned for specific applications</p>
+<p><strong>Limitations:</strong>
+- Requires local installation and potentially GPU setup
+- May need parameter tuning for optimal results</p>
+<p><strong>Citation:</strong>
+- Stringer, C., et al. (2021). “Cellpose: a generalist algorithm for cellular segmentation.” Nature Methods, 18(1), 100-106. <a class="reference external" href="https://doi.org/10.1038/s41592-020-01018-x">DOI: 10.1038/s41592-020-01018-x</a>
+- <a class="reference external" href="https://github.com/MouseLand/cellpose">Cellpose GitHub</a></p>
+</section>
+<section id="watershed">
+<h3>Watershed<a class="headerlink" href="#watershed" title="Link to this heading"></a></h3>
+<p>Watershed segmentation is a classical image processing technique that uses marker-controlled watershed transformation.</p>
+<p><strong>How it works:</strong>
+1. Nuclear channels are combined to create a nuclear marker image
+2. Cytoplasm channels are combined to create a membrane/cytoplasm image
+3. Distance transform is applied to the nuclear markers
+4. Watershed algorithm floods from markers, using membrane image as boundaries
+5. Post-processing filters cells by area (min_cell_area, max_cell_area)</p>
+<p><strong>Advantages:</strong>
+- Fast and computationally efficient
+- No external dependencies or API keys required
+- Deterministic results (reproducible)
+- Good for well-separated cells with clear nuclei</p>
+<p><strong>Limitations:</strong>
+- Less accurate for touching or overlapping cells
+- Requires good nuclear and membrane channel contrast
+- May need careful parameter tuning</p>
+<p><strong>Citation:</strong>
+- Vincent, L., &amp; Soille, P. (1991). “Watersheds in digital spaces: an efficient algorithm based on immersion simulations.” IEEE Transactions on Pattern Analysis and Machine Intelligence, 13(6), 583-598. <a class="reference external" href="https://doi.org/10.1109/34.87344">DOI: 10.1109/34.87344</a>
+- Implementation based on scikit-image: <a class="reference external" href="https://scikit-image.org/docs/stable/auto_examples/segmentation/plot_watershed.html">scikit-image Watershed</a></p>
+</section>
+<section id="ilastik">
+<h3>Ilastik<a class="headerlink" href="#ilastik" title="Link to this heading"></a></h3>
+<p>Ilastik is an interactive learning and segmentation toolkit that allows you to train custom segmentation models on your specific data.</p>
+<p><strong>How it works:</strong>
+1. Train a segmentation model in Ilastik’s GUI using your IMC data
+2. Save the trained model as a <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project file
+3. In OpenIMC, select Ilastik as the segmentation method
+4. Load your trained <code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project file
+5. OpenIMC runs inference using Ilastik’s headless mode
+6. Results are returned as segmentation masks</p>
+<p><strong>Advantages:</strong>
+- Train custom models tailored to your specific data
+- Interactive training allows fine-tuning on difficult cases
+- Can handle complex segmentation tasks
+- Works well for specialized cell types or tissue structures</p>
+<p><strong>Limitations:</strong>
+- Requires separate Ilastik installation
+- Requires training a model before use (time investment)
+- Model quality depends on training data quality
+- Processing can be slower than other methods</p>
+<p><strong>Citation:</strong>
+- Berg, S., et al. (2019). “ilastik: interactive machine learning for (bio)image analysis.” Nature Methods, 16(12), 1226-1232. <a class="reference external" href="https://doi.org/10.1038/s41592-019-0582-9">DOI: 10.1038/s41592-019-0582-9</a>
+- <a class="reference external" href="https://www.ilastik.org/">Ilastik Website</a>
+- <a class="reference external" href="https://www.ilastik.org/documentation/">Ilastik Documentation</a></p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Channel Selection</strong>: Choose nuclear channels with strong, consistent staining. For cytoplasm channels, select markers that outline cell boundaries well.</p></li>
+<li><p><strong>Preprocessing</strong>:
+- Use <code class="docutils literal notranslate"><span class="pre">channelwise_minmax</span></code> normalization when channels have different intensity ranges (recommended for most cases)
+- Apply <code class="docutils literal notranslate"><span class="pre">arcsinh</span></code> normalization if your data has a wide dynamic range
+- Use denoising for noisy channels</p></li>
+<li><p><strong>Parameter Tuning</strong>: Start with default parameters and adjust based on results:
+- If cells are over-segmented (too many small pieces), increase thresholds or min_cell_area
+- If cells are under-segmented (merged together), decrease thresholds or adjust fusion methods</p></li>
+<li><p><strong>Method Selection</strong>:
+- Use CellSAM for best accuracy and when API access is available
+- Use Cellpose for quicker processing with good accuracy
+- Use Watershed for fast processing of well-separated cells
+- Use Ilastik when you need custom segmentation models tailored to your specific data or cell types</p></li>
+<li><p><strong>Validation</strong>: Always visually inspect segmentation results before proceeding to feature extraction. Adjust parameters as needed.</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="quickstart.html" class="btn btn-neutral float-left" title="Quick Start" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="feature_extraction.html" class="btn btn-neutral float-right" title="Feature Extraction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

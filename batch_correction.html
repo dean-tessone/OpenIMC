@@ -1,0 +1,363 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Batch Correction &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Clustering" href="clustering.html" />
+    <link rel="prev" title="Feature Extraction" href="feature_extraction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Batch Correction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#common-parameters">Common Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#harmony-parameters">Harmony Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#combat-parameters">ComBat Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#using-batch-correction-in-the-gui">Using Batch Correction in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-batch-correction-in-the-cli">Using Batch Correction in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-harmony-command">Basic Harmony Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-custom-parameters">With Custom Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#combat-command">ComBat Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#harmony">Harmony</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#combat">ComBat</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Batch Correction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/batch_correction.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="batch-correction">
+<h1>Batch Correction<a class="headerlink" href="#batch-correction" title="Link to this heading"></a></h1>
+<p>Batch correction removes technical variation (batch effects) between different experiments, acquisition runs, or files, allowing data from multiple sources to be combined for analysis.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>When combining IMC data from multiple experiments, files, or acquisition runs, technical variation can introduce artifacts that confound biological signals. Batch correction methods identify and remove these technical effects while preserving biological variation.</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>OpenIMC supports two batch correction methods:</p>
+<ol class="arabic simple">
+<li><p><strong>Harmony</strong> (default): Iterative clustering-based correction in PCA space</p></li>
+<li><p><strong>ComBat</strong>: Empirical Bayes method for batch effect correction</p></li>
+</ol>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<section id="common-parameters">
+<h3>Common Parameters<a class="headerlink" href="#common-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;harmony&quot;</span></code>): Batch correction method
+- Options: <code class="docutils literal notranslate"><span class="pre">&quot;harmony&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;combat&quot;</span></code></p></li>
+<li><p><strong>batch_variable</strong> (optional): Column name containing batch identifiers
+- If not specified, auto-detects from <code class="docutils literal notranslate"><span class="pre">source_file</span></code> or <code class="docutils literal notranslate"><span class="pre">acquisition_id</span></code> columns
+- Each unique value represents a batch</p></li>
+<li><p><strong>features</strong> (optional): List of feature column names to correct
+- If not specified, auto-detects all numeric feature columns
+- Excludes metadata columns (cell_id, centroid_x, centroid_y, cluster, etc.)</p></li>
+</ul>
+</section>
+<section id="harmony-parameters">
+<h3>Harmony Parameters<a class="headerlink" href="#harmony-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>n_clusters</strong> (default: <code class="docutils literal notranslate"><span class="pre">30</span></code>): Number of Harmony clusters
+- More clusters capture finer structure but may overfit
+- Typical range: 10-50
+- Increase for datasets with many cell types</p></li>
+<li><p><strong>sigma</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.1</span></code>): Width of soft k-means clusters
+- Controls how “soft” the cluster assignments are
+- Lower values (0.05-0.1) create sharper clusters
+- Higher values (0.1-0.3) create softer, overlapping clusters</p></li>
+<li><p><strong>theta</strong> (default: <code class="docutils literal notranslate"><span class="pre">2.0</span></code>): Diversity clustering penalty parameter
+- Higher values (2.0-4.0) encourage more diverse clusters across batches
+- Lower values (0.5-2.0) allow more batch-specific clusters
+- Adjust if batches are not mixing well</p></li>
+<li><p><strong>lambda_reg</strong> (default: <code class="docutils literal notranslate"><span class="pre">1.0</span></code>): Regularization parameter
+- Controls strength of correction
+- Higher values (1.0-2.0) apply stronger correction
+- Lower values (0.5-1.0) apply weaker correction
+- Increase if batch effects are strong</p></li>
+<li><p><strong>max_iter</strong> (default: <code class="docutils literal notranslate"><span class="pre">20</span></code>): Maximum number of iterations
+- Harmony typically converges in 10-20 iterations
+- Increase (30-50) if convergence is slow
+- Decrease if processing time is a concern</p></li>
+<li><p><strong>pca_variance</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.9</span></code>): Proportion of variance to retain in PCA
+- Higher values (0.9-0.95) retain more information but may include noise
+- Lower values (0.8-0.9) reduce dimensionality more aggressively
+- Typical range: 0.8-0.95</p></li>
+</ul>
+</section>
+<section id="combat-parameters">
+<h3>ComBat Parameters<a class="headerlink" href="#combat-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>covariates</strong> (optional): List of covariate column names
+- Covariates are biological variables to preserve (e.g., condition, treatment)
+- ComBat will correct for batch while preserving covariate effects
+- Example: <code class="docutils literal notranslate"><span class="pre">[&quot;condition&quot;,</span> <span class="pre">&quot;treatment&quot;]</span></code></p></li>
+</ul>
+</section>
+</section>
+<section id="using-batch-correction-in-the-gui">
+<h2>Using Batch Correction in the GUI<a class="headerlink" href="#using-batch-correction-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Ensure feature extraction has been completed</p></li>
+<li><p>Navigate to <strong>Analysis → Batch Correction</strong> or click the batch correction button</p></li>
+<li><p>In the batch correction dialog:
+- Select the batch correction method (Harmony or ComBat)
+- Choose or verify the batch variable (auto-detected if available)
+- Select features to correct (auto-detected if not specified)
+- Adjust method-specific parameters
+- For ComBat, optionally specify covariates to preserve</p></li>
+<li><p>Choose output location for the corrected features CSV file</p></li>
+<li><p>Click <strong>Apply Batch Correction</strong> to start the process</p></li>
+<li><p>The corrected features are saved and can be used for downstream analysis</p></li>
+</ol>
+</section>
+<section id="using-batch-correction-in-the-cli">
+<h2>Using Batch Correction in the CLI<a class="headerlink" href="#using-batch-correction-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-harmony-command">
+<h3>Basic Harmony Command<a class="headerlink" href="#basic-harmony-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>batch-correction<span class="w"> </span>features.csv<span class="w"> </span>corrected_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>harmony<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--batch-var<span class="w"> </span>source_file
+</pre></div>
+</div>
+</section>
+<section id="with-custom-parameters">
+<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>batch-correction<span class="w"> </span>features.csv<span class="w"> </span>corrected_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>harmony<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--batch-var<span class="w"> </span>source_file<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-clusters<span class="w"> </span><span class="m">40</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--sigma<span class="w"> </span><span class="m">0</span>.15<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--theta<span class="w"> </span><span class="m">2</span>.5<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--lambda-reg<span class="w"> </span><span class="m">1</span>.2
+</pre></div>
+</div>
+</section>
+<section id="combat-command">
+<h3>ComBat Command<a class="headerlink" href="#combat-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>batch-correction<span class="w"> </span>features.csv<span class="w"> </span>corrected_features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>combat<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--batch-var<span class="w"> </span>source_file<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--covariates<span class="w"> </span>condition,treatment
+</pre></div>
+</div>
+</section>
+<section id="workflow-yaml-example">
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">batch_correction</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;harmony&quot;</span>
+<span class="w">  </span><span class="nt">batch_variable</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;source_file&quot;</span>
+<span class="w">  </span><span class="nt">features</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Auto-detect</span>
+<span class="w">  </span><span class="nt">n_clusters</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+<span class="w">  </span><span class="nt">theta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span>
+<span class="w">  </span><span class="nt">lambda_reg</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+<span class="w">  </span><span class="nt">max_iter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+<span class="w">  </span><span class="nt">pca_variance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.9</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="harmony">
+<h3>Harmony<a class="headerlink" href="#harmony" title="Link to this heading"></a></h3>
+<p>Harmony is an iterative clustering-based method that corrects batch effects in low-dimensional space (typically PCA).</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>PCA Projection</strong>: Features are projected into PCA space, retaining a specified proportion of variance (pca_variance)</p></li>
+<li><p><strong>Soft Clustering</strong>: Cells are assigned to clusters using soft k-means with specified width (sigma)</p></li>
+<li><p><strong>Batch Correction</strong>: Within each cluster, batch-specific effects are estimated and removed</p></li>
+<li><p><strong>Iteration</strong>: Steps 2-3 are repeated until convergence (up to max_iter iterations)</p></li>
+<li><p><strong>Diversity Penalty</strong>: The theta parameter encourages clusters to contain cells from multiple batches</p></li>
+<li><p><strong>Regularization</strong>: The lambda_reg parameter controls the strength of correction</p></li>
+<li><p><strong>Back-projection</strong>: Corrected PCA coordinates are transformed back to original feature space</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Preserves biological variation while removing batch effects
+- Works well with many batches
+- Handles non-linear batch effects
+- Fast and scalable</p>
+<p><strong>Limitations:</strong>
+- Requires sufficient cells per batch for stable correction
+- May over-correct if batch effects are weak
+- Parameters may need tuning for optimal results</p>
+<p><strong>Citation:</strong>
+- Korsunsky, I., et al. (2019). “Fast, sensitive and accurate integration of single-cell data with Harmony.” Nature Methods, 16(12), 1289-1296. <a class="reference external" href="https://doi.org/10.1038/s41592-019-0619-0">DOI: 10.1038/s41592-019-0619-0</a>
+- <a class="reference external" href="https://github.com/immunogenomics/harmony">Harmony GitHub</a>
+- <a class="reference external" href="https://github.com/slowkow/harmonypy">harmonypy Python Package</a></p>
+</section>
+<section id="combat">
+<h3>ComBat<a class="headerlink" href="#combat" title="Link to this heading"></a></h3>
+<p>ComBat is an empirical Bayes method that estimates and removes batch effects while preserving biological variation.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Model Fitting</strong>: For each feature, ComBat fits a linear model:
+- Feature = Batch Effect + Biological Variation + Error</p></li>
+<li><p><strong>Empirical Bayes</strong>: Batch effects are estimated using empirical Bayes, which borrows information across features</p></li>
+<li><p><strong>Covariate Adjustment</strong>: If covariates are specified, their effects are preserved while correcting for batch</p></li>
+<li><p><strong>Correction</strong>: Estimated batch effects are subtracted from the data</p></li>
+</ol>
+<p><strong>Advantages:</strong>
+- Well-established method with proven track record
+- Can preserve specified covariates
+- Works well with small batch sizes
+- Fast computation</p>
+<p><strong>Limitations:</strong>
+- Assumes linear batch effects
+- May not handle non-linear batch effects well
+- Requires sufficient features for stable estimation</p>
+<p><strong>Citation:</strong>
+- Johnson, W. E., et al. (2007). “Adjusting batch effects in microarray expression data using empirical Bayes methods.” Biostatistics, 8(1), 118-127. <a class="reference external" href="https://doi.org/10.1093/biostatistics/kxj037">DOI: 10.1093/biostatistics/kxj037</a>
+- Zhang, Y., et al. (2020). “ComBat-seq: batch effect adjustment for RNA-seq count data.” NAR Genomics and Bioinformatics, 2(3), lqaa078. <a class="reference external" href="https://doi.org/10.1093/nargab/lqaa078">DOI: 10.1093/nargab/lqaa078</a>
+- <a class="reference external" href="https://github.com/brentp/combat-py">pycombat Python Package</a></p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>When to Use Batch Correction</strong>: Apply batch correction when combining data from:
+- Multiple acquisition runs
+- Different experimental days
+- Different instruments or protocols
+- Multiple files with systematic differences</p></li>
+<li><p><strong>Method Selection</strong>:
+- Use <strong>Harmony</strong> for most cases, especially with many batches or non-linear effects
+- Use <strong>ComBat</strong> when you need to preserve specific covariates or have linear batch effects</p></li>
+<li><p><strong>Parameter Tuning</strong>:
+- Start with default parameters
+- Visualize results (e.g., PCA plots) to assess correction quality
+- Adjust parameters if batches are not mixing well or if over-correction occurs</p></li>
+<li><p><strong>Validation</strong>: After batch correction, verify that:
+- Batch effects are reduced (check PCA plots colored by batch)
+- Biological variation is preserved (check that known cell types still separate)
+- Feature distributions are reasonable (no extreme values or artifacts)</p></li>
+<li><p><strong>Feature Selection</strong>: Only correct features that are affected by batch effects. Exclude:
+- Morphological features (typically less affected by batch)
+- Features that should vary by batch (e.g., acquisition-specific markers)</p></li>
+<li><p><strong>Covariates</strong>: When using ComBat, carefully select covariates to preserve. Include only true biological variables, not technical variables that correlate with batch.</p></li>
+<li><p><strong>Downstream Analysis</strong>: Use batch-corrected features for:
+- Clustering across batches
+- Differential expression analysis
+- Spatial analysis combining multiple files
+- Any analysis requiring integrated data</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="feature_extraction.html" class="btn btn-neutral float-left" title="Feature Extraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="clustering.html" class="btn btn-neutral float-right" title="Clustering" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

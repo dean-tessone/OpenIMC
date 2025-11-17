@@ -1,0 +1,412 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feature Extraction &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Batch Correction" href="batch_correction.html" />
+    <link rel="prev" title="Segmentation" href="segmentation.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Feature Extraction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#feature-selection">Feature Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#preprocessing-parameters">Preprocessing Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spillover-correction">Spillover Correction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#other-parameters">Other Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#morphological-features">Morphological Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#intensity-features">Intensity Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-feature-extraction-in-the-gui">Using Feature Extraction in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-feature-extraction-in-the-cli">Using Feature Extraction in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-command">Basic Command</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-arcsinh-transformation">With Arcsinh Transformation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-denoising">With Denoising</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#with-spillover-correction">With Spillover Correction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#morphological-feature-computation">Morphological Feature Computation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#intensity-feature-computation">Intensity Feature Computation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#arcsinh-transformation">Arcsinh Transformation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id1">Spillover Correction</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Feature Extraction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/feature_extraction.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="feature-extraction">
+<h1>Feature Extraction<a class="headerlink" href="#feature-extraction" title="Link to this heading"></a></h1>
+<p>Feature extraction computes quantitative measurements from segmented cells, including morphological features (shape, size) and intensity features (marker expression levels).</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>After segmentation, feature extraction quantifies cell properties that will be used for downstream analysis such as clustering, phenotyping, and spatial analysis. Features are extracted per cell and stored in a CSV file with one row per cell.</p>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>OpenIMC extracts two main categories of features:</p>
+<ol class="arabic simple">
+<li><p><strong>Morphological Features</strong>: Shape and size characteristics of cells</p></li>
+<li><p><strong>Intensity Features</strong>: Expression levels of each marker channel within each cell</p></li>
+</ol>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<section id="feature-selection">
+<h3>Feature Selection<a class="headerlink" href="#feature-selection" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>morphological</strong> (default: <code class="docutils literal notranslate"><span class="pre">true</span></code>): Extract morphological features
+- Includes: area, perimeter, eccentricity, solidity, extent, and more
+- See “Morphological Features” section below for complete list</p></li>
+<li><p><strong>intensity</strong> (default: <code class="docutils literal notranslate"><span class="pre">true</span></code>): Extract intensity features
+- Includes: mean, median, max, min, std for each channel
+- See “Intensity Features” section below for complete list</p></li>
+</ul>
+</section>
+<section id="preprocessing-parameters">
+<h3>Preprocessing Parameters<a class="headerlink" href="#preprocessing-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>arcsinh</strong> (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>): Apply arcsinh transformation to intensity features
+- Helps normalize highly skewed intensity distributions
+- Recommended for IMC data with wide dynamic range
+- Applied to extracted features, not raw images</p></li>
+<li><p><strong>arcsinh_cofactor</strong> (default: <code class="docutils literal notranslate"><span class="pre">10.0</span></code>): Cofactor for arcsinh transformation
+- Lower values (5.0) compress high intensities more
+- Higher values (20.0) preserve more of the original distribution
+- Typical range: 5.0-20.0</p></li>
+<li><p><strong>denoise_settings</strong> (optional): Dictionary with denoise settings per channel
+- Format: <code class="docutils literal notranslate"><span class="pre">{&quot;Channel1&quot;:</span> <span class="pre">{&quot;hot&quot;:</span> <span class="pre">{&quot;method&quot;:</span> <span class="pre">&quot;median3&quot;},</span> <span class="pre">&quot;speckle&quot;:</span> <span class="pre">{&quot;method&quot;:</span> <span class="pre">&quot;gaussian&quot;,</span> <span class="pre">&quot;sigma&quot;:</span> <span class="pre">0.8}}}</span></code>
+- Can also be a path to a JSON file
+- Applied to raw images before feature extraction</p></li>
+<li><p><strong>excluded_channels</strong> (optional): Set of channel names to exclude from feature extraction
+- Useful for excluding channels that are not informative
+- Example: <code class="docutils literal notranslate"><span class="pre">{&quot;DAPI&quot;,</span> <span class="pre">&quot;Background&quot;}</span></code></p></li>
+</ul>
+</section>
+<section id="spillover-correction">
+<h3>Spillover Correction<a class="headerlink" href="#spillover-correction" title="Link to this heading"></a></h3>
+<ul>
+<li><p><strong>spillover_correction</strong> (optional): Configuration for spillover correction
+- <strong>enabled</strong> (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>): Enable spillover correction
+- <strong>matrix_file</strong> (required if enabled): Path to spillover matrix CSV file</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Matrix format: rows and columns are channel names, values are spillover coefficients</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p><strong>method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;nnls&quot;</span></code>): Correction method
+- <code class="docutils literal notranslate"><span class="pre">&quot;nnls&quot;</span></code>: Non-negative least squares (recommended)
+- <code class="docutils literal notranslate"><span class="pre">&quot;pgd&quot;</span></code>: Projected gradient descent</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="other-parameters">
+<h3>Other Parameters<a class="headerlink" href="#other-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>acquisition</strong> (optional): Specific acquisition ID or name to process
+- If not specified, processes all acquisitions</p></li>
+<li><p><strong>mask</strong> (required): Path to segmentation mask directory or single mask file
+- Masks are matched to acquisitions by filename
+- Supports <code class="docutils literal notranslate"><span class="pre">.tif</span></code>, <code class="docutils literal notranslate"><span class="pre">.tiff</span></code>, or <code class="docutils literal notranslate"><span class="pre">.npy</span></code> formats</p></li>
+</ul>
+</section>
+</section>
+<section id="morphological-features">
+<h2>Morphological Features<a class="headerlink" href="#morphological-features" title="Link to this heading"></a></h2>
+<p>The following morphological features are extracted for each cell:</p>
+<ul class="simple">
+<li><p><strong>area</strong>: Cell area in pixels</p></li>
+<li><p><strong>perimeter</strong>: Cell perimeter in pixels</p></li>
+<li><p><strong>eccentricity</strong>: Eccentricity of the ellipse with same second moments (0=circle, 1=line)</p></li>
+<li><p><strong>solidity</strong>: Ratio of cell area to convex hull area</p></li>
+<li><p><strong>extent</strong>: Ratio of cell area to bounding box area</p></li>
+<li><p><strong>major_axis_length</strong>: Length of major axis of fitted ellipse</p></li>
+<li><p><strong>minor_axis_length</strong>: Length of minor axis of fitted ellipse</p></li>
+<li><p><strong>orientation</strong>: Orientation of major axis in radians</p></li>
+<li><p><strong>centroid_x</strong>: X coordinate of cell centroid</p></li>
+<li><p><strong>centroid_y</strong>: Y coordinate of cell centroid</p></li>
+<li><p><strong>equivalent_diameter</strong>: Diameter of circle with same area</p></li>
+<li><p><strong>euler_number</strong>: Euler characteristic (topology measure)</p></li>
+</ul>
+</section>
+<section id="intensity-features">
+<h2>Intensity Features<a class="headerlink" href="#intensity-features" title="Link to this heading"></a></h2>
+<p>For each marker channel, the following intensity features are extracted:</p>
+<ul class="simple">
+<li><p><strong>{channel}_mean</strong>: Mean intensity within the cell</p></li>
+<li><p><strong>{channel}_median</strong>: Median intensity within the cell</p></li>
+<li><p><strong>{channel}_max</strong>: Maximum intensity within the cell</p></li>
+<li><p><strong>{channel}_min</strong>: Minimum intensity within the cell</p></li>
+<li><p><strong>{channel}_std</strong>: Standard deviation of intensities within the cell</p></li>
+<li><p><strong>{channel}_sum</strong>: Sum of all pixel intensities within the cell</p></li>
+</ul>
+<p>Where <code class="docutils literal notranslate"><span class="pre">{channel}</span></code> is replaced by the actual channel name (e.g., <code class="docutils literal notranslate"><span class="pre">CD3_1841_mean</span></code>).</p>
+</section>
+<section id="using-feature-extraction-in-the-gui">
+<h2>Using Feature Extraction in the GUI<a class="headerlink" href="#using-feature-extraction-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic">
+<li><p>Ensure segmentation has been completed and masks are available</p></li>
+<li><p>Navigate to <strong>Analysis → Feature Extraction</strong> or click the feature extraction button</p></li>
+<li><p>In the feature extraction dialog:
+- Select which acquisitions to process
+- Choose feature types (morphological, intensity, or both)
+- Configure preprocessing options:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Enable/disable arcsinh transformation</p></li>
+<li><p>Set arcsinh cofactor</p></li>
+<li><p>Configure denoising if needed</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Optionally configure spillover correction</p></li>
+<li><p>Select channels to exclude if any</p></li>
+</ul>
+</li>
+<li><p>Choose output location for the features CSV file</p></li>
+<li><p>Click <strong>Extract Features</strong> to start the process</p></li>
+<li><p>Progress is shown in a progress dialog</p></li>
+<li><p>The resulting CSV file contains one row per cell with all extracted features</p></li>
+</ol>
+</section>
+<section id="using-feature-extraction-in-the-cli">
+<h2>Using Feature Extraction in the CLI<a class="headerlink" href="#using-feature-extraction-in-the-cli" title="Link to this heading"></a></h2>
+<section id="basic-command">
+<h3>Basic Command<a class="headerlink" href="#basic-command" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--morphological<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--intensity
+</pre></div>
+</div>
+</section>
+<section id="with-arcsinh-transformation">
+<h3>With Arcsinh Transformation<a class="headerlink" href="#with-arcsinh-transformation" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--arcsinh<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--arcsinh-cofactor<span class="w"> </span><span class="m">10</span>.0
+</pre></div>
+</div>
+</section>
+<section id="with-denoising">
+<h3>With Denoising<a class="headerlink" href="#with-denoising" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--denoise-settings<span class="w"> </span>denoise_config.json
+</pre></div>
+</div>
+</section>
+<section id="with-spillover-correction">
+<h3>With Spillover Correction<a class="headerlink" href="#with-spillover-correction" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--spillover-matrix<span class="w"> </span>spillover_matrix.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--spillover-method<span class="w"> </span>nnls
+</pre></div>
+</div>
+</section>
+<section id="workflow-yaml-example">
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">feature_extraction</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">morphological</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">intensity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">arcsinh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">arcsinh_cofactor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
+<span class="w">  </span><span class="nt">spillover_correction</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="nt">matrix_file</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;spillover_matrix.csv&quot;</span>
+<span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;nnls&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<p>Feature extraction uses scikit-image’s <code class="docutils literal notranslate"><span class="pre">regionprops</span></code> and <code class="docutils literal notranslate"><span class="pre">regionprops_table</span></code> functions to compute morphological features from segmentation masks. Intensity features are computed by masking each channel image with the cell segmentation mask and computing statistics.</p>
+<section id="morphological-feature-computation">
+<h3>Morphological Feature Computation<a class="headerlink" href="#morphological-feature-computation" title="Link to this heading"></a></h3>
+<p>Morphological features are computed using scikit-image’s region properties:</p>
+<ol class="arabic simple">
+<li><p>Each cell in the segmentation mask is treated as a region</p></li>
+<li><p>Region properties are computed using <code class="docutils literal notranslate"><span class="pre">regionprops_table</span></code></p></li>
+<li><p>Properties include geometric measurements (area, perimeter, etc.) and shape descriptors (eccentricity, solidity, etc.)</p></li>
+</ol>
+<p><strong>Citation:</strong>
+- scikit-image: van der Walt, S., et al. (2014). “scikit-image: image processing in Python.” PeerJ, 2, e453. <a class="reference external" href="https://doi.org/10.7717/peerj.453">DOI: 10.7717/peerj.453</a>
+- <a class="reference external" href="https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops">scikit-image regionprops</a></p>
+</section>
+<section id="intensity-feature-computation">
+<h3>Intensity Feature Computation<a class="headerlink" href="#intensity-feature-computation" title="Link to this heading"></a></h3>
+<p>Intensity features are computed per channel:</p>
+<ol class="arabic simple">
+<li><p>For each channel, the image is masked with the cell segmentation mask</p></li>
+<li><p>Pixel intensities within each cell are extracted</p></li>
+<li><p>Statistical measures (mean, median, max, min, std, sum) are computed</p></li>
+<li><p>Results are stored with channel name prefixes</p></li>
+</ol>
+</section>
+<section id="arcsinh-transformation">
+<h3>Arcsinh Transformation<a class="headerlink" href="#arcsinh-transformation" title="Link to this heading"></a></h3>
+<p>The arcsinh (inverse hyperbolic sine) transformation is commonly used in cytometry to stabilize variance and normalize distributions:</p>
+<div class="math notranslate nohighlight">
+\[\text{arcsinh}(x) = \ln(x + \sqrt{x^2 + 1})\]</div>
+<p>When applied with a cofactor:</p>
+<div class="math notranslate nohighlight">
+\[\text{arcsinh}(x / \text{cofactor})\]</div>
+<p>This transformation:
+- Compresses high-intensity values
+- Expands low-intensity values
+- Reduces the impact of outliers
+- Makes data more suitable for downstream analysis</p>
+<p><strong>Citation:</strong>
+- Bendall, S. C., et al. (2011). “Single-cell mass cytometry of differential immune and drug responses across a human hematopoietic continuum.” Science, 332(6030), 687-696. <a class="reference external" href="https://doi.org/10.1126/science.1198704">DOI: 10.1126/science.1198704</a></p>
+</section>
+<section id="id1">
+<h3>Spillover Correction<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>Spillover correction compensates for spectral overlap between channels in IMC data. OpenIMC supports two methods:</p>
+<ol class="arabic simple">
+<li><p><strong>Non-negative Least Squares (NNLS)</strong>: Solves for corrected intensities that minimize error while ensuring non-negativity</p></li>
+<li><p><strong>Projected Gradient Descent (PGD)</strong>: Iterative optimization method</p></li>
+</ol>
+<p>The spillover matrix should be provided as a CSV file where:
+- Rows and columns are channel names
+- Values are spillover coefficients (typically 0-1)
+- Diagonal should be 1.0 (self-spillover)</p>
+<p><strong>Citation:</strong>
+- Implementation based on standard spillover correction methods used in flow cytometry and mass cytometry
+- For IMC-specific spillover correction, see: Chevrier, S., et al. (2018). “Compensation of Signal Spillover in Suspension and Imaging Mass Cytometry.” Cell Systems, 6(5), 612-620. <a class="reference external" href="https://doi.org/10.1016/j.cels.2018.02.010">DOI: 10.1016/j.cels.2018.02.010</a></p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Feature Selection</strong>: Extract both morphological and intensity features for comprehensive analysis. Morphological features are useful for cell type identification, while intensity features capture marker expression.</p></li>
+<li><p><strong>Arcsinh Transformation</strong>: Apply arcsinh transformation if your intensity distributions are highly skewed or have a wide dynamic range. This is especially important for IMC data.</p></li>
+<li><p><strong>Denoising</strong>: Apply denoising before feature extraction if your images are noisy. This can improve the accuracy of intensity features.</p></li>
+<li><p><strong>Spillover Correction</strong>: Use spillover correction if you have a spillover matrix. This is particularly important for channels with significant spectral overlap.</p></li>
+<li><p><strong>Channel Exclusion</strong>: Exclude channels that are not informative (e.g., background channels, DAPI if not used for analysis) to reduce feature dimensionality.</p></li>
+<li><p><strong>Validation</strong>: Check the extracted features CSV to ensure:
+- All expected cells are present
+- Feature values are reasonable (no extreme outliers)
+- Missing values are handled appropriately</p></li>
+<li><p><strong>Memory Considerations</strong>: For large datasets, process acquisitions separately or use the CLI with appropriate resource allocation.</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="segmentation.html" class="btn btn-neutral float-left" title="Segmentation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="batch_correction.html" class="btn btn-neutral float-right" title="Batch Correction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

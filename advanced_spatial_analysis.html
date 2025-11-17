@@ -1,0 +1,432 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advanced Spatial Analysis &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Core pipeline API" href="api_core.html" />
+    <link rel="prev" title="Simple Spatial Analysis" href="simple_spatial_analysis.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Advanced Spatial Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#graph-construction">Graph Construction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#neighborhood-enrichment">Neighborhood Enrichment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#co-occurrence-analysis">Co-occurrence Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-autocorrelation">Spatial Autocorrelation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#ripley-functions">Ripley Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#using-advanced-spatial-analysis-in-the-gui">Using Advanced Spatial Analysis in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-advanced-spatial-analysis-in-the-cli">Using Advanced Spatial Analysis in the CLI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id1">Neighborhood Enrichment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id2">Co-occurrence Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id3">Spatial Autocorrelation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id4">Ripley Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id5">Neighborhood Enrichment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id6">Co-occurrence Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id7">Spatial Autocorrelation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id8">Ripley Functions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#squidpy-integration">Squidpy Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Advanced Spatial Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/advanced_spatial_analysis.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="advanced-spatial-analysis">
+<h1>Advanced Spatial Analysis<a class="headerlink" href="#advanced-spatial-analysis" title="Link to this heading"></a></h1>
+<p>Advanced Spatial Analysis provides sophisticated spatial analysis methods using squidpy, including neighborhood enrichment, co-occurrence analysis, spatial autocorrelation, and Ripley functions.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>Advanced Spatial Analysis extends Simple Spatial Analysis with additional methods from the squidpy package, enabling more sophisticated spatial pattern analysis, statistical testing, and spatial statistics.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Advanced Spatial Analysis requires the <code class="docutils literal notranslate"><span class="pre">squidpy</span></code> package to be installed. Install with: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">squidpy</span></code></p>
+</div>
+</section>
+<section id="options">
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<p>Advanced Spatial Analysis includes:</p>
+<ol class="arabic simple">
+<li><p><strong>Neighborhood Enrichment</strong>: Analyze enrichment of cell types in neighborhoods</p></li>
+<li><p><strong>Co-occurrence Analysis</strong>: Test for spatial co-occurrence patterns</p></li>
+<li><p><strong>Spatial Autocorrelation</strong>: Measure spatial correlation of features</p></li>
+<li><p><strong>Ripley Functions</strong>: Analyze spatial point patterns (K and L functions)</p></li>
+<li><p><strong>Additional Spatial Statistics</strong>: Various spatial metrics and tests</p></li>
+</ol>
+</section>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<section id="graph-construction">
+<h3>Graph Construction<a class="headerlink" href="#graph-construction" title="Link to this heading"></a></h3>
+<p>Same as Simple Spatial Analysis:
+- <strong>method</strong>: kNN, Radius, or Delaunay
+- <strong>k_neighbors</strong>: Number of neighbors for kNN
+- <strong>radius</strong>: Maximum distance for Radius method
+- <strong>pixel_size_um</strong>: Pixel size in micrometers</p>
+</section>
+<section id="neighborhood-enrichment">
+<h3>Neighborhood Enrichment<a class="headerlink" href="#neighborhood-enrichment" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>n_permutations</strong> (default: <code class="docutils literal notranslate"><span class="pre">100</span></code>): Number of permutations for statistical testing
+- More permutations provide more accurate p-values
+- Typical range: 100-1000</p></li>
+<li><p><strong>interaction_threshold</strong> (optional): Threshold for considering interactions significant
+- Used to filter results
+- Default: based on statistical significance</p></li>
+</ul>
+</section>
+<section id="co-occurrence-analysis">
+<h3>Co-occurrence Analysis<a class="headerlink" href="#co-occurrence-analysis" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>reference_cluster</strong> (optional): Reference cluster for one-vs-others analysis
+- If specified, compares reference cluster against all others
+- If not specified, performs pairwise comparisons</p></li>
+<li><p><strong>method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;pairwise&quot;</span></code>): Analysis method
+- <code class="docutils literal notranslate"><span class="pre">&quot;pairwise&quot;</span></code>: Compare all cluster pairs
+- <code class="docutils literal notranslate"><span class="pre">&quot;one_vs_others&quot;</span></code>: Compare reference cluster against all others</p></li>
+</ul>
+</section>
+<section id="spatial-autocorrelation">
+<h3>Spatial Autocorrelation<a class="headerlink" href="#spatial-autocorrelation" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>feature</strong> (required): Feature column to analyze
+- Can be a marker expression or other numeric feature</p></li>
+<li><p><strong>method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;moran&quot;</span></code>): Autocorrelation method
+- <code class="docutils literal notranslate"><span class="pre">&quot;moran&quot;</span></code>: Moran’s I statistic
+- <code class="docutils literal notranslate"><span class="pre">&quot;geary&quot;</span></code>: Geary’s C statistic</p></li>
+<li><p><strong>n_permutations</strong> (default: <code class="docutils literal notranslate"><span class="pre">100</span></code>): Number of permutations for significance testing</p></li>
+</ul>
+</section>
+<section id="ripley-functions">
+<h3>Ripley Functions<a class="headerlink" href="#ripley-functions" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>cluster_column</strong> (required): Column name containing cluster assignments
+- Typically <code class="docutils literal notranslate"><span class="pre">&quot;cluster&quot;</span></code></p></li>
+<li><p><strong>mode</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;K&quot;</span></code>): Ripley function type
+- <code class="docutils literal notranslate"><span class="pre">&quot;K&quot;</span></code>: Ripley’s K function
+- <code class="docutils literal notranslate"><span class="pre">&quot;L&quot;</span></code>: Ripley’s L function (normalized K function)</p></li>
+<li><p><strong>max_dist</strong> (optional): Maximum distance to compute function
+- If not specified, uses a default based on data extent</p></li>
+<li><p><strong>roi_column</strong> (optional): Column name for ROI grouping
+- If specified, computes Ripley functions per ROI</p></li>
+</ul>
+</section>
+</section>
+<section id="using-advanced-spatial-analysis-in-the-gui">
+<h2>Using Advanced Spatial Analysis in the GUI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-gui" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Ensure clustering has been completed</p></li>
+<li><p>Navigate to <strong>Analysis → Spatial Analysis → Advanced Spatial Analysis</strong></p></li>
+<li><p>In the advanced spatial analysis dialog:
+- <strong>Build Spatial Graph</strong> (same as Simple Spatial Analysis)</p>
+<ul class="simple">
+<li><p><strong>Neighborhood Enrichment Tab</strong>:
+- Set number of permutations
+- Click “Run Neighborhood Enrichment”
+- Results show enrichment scores and p-values</p></li>
+<li><p><strong>Co-occurrence Analysis Tab</strong>:
+- Select analysis method (pairwise or one-vs-others)
+- Optionally specify reference cluster
+- Click “Run Co-occurrence Analysis”</p></li>
+<li><p><strong>Spatial Autocorrelation Tab</strong>:
+- Select feature to analyze
+- Choose autocorrelation method
+- Set number of permutations
+- Click “Run Autocorrelation Analysis”</p></li>
+<li><p><strong>Ripley Functions Tab</strong>:
+- Select cluster column
+- Choose function type (K or L)
+- Set maximum distance
+- Click “Run Ripley Analysis”</p></li>
+</ul>
+</li>
+<li><p>Export results using the export buttons</p></li>
+</ol>
+</section>
+<section id="using-advanced-spatial-analysis-in-the-cli">
+<h2>Using Advanced Spatial Analysis in the CLI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-cli" title="Link to this heading"></a></h2>
+<section id="id1">
+<h3>Neighborhood Enrichment<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-enrichment<span class="w"> </span>features.csv<span class="w"> </span>enrichment_results.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>kNN<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--k-neighbors<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-permutations<span class="w"> </span><span class="m">500</span>
+</pre></div>
+</div>
+</section>
+<section id="id2">
+<h3>Co-occurrence Analysis<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-cooccurrence<span class="w"> </span>features.csv<span class="w"> </span>cooccurrence_results.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>pairwise<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--reference-cluster<span class="w"> </span><span class="s2">&quot;Cluster_1&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="id3">
+<h3>Spatial Autocorrelation<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-autocorr<span class="w"> </span>features.csv<span class="w"> </span>autocorr_results.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--feature<span class="w"> </span>CD3_1841_mean<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--method<span class="w"> </span>moran<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--n-permutations<span class="w"> </span><span class="m">500</span>
+</pre></div>
+</div>
+</section>
+<section id="id4">
+<h3>Ripley Functions<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-ripley<span class="w"> </span>features.csv<span class="w"> </span>ripley_results.h5ad<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cluster-column<span class="w"> </span>cluster<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mode<span class="w"> </span>K<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--max-dist<span class="w"> </span><span class="m">100</span>.0<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--pixel-size-um<span class="w"> </span><span class="m">1</span>.0
+</pre></div>
+</div>
+</section>
+</section>
+<section id="method-details">
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<section id="id5">
+<h3>Neighborhood Enrichment<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
+<p>Neighborhood enrichment analyzes whether cell types are enriched or depleted in the neighborhoods of other cell types.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Neighborhood Definition</strong>: For each cell, define its neighborhood (spatially adjacent cells)</p></li>
+<li><p><strong>Observed Composition</strong>: Compute the composition of cell types in each cell’s neighborhood</p></li>
+<li><p><strong>Expected Composition</strong>: Compute expected composition under random spatial distribution</p></li>
+<li><p><strong>Enrichment Score</strong>: Compare observed vs. expected composition
+- Positive score: Enrichment
+- Negative score: Depletion</p></li>
+<li><p><strong>Statistical Testing</strong>: Use permutation tests to assess significance</p></li>
+</ol>
+<p><strong>Interpretation:</strong>
+- Enrichment: Cell type A is more common in neighborhoods of cell type B than expected
+- Depletion: Cell type A is less common in neighborhoods of cell type B than expected</p>
+<p><strong>Citation:</strong>
+- Based on methods in: Schapiro, D., et al. (2017). “histoCAT: analysis of cell phenotypes and interactions in multiplex image cytometry data.” Nature Methods, 14(9), 873-876. <a class="reference external" href="https://doi.org/10.1038/s41592-017-0001-x">DOI: 10.1038/s41592-017-0001-x</a>
+- Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.nhood_enrichment.html">squidpy.gr.nhood_enrichment</a></p>
+</section>
+<section id="id6">
+<h3>Co-occurrence Analysis<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<p>Co-occurrence analysis tests whether cell types tend to appear together in spatial proximity.</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Spatial Proximity</strong>: Define spatial proximity based on spatial graph (kNN, Radius, etc.)</p></li>
+<li><p><strong>Observed Co-occurrence</strong>: Count how often cell type pairs appear in proximity</p></li>
+<li><p><strong>Expected Co-occurrence</strong>: Compute expected co-occurrence under random distribution</p></li>
+<li><p><strong>Statistical Testing</strong>: Use permutation tests to assess significance</p></li>
+</ol>
+<p><strong>Pairwise Mode</strong>: Compares all pairs of cell types</p>
+<p><strong>One-vs-Others Mode</strong>: Compares a reference cell type against all others</p>
+<p><strong>Citation:</strong>
+- Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.co_occurrence.html">squidpy.gr.co_occurrence</a></p>
+</section>
+<section id="id7">
+<h3>Spatial Autocorrelation<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
+<p>Spatial autocorrelation measures how similar feature values are for spatially nearby cells.</p>
+<p><strong>Moran’s I</strong>:
+- Range: -1 to 1
+- Positive values: Similar values cluster together (positive autocorrelation)
+- Negative values: Dissimilar values cluster together (negative autocorrelation)
+- Near 0: No spatial autocorrelation (random spatial distribution)</p>
+<p><strong>Geary’s C</strong>:
+- Range: 0 to 2
+- Values &lt; 1: Positive autocorrelation
+- Values &gt; 1: Negative autocorrelation
+- Values near 1: No autocorrelation</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Spatial Weights</strong>: Define spatial weights matrix based on spatial graph</p></li>
+<li><p><strong>Autocorrelation Statistic</strong>: Compute Moran’s I or Geary’s C using spatial weights</p></li>
+<li><p><strong>Statistical Testing</strong>: Use permutation tests to assess significance</p></li>
+</ol>
+<p><strong>Interpretation:</strong>
+- Positive autocorrelation: Feature values are spatially clustered
+- Negative autocorrelation: Feature values are spatially dispersed
+- Useful for identifying spatial gradients or domains</p>
+<p><strong>Citation:</strong>
+- Moran, P. A. P. (1950). “Notes on continuous stochastic phenomena.” Biometrika, 37(1/2), 17-23. <a class="reference external" href="https://doi.org/10.2307/2332142">DOI: 10.2307/2332142</a>
+- Geary, R. C. (1954). “The contiguity ratio and statistical mapping.” The Incorporated Statistician, 5(3), 115-145. <a class="reference external" href="https://doi.org/10.2307/2986645">DOI: 10.2307/2986645</a>
+- Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.spatial_autocorr.html">squidpy.gr.spatial_autocorr</a></p>
+</section>
+<section id="id8">
+<h3>Ripley Functions<a class="headerlink" href="#id8" title="Link to this heading"></a></h3>
+<p>Ripley functions analyze spatial point patterns to test for clustering or dispersion.</p>
+<p><strong>Ripley’s K Function</strong>:
+- Measures the expected number of points within distance r of a randomly chosen point
+- Under complete spatial randomness (CSR): K(r) = πr²
+- K(r) &gt; πr²: Clustering
+- K(r) &lt; πr²: Dispersion</p>
+<p><strong>Ripley’s L Function</strong>:
+- Normalized version: L(r) = √(K(r)/π) - r
+- Under CSR: L(r) = 0
+- L(r) &gt; 0: Clustering
+- L(r) &lt; 0: Dispersion</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Distance Calculation</strong>: For each point, count neighbors within distance r</p></li>
+<li><p><strong>Edge Correction</strong>: Apply edge correction for points near ROI boundaries</p></li>
+<li><p><strong>Function Computation</strong>: Compute K(r) or L(r) for a range of distances</p></li>
+<li><p><strong>Comparison to CSR</strong>: Compare observed function to expected under complete spatial randomness</p></li>
+</ol>
+<p><strong>Interpretation:</strong>
+- Clustering: Cell type is more clustered than random
+- Dispersion: Cell type is more dispersed than random
+- Useful for identifying spatial organization patterns</p>
+<p><strong>Citation:</strong>
+- Ripley, B. D. (1976). “The second-order analysis of stationary point processes.” Journal of Applied Probability, 13(2), 255-266. <a class="reference external" href="https://doi.org/10.2307/3212829">DOI: 10.2307/3212829</a>
+- Ripley, B. D. (1977). “Modelling spatial patterns.” Journal of the Royal Statistical Society: Series B, 39(2), 172-192. <a class="reference external" href="https://doi.org/10.1111/j.2517-6161.1977.tb01615.x">DOI: 10.1111/j.2517-6161.1977.tb01615.x</a>
+- Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.ripley.html">squidpy.gr.ripley</a></p>
+</section>
+<section id="squidpy-integration">
+<h3>Squidpy Integration<a class="headerlink" href="#squidpy-integration" title="Link to this heading"></a></h3>
+<p>Advanced Spatial Analysis uses the squidpy package, which provides a comprehensive toolkit for spatial omics analysis.</p>
+<p><strong>Citation:</strong>
+- Palla, G., et al. (2022). “Squidpy: a scalable framework for spatial omics analysis.” Nature Methods, 19(2), 171-178. <a class="reference external" href="https://doi.org/10.1038/s41592-021-01358-2">DOI: 10.1038/s41592-021-01358-2</a>
+- <a class="reference external" href="https://squidpy.readthedocs.io/">squidpy Documentation</a>
+- <a class="reference external" href="https://github.com/scverse/squidpy">squidpy GitHub</a></p>
+</section>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Installation</strong>: Ensure squidpy is installed: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">squidpy</span></code></p></li>
+<li><p><strong>Method Selection</strong>:
+- Use <strong>Neighborhood Enrichment</strong> to identify cell type interactions
+- Use <strong>Co-occurrence Analysis</strong> for pairwise spatial relationships
+- Use <strong>Spatial Autocorrelation</strong> to identify spatial gradients
+- Use <strong>Ripley Functions</strong> to test for clustering/dispersion</p></li>
+<li><p><strong>Parameter Tuning</strong>:
+- <strong>n_permutations</strong>: Use at least 100, preferably 500-1000 for publication
+- <strong>max_dist</strong> (Ripley): Should cover relevant spatial scales (1-5 cell diameters)</p></li>
+<li><p><strong>Statistical Interpretation</strong>:
+- Always consider both effect size and p-value
+- Multiple testing correction may be needed for many comparisons
+- Visualize results to understand spatial patterns</p></li>
+<li><p><strong>Validation</strong>:
+- Compare results across different graph construction methods
+- Verify that spatial patterns are biologically meaningful
+- Check edge effects in Ripley functions</p></li>
+<li><p><strong>Performance</strong>:
+- Advanced methods can be computationally intensive
+- Use parallel processing when available
+- Consider analyzing subsets of data for exploration</p></li>
+<li><p><strong>Integration with Simple Spatial Analysis</strong>:
+- Use Simple Spatial Analysis for initial exploration
+- Use Advanced Spatial Analysis for detailed statistical testing
+- Combine results from both for comprehensive spatial analysis</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="simple_spatial_analysis.html" class="btn btn-neutral float-left" title="Simple Spatial Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api_core.html" class="btn btn-neutral float-right" title="Core pipeline API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
