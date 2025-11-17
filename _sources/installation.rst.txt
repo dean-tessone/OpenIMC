@@ -48,11 +48,14 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    # Install dependencies
    pip install -r requirements.txt
 
-   # Install the package in editable mode (enables CLI)
+   # Install the package in editable mode (enables CLI and GUI commands)
    pip install -e .
 
-   # Verify installation
-   python main.py
+   # Verify installation - run GUI
+   openimc-gui
+
+   # Or verify CLI installation
+   openimc --help
 
 **Option 2: Virtual Environment**
 
@@ -73,11 +76,14 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    # Install dependencies
    pip install -r requirements.txt
 
-   # Install the package in editable mode (enables CLI)
+   # Install the package in editable mode (enables CLI and GUI commands)
    pip install -e .
 
-   # Verify installation
-   python main.py
+   # Verify installation - run GUI
+   openimc-gui
+
+   # Or verify CLI installation
+   openimc --help
 
 
 CLI Installation
@@ -214,11 +220,13 @@ Verification
 After installation, verify that OpenIMC is working correctly:
 
 **GUI Mode:**
-   Run ``python main.py`` to launch the graphical interface.
+   Run ``openimc-gui`` to launch the graphical interface.
 
 **CLI Mode:**
    Run ``openimc --help`` to see available commands, or run a specific command
    like ``openimc preprocess --help``.
+
+   Note: ``python -m openimc`` also runs the CLI (equivalent to ``openimc``).
 
 Troubleshooting
 ---------------

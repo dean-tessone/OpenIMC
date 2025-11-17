@@ -135,11 +135,14 @@ conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> <
 <span class="c1"># Install dependencies</span>
 pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
 
-<span class="c1"># Install the package in editable mode (enables CLI)</span>
+<span class="c1"># Install the package in editable mode (enables CLI and GUI commands)</span>
 pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 
-<span class="c1"># Verify installation</span>
-python<span class="w"> </span>main.py
+<span class="c1"># Verify installation - run GUI</span>
+openimc-gui
+
+<span class="c1"># Or verify CLI installation</span>
+openimc<span class="w"> </span>--help
 </pre></div>
 </div>
 <p><strong>Option 2: Virtual Environment</strong></p>
@@ -158,11 +161,14 @@ python3.11<span class="w"> </span>-m<span class="w"> </span>venv<span class="w">
 <span class="c1"># Install dependencies</span>
 pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
 
-<span class="c1"># Install the package in editable mode (enables CLI)</span>
+<span class="c1"># Install the package in editable mode (enables CLI and GUI commands)</span>
 pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 
-<span class="c1"># Verify installation</span>
-python<span class="w"> </span>main.py
+<span class="c1"># Verify installation - run GUI</span>
+openimc-gui
+
+<span class="c1"># Or verify CLI installation</span>
+openimc<span class="w"> </span>--help
 </pre></div>
 </div>
 </section>
@@ -291,11 +297,12 @@ section of the segmentation dialog</p></li>
 <section id="verification">
 <h2>Verification<a class="headerlink" href="#verification" title="Link to this heading"></a></h2>
 <p>After installation, verify that OpenIMC is working correctly:</p>
-<dl class="simple">
-<dt><strong>GUI Mode:</strong></dt><dd><p>Run <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span></code> to launch the graphical interface.</p>
+<dl>
+<dt><strong>GUI Mode:</strong></dt><dd><p>Run <code class="docutils literal notranslate"><span class="pre">openimc-gui</span></code> to launch the graphical interface.</p>
 </dd>
 <dt><strong>CLI Mode:</strong></dt><dd><p>Run <code class="docutils literal notranslate"><span class="pre">openimc</span> <span class="pre">--help</span></code> to see available commands, or run a specific command
 like <code class="docutils literal notranslate"><span class="pre">openimc</span> <span class="pre">preprocess</span> <span class="pre">--help</span></code>.</p>
+<p>Note: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">openimc</span></code> also runs the CLI (equivalent to <code class="docutils literal notranslate"><span class="pre">openimc</span></code>).</p>
 </dd>
 </dl>
 </section>

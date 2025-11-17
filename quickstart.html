@@ -47,8 +47,17 @@
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Quick Start</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#gui-mode">GUI Mode</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#launching-openimc">Launching OpenIMC</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-workflow">Basic Workflow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#step-1-open-an-imc-file">Step 1: Open an IMC File</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#step-2-explore-the-image">Step 2: Explore the Image</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#step-3-run-segmentation">Step 3: Run Segmentation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#step-4-extract-features">Step 4: Extract Features</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#step-5-cluster-cells">Step 5: Cluster Cells</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#step-6-cell-phenotyping">Step 6: Cell Phenotyping</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#step-7-spatial-analysis">Step 7: Spatial Analysis</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#more-analyses-and-features-in-openimc">More Analyses and Features in OpenIMC</a></li>
@@ -88,17 +97,22 @@
   <section id="quick-start">
 <h1>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h1>
 <p>This quick tutorial walks you through launching OpenIMC, loading an IMC file, visualizing channels, and running a basic segmentation workflow.</p>
-<section id="gui-mode">
-<h2>GUI Mode<a class="headerlink" href="#gui-mode" title="Link to this heading"></a></h2>
-<p>Start the GUI after activating your conda environment:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py
+<section id="launching-openimc">
+<h2>Launching OpenIMC<a class="headerlink" href="#launching-openimc" title="Link to this heading"></a></h2>
+<p>After installation, start the GUI by running:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc-gui
 </pre></div>
 </div>
 <p>This opens the full OpenIMC interface.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The command <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">openimc</span></code> runs the CLI (command-line interface) for batch processing, not the GUI. Use <code class="docutils literal notranslate"><span class="pre">openimc-gui</span></code> to launch the graphical interface.</p>
+</div>
 <section id="basic-workflow">
 <h3>Basic Workflow<a class="headerlink" href="#basic-workflow" title="Link to this heading"></a></h3>
-<ol class="arabic">
-<li><p>Open an IMC file</p>
+<p>This section walks you through the essential steps of an IMC analysis workflow from file loading to spatial analysis.</p>
+<section id="step-1-open-an-imc-file">
+<h4>Step 1: Open an IMC File<a class="headerlink" href="#step-1-open-an-imc-file" title="Link to this heading"></a></h4>
 <p>Select <strong>File → Open File/Folder</strong>, then choose the <code class="docutils literal notranslate"><span class="pre">.mcd</span></code> file(s) you want to analyze.
 Multiple files can be selected using Shift or Ctrl.</p>
 <figure class="align-center" id="id1">
@@ -108,8 +122,9 @@ Multiple files can be selected using Shift or Ctrl.</p>
 <p><span class="caption-text"><strong>Figure 1:</strong> Selecting one or more <code class="docutils literal notranslate"><span class="pre">.mcd</span></code> files in the OpenIMC GUI.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-</li>
-<li><p>Explore the image</p>
+</section>
+<section id="step-2-explore-the-image">
+<h4>Step 2: Explore the Image<a class="headerlink" href="#step-2-explore-the-image" title="Link to this heading"></a></h4>
 <p>Newly loaded files appear in the image viewer. By default, channels are shown in a grid layout.</p>
 <figure class="align-center" id="id2">
 <a class="reference internal image-reference" href="_images/MultiChannelImageView.png"><img alt="View of 3 channels in grid view" src="_images/MultiChannelImageView.png" style="width: 800px;" />
@@ -118,8 +133,10 @@ Multiple files can be selected using Shift or Ctrl.</p>
 <p><span class="caption-text"><strong>Figure 2:</strong> Grid-based visualization of multiple IMC channels.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<p>Switch to grayscale by enabling <strong>Grayscale mode</strong>.</p>
-<p>To view channels as a composite RGB image, disable <strong>Grid view for multiple channels</strong>.
+<p><strong>Viewing Options:</strong></p>
+<ul>
+<li><p><strong>Grayscale mode</strong>: Switch to grayscale by enabling <strong>Grayscale mode</strong>.</p></li>
+<li><p><strong>RGB composite view</strong>: To view channels as a composite RGB image, disable <strong>Grid view for multiple channels</strong>.
 A dropdown will appear to assign channels to R, G, and B. Composite intensity is computed using the selected merge method.</p>
 <figure class="align-center" id="id3">
 <a class="reference internal image-reference" href="_images/RGB_view.png"><img alt="View of 3 channels in RGB view" src="_images/RGB_view.png" style="width: 1000px;" />
@@ -128,30 +145,44 @@ A dropdown will appear to assign channels to R, G, and B. Composite intensity is
 <p><span class="caption-text"><strong>Figure 3:</strong> RGB composite view generated from user-selected channels.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<p>Additional tools:
-- <strong>Custom scaling</strong>: interactively rescale intensities.
-- <strong>Scale bar</strong>: add and configure a micrometer scale bar.</p>
-<p>These options help you quickly assess signal quality, contrast, and cell morphology.</p>
 </li>
-<li><p>Run segmentation</p>
+</ul>
+<p><strong>Additional Tools:</strong></p>
+<ul class="simple">
+<li><p><strong>Custom scaling</strong>: Interactively rescale intensities.</p></li>
+<li><p><strong>Scale bar</strong>: Add and configure a micrometer scale bar.</p></li>
+</ul>
+<p>These options help you quickly assess signal quality, contrast, and cell morphology.</p>
+</section>
+<section id="step-3-run-segmentation">
+<h4>Step 3: Run Segmentation<a class="headerlink" href="#step-3-run-segmentation" title="Link to this heading"></a></h4>
 <p>Click <strong>Cell Segmentation</strong> to open the segmentation dialog.
 Choose a segmentation method and select the channels appropriate for your experiment.</p>
-<p>Available segmentation engines:
-- DeepCell CellSAM
-- Cellpose cyto3 (cytoplasm + nucleus)
-- Cellpose nuclei model
-- Ilastik (<code class="docutils literal notranslate"><span class="pre">.ilp</span></code> models)
-- Watershed</p>
+<p><strong>Available Segmentation Engines:</strong></p>
+<ul class="simple">
+<li><p><strong>DeepCell CellSAM</strong></p></li>
+<li><p><strong>Cellpose cyto3</strong> (cytoplasm + nucleus)</p></li>
+<li><p><strong>Cellpose nuclei model</strong></p></li>
+<li><p><strong>Ilastik</strong> (<code class="docutils literal notranslate"><span class="pre">.ilp</span></code> models)</p></li>
+<li><p><strong>Watershed</strong></p></li>
+</ul>
+<p><strong>Recommendations:</strong></p>
 <p>For most datasets, <strong>DeepCell CellSAM</strong> provides the best overall performance.
-DeepCell CellSAM is a transformer based model and requires a GPU to run quickly (CPU still works, but will be slow).
+DeepCell CellSAM is a transformer-based model and requires a GPU to run quickly (CPU still works, but will be slow).
 If you do not have a GPU, Cellpose is a potential alternative, but will still be slow on CPU.</p>
+<p><strong>CellSAM Configuration:</strong></p>
 <p>If using CellSAM, enter your DeepCell API token under <strong>DeepCell CellSAM Parameters</strong>.
-Adjustable CellSAM options:
-- <strong>Bbox threshold</strong> (default 0.4)
-- <strong>Use WSI mode</strong> (tiling for large images)
-- <strong>Low contrast enhancement</strong>
-- <strong>Gauge cell size</strong></p>
+Adjustable CellSAM options:</p>
+<ul class="simple">
+<li><p><strong>Bbox threshold</strong> (default 0.4)</p></li>
+<li><p><strong>Use WSI mode</strong> (tiling for large images)</p></li>
+<li><p><strong>Low contrast enhancement</strong></p></li>
+<li><p><strong>Gauge cell size</strong></p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
 <p>Before segmenting an entire experiment, it is recommended to test on a single acquisition and refine settings.</p>
+</div>
 <p>Once segmentation completes, enable <strong>Show Overlay</strong> to visualize masks on top of any channel.</p>
 <figure class="align-center" id="id4">
 <a class="reference internal image-reference" href="_images/segmentation.png"><img alt="Segmentation overlaid on DNA" src="_images/segmentation.png" style="width: 1000px;" />
@@ -160,41 +191,55 @@ Adjustable CellSAM options:
 <p><span class="caption-text"><strong>Figure 4:</strong> Segmentation mask overlaid on the DNA channel after processing with DeepCell CellSAM. Masks and the raw image are shown side by side.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-</li>
-<li><p>Extract features</p>
-<p>Click <strong>Feature Extraction</strong> to open the feature extraction dialog.
-The primary settings in feature extraction are:
-- <strong>Acquisitions</strong>: the acquisitions to extract features from (default is all acquisitions with segmentation masks)
-- <strong>Output</strong>: the output directory for the features (default is the current directory)
-- <strong>Denoising</strong>: the denoising method to use (for most datasets, hot pixel removal by Median 3x3 is recommended, ensure you click ‘Apply to all channels’)
-- <strong>Arcsinh scaling</strong>: whether to apply arcsinh scaling to the intensity features (for most datasets, this is recommended)</p>
-<figure class="align-default" id="id5">
-<img alt="_static/images/feature_extraction.png:alt:RecommendedSettingsforFeatureExtractionforMostDatasets:width:1000px:align:center" src="_static/images/feature_extraction.png:alt:RecommendedSettingsforFeatureExtractionforMostDatasets:width:1000px:align:center" />
+</section>
+<section id="step-4-extract-features">
+<h4>Step 4: Extract Features<a class="headerlink" href="#step-4-extract-features" title="Link to this heading"></a></h4>
+<p>Click <strong>Feature Extraction</strong> to open the feature extraction dialog.</p>
+<p><strong>Primary Settings:</strong></p>
+<ul class="simple">
+<li><p><strong>Acquisitions</strong>: The acquisitions to extract features from (default is all acquisitions with segmentation masks)</p></li>
+<li><p><strong>Output</strong>: The output directory for the features (default is the current directory)</p></li>
+<li><p><strong>Denoising</strong>: The denoising method to use (for most datasets, hot pixel removal by Median 3x3 is recommended, ensure you click ‘Apply to all channels’)</p></li>
+<li><p><strong>Arcsinh scaling</strong>: Whether to apply arcsinh scaling to the intensity features (for most datasets, this is recommended)</p></li>
+</ul>
+<figure class="align-center" id="id5">
+<a class="reference internal image-reference" href="_images/feature_extraction.png"><img alt="Recommended Settings for Feature Extraction for Most Datasets" src="_images/feature_extraction.png" style="width: 1000px;" />
+</a>
 <figcaption>
 <p><span class="caption-text"><strong>Figure 5:</strong> Recommended Settings for Feature Extraction for Most Datasets.</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 <p>Click ‘Extract Features’ to start the feature extraction process.
 The features will be saved to the output directory as a CSV file.
-The data will continue to be stored in memory for further analysis, including clustering and spatial analysis and does not need to be reloaded.</p>
-</li>
-<li><p>Cluster cells</p>
+The data will continue to be stored in memory for further analysis, including clustering and spatial analysis, and does not need to be reloaded.</p>
+</section>
+<section id="step-5-cluster-cells">
+<h4>Step 5: Cluster Cells<a class="headerlink" href="#step-5-cluster-cells" title="Link to this heading"></a></h4>
 <p>Click <strong>Cell Clustering</strong> to open the clustering dialog.
 The features extracted from the previous step will be loaded automatically.</p>
-<p>At the top of the clustering dialog, you can select the type of clustering to perform.
-Available clustering methods:
-- Leiden
-- Louvain
-- Hierarchical
-- K-means
-- HDBSCAN</p>
-<p>Leiden and louvain are recommended for most datasets with high cell density and highly varying types of cells.
-Hierarchical clustering is recommended for datasets with a small number of cells or a small number of cell types.
-K-means is recommended for datasets with approximately equal numbers of cells of each type.
-HDBSCAN is recommended for datasets with many outliers or cells that are not well-defined.</p>
+<p><strong>Selecting a Clustering Method</strong></p>
+<p>At the top of the clustering dialog, you can select the type of clustering to perform.</p>
+<p><strong>Available Clustering Methods:</strong></p>
+<ul class="simple">
+<li><p><strong>Leiden</strong></p></li>
+<li><p><strong>Louvain</strong></p></li>
+<li><p><strong>Hierarchical</strong></p></li>
+<li><p><strong>K-means</strong></p></li>
+<li><p><strong>HDBSCAN</strong></p></li>
+</ul>
+<p><strong>Method Recommendations:</strong></p>
+<ul class="simple">
+<li><p><strong>Leiden and Louvain</strong>: Recommended for most datasets with high cell density and highly varying types of cells.</p></li>
+<li><p><strong>Hierarchical</strong>: Recommended for datasets with a small number of cells or a small number of cell types.</p></li>
+<li><p><strong>K-means</strong>: Recommended for datasets with approximately equal numbers of cells of each type.</p></li>
+<li><p><strong>HDBSCAN</strong>: Recommended for datasets with many outliers or cells that are not well-defined.</p></li>
+</ul>
 <p>After selecting the clustering method, you can set the parameters for the clustering method. See the Clustering section for more details.
 For most datasets, the default settings will be sufficient.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
 <p>We recommend using Leiden clustering for most datasets.</p>
+</div>
 <figure class="align-center" id="id6">
 <a class="reference internal image-reference" href="_images/clustering_settings.png"><img alt="Clustering Dialog" src="_images/clustering_settings.png" style="width: 1000px;" />
 </a>
@@ -202,7 +247,8 @@ For most datasets, the default settings will be sufficient.</p>
 <p><span class="caption-text"><strong>Figure 6:</strong> Clustering Dialog Settings, default to Leiden clustering.</span><a class="headerlink" href="#id6" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<p>After you hit ‘Run Clustering’, a pop up will ask you to select the features to cluster. Features will be subset to the mean intensities and the morphological features.
+<p><strong>Feature Selection</strong></p>
+<p>After you hit ‘Run Clustering’, a pop-up will ask you to select the features to cluster. Features will be subset to the mean intensities and the morphological features.
 At this stage, it is important to select the features that are most informative for the clustering.
 If you know that certain antibodies are not working well, you should exclude them from the clustering.</p>
 <figure class="align-center" id="id7">
@@ -212,6 +258,7 @@ If you know that certain antibodies are not working well, you should exclude the
 <p><span class="caption-text"><strong>Figure 7:</strong> Feature Selection for Clustering.</span><a class="headerlink" href="#id7" title="Link to this image"></a></p>
 </figcaption>
 </figure>
+<p><strong>Visualizing Clusters</strong></p>
 <p>Once the clustering is complete, you can visualize the clusters.
 The default visualization is a heatmap of the clusters.</p>
 <figure class="align-center" id="id8">
@@ -221,19 +268,43 @@ The default visualization is a heatmap of the clusters.</p>
 <p><span class="caption-text"><strong>Figure 8:</strong> Heatmap of the clusters, with annotation of both the clusters and the patients from which the cells are derived.</span><a class="headerlink" href="#id8" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<p>At the bottom of the clustering dialog, you can change to various other visualizations, including UMAPs, t-SNE, Stacked Bars, Differential Expression, and Boxplot/Violin Plot.
-You can also save the visualization as a PNG file by clicking the ‘Save Plot’ button.
-You can also save the clustering output as a CSV file by clicking the ‘Save Clustering Output’ button. This will save the features with cluster labels and/or any manual annotations.</p>
-</li>
-<li><p>Cell phenotyping</p>
+<p><strong>Additional Visualization Options:</strong></p>
+<p>At the bottom of the clustering dialog, you can change to various other visualizations, including:</p>
+<ul class="simple">
+<li><p>UMAPs</p></li>
+<li><p>t-SNE</p></li>
+<li><p>Stacked Bars</p></li>
+<li><p>Differential Expression</p></li>
+<li><p>Boxplot/Violin Plot</p></li>
+</ul>
+<p><strong>Saving Results:</strong></p>
+<ul class="simple">
+<li><p>Save the visualization as a PNG file by clicking the ‘Save Plot’ button.</p></li>
+<li><p>Save the clustering output as a CSV file by clicking the ‘Save Clustering Output’ button. This will save the features with cluster labels and/or any manual annotations.</p></li>
+</ul>
+</section>
+<section id="step-6-cell-phenotyping">
+<h4>Step 6: Cell Phenotyping<a class="headerlink" href="#step-6-cell-phenotyping" title="Link to this heading"></a></h4>
 <p>After clustering, you can annotate the clusters by their cell type.
 This is done by clicking the ‘Annotate Phenotypes’ button.</p>
-<p>You can either manually annotate the clusters by typing in the cell type name or use the LLM to annotate the clusters.
-The LLM will ask you for an OpenAI API key. If you do not have an OpenAI API key, you can get one by signing up for an account at <a class="reference external" href="https://openai.com/">https://openai.com/</a> (see the Installation section for more details).
-You can also provide context to the LLM (such as the cancer type, the tissue type, the treatment, the patient metadata, etc.)
+<p><strong>Annotation Methods:</strong></p>
+<p>You can either:</p>
+<ul class="simple">
+<li><p><strong>Manually annotate</strong> the clusters by typing in the cell type name</p></li>
+<li><p><strong>Use the LLM</strong> to annotate the clusters</p></li>
+</ul>
+<p><strong>Using LLM Annotation:</strong></p>
+<p>The LLM will ask you for an OpenAI API key. If you do not have an OpenAI API key, you can get one by signing up for an account at <a class="reference external" href="https://openai.com/">https://openai.com/</a> (see the Installation section for more details).</p>
+<p>You can also provide context to the LLM (such as the cancer type, the tissue type, the treatment, the patient metadata, etc.)
 This will help the LLM to generate more accurate cell type annotations.</p>
-<p>Note: the LLM is charged by the token, so ensure your account has enough credits.
-Second Note: the LLM is not perfect, so you should manually check the annotations and correct them if necessary.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The LLM is charged by the token, so ensure your account has enough credits.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The LLM is not perfect, so you should manually check the annotations and correct them if necessary.</p>
+</div>
 <p>Once the LLM has suggested the cell types, you can choose from its suggestions and update your plot.</p>
 <figure class="align-center" id="id9">
 <a class="reference internal image-reference" href="_images/phenotyping.png"><img alt="Phenotyping with ChatGPT suggestions" src="_images/phenotyping.png" style="width: 1000px;" />
@@ -242,25 +313,33 @@ Second Note: the LLM is not perfect, so you should manually check the annotation
 <p><span class="caption-text"><strong>Figure 9:</strong> Phenotyping with ChatGPT suggestions.</span><a class="headerlink" href="#id9" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-</li>
-<li><p>Spatial analysis</p>
+</section>
+<section id="step-7-spatial-analysis">
+<h4>Step 7: Spatial Analysis<a class="headerlink" href="#step-7-spatial-analysis" title="Link to this heading"></a></h4>
 <p>After clustering, you can perform spatial analysis to investigate the spatial distribution of the cells.
 This is done by clicking the ‘Spatial Analysis’ button.</p>
-<p>Spatial analysis is split into two windows: a simple analysis and a more advanced analysis.
-For most users, the simple analysis will be sufficient.</p>
+<p><strong>Analysis Modes:</strong></p>
+<p>Spatial analysis is split into two windows:</p>
+<ul class="simple">
+<li><p><strong>Simple analysis</strong>: For most users, this will be sufficient</p></li>
+<li><p><strong>Advanced analysis</strong>: For more complex spatial analyses</p></li>
+</ul>
+<p><strong>Building the Spatial Graph</strong></p>
 <p>The first step of spatial analysis is to build a spatial graph of the cells.
-There are three methods to build the spatial graph:
-- k-nearest neighbors (kNN)
-- Radius
-- Delaunay</p>
-<p>kNN is the default method and is recommended for most datasets. K is the number of neighbors to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.
-Radius is recommended for datasets with a small number of cells or a small number of cell types. Radius is the radius in micrometers to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.
-Delaunay is recommended for datasets with a large number of cells or a large number of cell types. Delaunay is based on the Delaunay triangulation of the cells. See more details in the Spatial Analysis section.</p>
-<p>Some spatial visualizations are available in the simple analysis window, including:
-- Spatial visualization of the cells (represent each cell as a point, color by their cluster, and show the edges between the cells)
-- Distance distribution of the cells (show the distance distribution of the cells by their cluster -&gt; what is the distribution of distances between cells of the same cluster vs. cells of different clusters?)
-- Pairwise enrichment analysis (test for significant spatial co-occurrence or avoidance between cluster pairs using permutation tests)
-- Community detection (detect communities in the spatial graph -&gt; rather than clustering the cells, we cluster based on the spatial relationship between the cells)</p>
+There are three methods to build the spatial graph:</p>
+<ul class="simple">
+<li><p><strong>k-nearest neighbors (kNN)</strong>: The default method and recommended for most datasets. K is the number of neighbors to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.</p></li>
+<li><p><strong>Radius</strong>: Recommended for datasets with a small number of cells or a small number of cell types. Radius is the radius in micrometers to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.</p></li>
+<li><p><strong>Delaunay</strong>: Recommended for datasets with a large number of cells or a large number of cell types. Delaunay is based on the Delaunay triangulation of the cells. See more details in the Spatial Analysis section.</p></li>
+</ul>
+<p><strong>Available Visualizations:</strong></p>
+<p>Some spatial visualizations are available in the simple analysis window, including:</p>
+<ul class="simple">
+<li><p><strong>Spatial visualization of the cells</strong>: Represent each cell as a point, color by their cluster, and show the edges between the cells</p></li>
+<li><p><strong>Distance distribution of the cells</strong>: Show the distance distribution of the cells by their cluster → what is the distribution of distances between cells of the same cluster vs. cells of different clusters?</p></li>
+<li><p><strong>Pairwise enrichment analysis</strong>: Test for significant spatial co-occurrence or avoidance between cluster pairs using permutation tests</p></li>
+<li><p><strong>Community detection</strong>: Detect communities in the spatial graph → rather than clustering the cells, we cluster based on the spatial relationship between the cells</p></li>
+</ul>
 <figure class="align-center" id="id10">
 <a class="reference internal image-reference" href="_images/spatial_visualization.png"><img alt="Spatial Visualizations in the Simple Analysis Window" src="_images/spatial_visualization.png" style="width: 1000px;" />
 </a>
@@ -268,13 +347,13 @@ Delaunay is recommended for datasets with a large number of cells or a large num
 <p><span class="caption-text"><strong>Figure 10:</strong> Spatial Visualizations in the Simple Analysis Window.</span><a class="headerlink" href="#id10" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-</li>
-</ol>
+</section>
 </section>
 </section>
 <section id="more-analyses-and-features-in-openimc">
 <h2>More Analyses and Features in OpenIMC<a class="headerlink" href="#more-analyses-and-features-in-openimc" title="Link to this heading"></a></h2>
-<p>This quickstart covers the essential workflow to get you started with OpenIMC. However, the application includes many additional features and advanced analysis options to support a wide range of IMC experiments. These include:</p>
+<p>This quickstart covers the essential workflow to get you started with OpenIMC. However, the application includes many additional features and advanced analysis options to support a wide range of IMC experiments.</p>
+<p><strong>Additional Features:</strong></p>
 <ul class="simple">
 <li><p><strong>Quality Control (QC)</strong>: Tools for assessing image quality, detecting artifacts, and verifying segmentation accuracy.</p></li>
 <li><p><strong>Pixel Correlation Analysis</strong>: Explore channel relationships and spatial co-localization at the pixel level.</p></li>
