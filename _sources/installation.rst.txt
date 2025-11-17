@@ -11,6 +11,25 @@ Prerequisites
 **Python Version**
    OpenIMC requires Python 3.11 or higher.
 
+**Tested System Configurations**
+   OpenIMC has been tested on the following operating systems and hardware configurations:
+
+   **Linux**
+      - Ubuntu 24.04.02
+      - AMD Ryzen 9 3900x 24 Core CPU
+      - 64 GB RAM
+      - Dual GPU: NVIDIA RTX 5000 + NVIDIA T1000
+
+   **macOS**
+      - M2 MacBook Air
+      - 16 GB RAM
+      - Tahoe 26.1
+
+   **Windows**
+      - Windows 11
+      - 16 GB RAM
+      - 6 core CPU
+
 **Important: datrie Dependency**
    Some users may encounter issues installing the ``datrie`` package, which is
    a dependency of certain OpenIMC components. If you encounter errors related

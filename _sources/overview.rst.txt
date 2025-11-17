@@ -1,6 +1,11 @@
 Overview
 ========
 
+.. figure:: _static/images/OpenIMC_Logo.png
+   :alt: OpenIMC Logo
+   :width: 400px
+   :align: center
+
 OpenIMC is an open-source, cross-platform software framework for the analysis of
 Imaging Mass Cytometry (IMC) data. It unifies data visualization, preprocessing,
 segmentation, feature extraction, clustering, and spatial analytics within a
