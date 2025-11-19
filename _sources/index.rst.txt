@@ -22,6 +22,7 @@ OpenIMC Documentation
    pixel_correlation
    quality_control
    spillover_matrix
+   high_resolution_experimental_design
    simple_spatial_analysis
    advanced_spatial_analysis
 

@@ -54,6 +54,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../pixel_correlation.html">Pixel Correlation Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../quality_control.html">Quality Control Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
@@ -118,11 +119,20 @@
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
     <span class="kn">import</span><span class="w"> </span><span class="nn">anndata</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ad</span>
+
+<span class="c1"># Try to import psutil for better memory tracking</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">psutil</span>
+    <span class="n">_HAVE_PSUTIL</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">_HAVE_PSUTIL</span> <span class="o">=</span> <span class="kc">False</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
@@ -237,7 +247,7 @@
     <span class="n">output_dir</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span>
     <span class="n">denoise_settings</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">normalization_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;None&quot;</span><span class="p">,</span>
-    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
     <span class="n">percentile_params</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">99.0</span><span class="p">),</span>
     <span class="n">viewer_denoise_func</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
@@ -262,9 +272,12 @@
     <span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
     <span class="n">output_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     
+    <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
+    <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    
     <span class="c1"># Get all channels</span>
-    <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-    <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
+    <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
     
     <span class="c1"># Process each channel</span>
     <span class="n">processed_channels</span> <span class="o">=</span> <span class="p">[]</span>
@@ -341,7 +354,7 @@
     <span class="n">cyto_channels</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
     <span class="n">denoise_settings</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">normalization_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;None&quot;</span><span class="p">,</span>
-    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
     <span class="n">percentile_params</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">99.0</span><span class="p">),</span>
     <span class="n">nuclear_combo_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mean&quot;</span><span class="p">,</span>
     <span class="n">cyto_combo_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mean&quot;</span><span class="p">,</span>
@@ -367,10 +380,17 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        Tuple of (nuclear_img, cyto_img) where cyto_img can be None</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
+    <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    
+    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Starting preprocessing for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> (original: </span><span class="si">{</span><span class="n">original_acq_id</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+    
     <span class="c1"># Load and preprocess nuclear channels</span>
     <span class="n">nuclear_imgs</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">nuclear_channels</span><span class="p">:</span>
-        <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading nuclear channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2"> for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded nuclear channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">img</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;nuclear_</span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="c1"># Apply denoising if custom settings provided</span>
         <span class="k">if</span> <span class="n">denoise_settings</span> <span class="ow">and</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">denoise_settings</span><span class="p">:</span>
             <span class="n">img</span> <span class="o">=</span> <span class="n">_apply_denoise_to_channel</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">denoise_settings</span><span class="p">[</span><span class="n">channel</span><span class="p">])</span>
@@ -387,15 +407,24 @@
         <span class="n">nuclear_imgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">img</span><span class="p">)</span>
     
     <span class="c1"># Combine nuclear channels</span>
+    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combining </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">nuclear_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> nuclear channels for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">nuclear_img</span> <span class="o">=</span> <span class="n">combine_channels</span><span class="p">(</span><span class="n">nuclear_imgs</span><span class="p">,</span> <span class="n">nuclear_combo_method</span><span class="p">,</span> <span class="n">nuclear_weights</span><span class="p">)</span>
     <span class="n">nuclear_img</span> <span class="o">=</span> <span class="n">_ensure_0_1_range</span><span class="p">(</span><span class="n">nuclear_img</span><span class="p">)</span>
+    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combined nuclear image created&quot;</span><span class="p">,</span> <span class="n">nuclear_img</span><span class="p">,</span> <span class="s2">&quot;nuclear_img&quot;</span><span class="p">)</span>
+    <span class="c1"># Release intermediate images immediately to free memory</span>
+    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleting </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">nuclear_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> nuclear channel images&quot;</span><span class="p">)</span>
+    <span class="k">del</span> <span class="n">nuclear_imgs</span>
+    <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After deleting nuclear_imgs&quot;</span><span class="p">)</span>
     
     <span class="c1"># Load and preprocess cytoplasm channels</span>
     <span class="n">cyto_img</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">cyto_channels</span><span class="p">:</span>
         <span class="n">cyto_imgs</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">cyto_channels</span><span class="p">:</span>
-            <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading cyto channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2"> for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded cyto channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">img</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;cyto_</span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="c1"># Apply denoising if custom settings provided</span>
             <span class="k">if</span> <span class="n">denoise_settings</span> <span class="ow">and</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">denoise_settings</span><span class="p">:</span>
                 <span class="n">img</span> <span class="o">=</span> <span class="n">_apply_denoise_to_channel</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">denoise_settings</span><span class="p">[</span><span class="n">channel</span><span class="p">])</span>
@@ -412,10 +441,61 @@
             <span class="n">cyto_imgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">img</span><span class="p">)</span>
         
         <span class="c1"># Combine cytoplasm channels</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combining </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cyto_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> cyto channels for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">combine_channels</span><span class="p">(</span><span class="n">cyto_imgs</span><span class="p">,</span> <span class="n">cyto_combo_method</span><span class="p">,</span> <span class="n">cyto_weights</span><span class="p">)</span>
         <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">_ensure_0_1_range</span><span class="p">(</span><span class="n">cyto_img</span><span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combined cyto image created&quot;</span><span class="p">,</span> <span class="n">cyto_img</span><span class="p">,</span> <span class="s2">&quot;cyto_img&quot;</span><span class="p">)</span>
+        <span class="c1"># Release intermediate images immediately to free memory</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleting </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cyto_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> cyto channel images&quot;</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">cyto_imgs</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After deleting cyto_imgs&quot;</span><span class="p">)</span>
     
+    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Preprocessing complete for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">nuclear_img</span><span class="p">,</span> <span class="s2">&quot;final_nuclear_img&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Preprocessing complete for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">cyto_img</span><span class="p">,</span> <span class="s2">&quot;final_cyto_img&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">nuclear_img</span><span class="p">,</span> <span class="n">cyto_img</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_get_memory_usage_mb</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get current memory usage in MB.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">_HAVE_PSUTIL</span><span class="p">:</span>
+        <span class="n">process</span> <span class="o">=</span> <span class="n">psutil</span><span class="o">.</span><span class="n">Process</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">process</span><span class="o">.</span><span class="n">memory_info</span><span class="p">()</span><span class="o">.</span><span class="n">rss</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Fallback: approximate using sys.getsizeof</span>
+        <span class="k">return</span> <span class="n">sys</span><span class="o">.</span><span class="n">getsizeof</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">get_objects</span><span class="p">())</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_log_memory_debug</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">obj</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">obj_name</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log memory usage with optional object info.&quot;&quot;&quot;</span>
+    <span class="n">mem_mb</span> <span class="o">=</span> <span class="n">_get_memory_usage_mb</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">obj_name</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="n">obj_size_mb</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">nbytes</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[MEM_DEBUG] </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2"> | Memory: </span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB | </span><span class="si">{</span><span class="n">obj_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">obj_size_mb</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB)&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[MEM_DEBUG] </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2"> | Memory: </span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB | </span><span class="si">{</span><span class="n">obj_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[MEM_DEBUG] </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2"> | Memory: </span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_extract_original_acq_id</span><span class="p">(</span><span class="n">acq_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract original acquisition ID from unique ID format.</span>
+<span class="sd">    </span>
+<span class="sd">    For multi-file support, acquisition IDs may be in format:</span>
+<span class="sd">    &#39;slide_0_acq_0__file_e149256f&#39; -&gt; &#39;slide_0_acq_0&#39;</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        acq_id: Acquisition ID (may be unique or original)</span>
+<span class="sd">    </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        Original acquisition ID</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s1">&#39;__file_&#39;</span> <span class="ow">in</span> <span class="n">acq_id</span><span class="p">:</span>
+        <span class="c1"># Extract original ID by removing __file_* suffix</span>
+        <span class="k">return</span> <span class="n">acq_id</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;__file_&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">acq_id</span>
 
 
 <div class="viewcode-block" id="segment">
@@ -429,7 +509,7 @@
     <span class="n">output_dir</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">denoise_settings</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">normalization_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;None&quot;</span><span class="p">,</span>
-    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
     <span class="n">percentile_params</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">99.0</span><span class="p">),</span>
     <span class="n">nuclear_combo_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mean&quot;</span><span class="p">,</span>
     <span class="n">cyto_combo_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mean&quot;</span><span class="p">,</span>
@@ -495,8 +575,11 @@
     <span class="k">if</span> <span class="n">cyto_channels</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">cyto_channels</span> <span class="o">=</span> <span class="p">[]</span>
     
+    <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
+    <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    
     <span class="c1"># Validate channels</span>
-    <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
     <span class="n">missing_nuclear</span> <span class="o">=</span> <span class="p">[</span><span class="n">ch</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">nuclear_channels</span> <span class="k">if</span> <span class="n">ch</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">channels</span><span class="p">]</span>
     <span class="n">missing_cyto</span> <span class="o">=</span> <span class="p">[</span><span class="n">ch</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">cyto_channels</span> <span class="k">if</span> <span class="n">ch</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">channels</span><span class="p">]</span>
     <span class="k">if</span> <span class="n">missing_nuclear</span><span class="p">:</span>
@@ -508,12 +591,11 @@
     
     <span class="c1"># Run segmentation based on method</span>
     <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;cellsam&#39;</span><span class="p">:</span>
-        <span class="c1"># Try to import CellSAM</span>
-        <span class="c1"># Catch both ImportError and OSError (Windows DLL loading errors)</span>
+        <span class="c1"># Use our custom CellSAM implementation with proper model caching</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="kn">from</span><span class="w"> </span><span class="nn">cellSAM</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span><span class="p">,</span> <span class="n">cellsam_pipeline</span>
-        <span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;CellSAM not installed or failed to load. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git&quot;</span><span class="p">)</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.custom_cellsam</span><span class="w"> </span><span class="kn">import</span> <span class="n">cellsam_pipeline_custom</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CellSAM not installed or failed to load: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git&quot;</span><span class="p">)</span>
         
         <span class="c1"># Set API key from argument or environment variable</span>
         <span class="n">api_key</span> <span class="o">=</span> <span class="n">deepcell_api_key</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;DEEPCELL_ACCESS_TOKEN&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
@@ -521,13 +603,10 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;DeepCell API key is required for CellSAM. Set deepcell_api_key or DEEPCELL_ACCESS_TOKEN environment variable.&quot;</span><span class="p">)</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;DEEPCELL_ACCESS_TOKEN&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">api_key</span>
         
-        <span class="c1"># Initialize CellSAM model and download weights</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">get_model</span><span class="p">()</span>  <span class="c1"># This downloads weights if not already present</span>
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to initialize CellSAM model: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">. Please check your API key and internet connection.&quot;</span><span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using custom CellSAM implementation for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
         <span class="c1"># Preprocess channels</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Starting CellSAM segmentation for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">nuclear_img</span><span class="p">,</span> <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">_preprocess_channels_for_segmentation</span><span class="p">(</span>
             <span class="n">loader</span><span class="p">,</span> <span class="n">acquisition</span><span class="p">,</span> <span class="n">nuclear_channels</span><span class="p">,</span> <span class="n">cyto_channels</span><span class="p">,</span>
             <span class="n">denoise_settings</span><span class="p">,</span> <span class="n">normalization_method</span><span class="p">,</span> <span class="n">arcsinh_cofactor</span><span class="p">,</span>
@@ -536,29 +615,50 @@
         <span class="p">)</span>
         
         <span class="c1"># Prepare input for CellSAM (supports nuclear-only, cyto-only, or combined)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Preparing CellSAM input for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">nuclear_channels</span> <span class="ow">and</span> <span class="n">cyto_channels</span><span class="p">:</span>
             <span class="c1"># Combined mode: H x W x 3 array</span>
             <span class="n">h</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">nuclear_img</span><span class="o">.</span><span class="n">shape</span>
             <span class="n">cellsam_input</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
             <span class="n">cellsam_input</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">nuclear_img</span>  <span class="c1"># Channel 1 is nuclear</span>
             <span class="n">cellsam_input</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">cyto_img</span> <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">nuclear_img</span>  <span class="c1"># Channel 2 is cyto</span>
+            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created combined CellSAM input&quot;</span><span class="p">,</span> <span class="n">cellsam_input</span><span class="p">,</span> <span class="s2">&quot;cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">nuclear_channels</span><span class="p">:</span>
             <span class="c1"># Nuclear only mode: H x W array</span>
             <span class="n">cellsam_input</span> <span class="o">=</span> <span class="n">nuclear_img</span>
+            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using nuclear-only CellSAM input&quot;</span><span class="p">,</span> <span class="n">cellsam_input</span><span class="p">,</span> <span class="s2">&quot;cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">cyto_channels</span><span class="p">:</span>
             <span class="c1"># Cyto only mode: H x W array</span>
             <span class="n">cellsam_input</span> <span class="o">=</span> <span class="n">cyto_img</span> <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">nuclear_img</span>
+            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using cyto-only CellSAM input&quot;</span><span class="p">,</span> <span class="n">cellsam_input</span><span class="p">,</span> <span class="s2">&quot;cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;At least one channel (nuclear or cyto) must be selected for CellSAM&quot;</span><span class="p">)</span>
         
-        <span class="c1"># Run CellSAM pipeline</span>
-        <span class="n">mask</span> <span class="o">=</span> <span class="n">cellsam_pipeline</span><span class="p">(</span>
+        <span class="c1"># Run CellSAM pipeline using our custom implementation</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Running CellSAM pipeline for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Before cellsam_pipeline_custom call for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">cellsam_pipeline_custom</span><span class="p">(</span>
             <span class="n">cellsam_input</span><span class="p">,</span>
             <span class="n">bbox_threshold</span><span class="o">=</span><span class="n">bbox_threshold</span><span class="p">,</span>
             <span class="n">use_wsi</span><span class="o">=</span><span class="n">use_wsi</span><span class="p">,</span>
             <span class="n">low_contrast_enhancement</span><span class="o">=</span><span class="n">low_contrast_enhancement</span><span class="p">,</span>
             <span class="n">gauge_cell_size</span><span class="o">=</span><span class="n">gauge_cell_size</span>
         <span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After cellsam_pipeline_custom call for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CellSAM pipeline complete, mask created&quot;</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Immediately release input images to free memory</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleting CellSAM input images for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">cellsam_input</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted cellsam_input&quot;</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">nuclear_img</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted nuclear_img&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">cyto_img</span>
+            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted cyto_img&quot;</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After GC, mask still exists&quot;</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="s2">&quot;mask_after_cleanup&quot;</span><span class="p">)</span>
+        
         <span class="c1"># Use mask directly without modifications</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
             <span class="n">mask</span> <span class="o">=</span> <span class="n">mask</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
@@ -612,8 +712,9 @@
     
     <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;watershed&#39;</span><span class="p">:</span>
         <span class="c1"># Get image stack and channels for watershed</span>
-        <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-        <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="c1"># Use original_acq_id extracted above</span>
+        <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
+        <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
         
         <span class="c1"># Run watershed segmentation</span>
         <span class="n">mask</span> <span class="o">=</span> <span class="n">watershed_segmentation</span><span class="p">(</span>
@@ -636,15 +737,12 @@
         
         <span class="c1"># Use well name if available, otherwise use acquisition name</span>
         <span class="k">if</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">well</span><span class="p">:</span>
-            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">well</span><span class="si">}</span><span class="s2">_segmentation.tif&quot;</span>
+            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">well</span><span class="si">}</span><span class="s2">_segmentation_masks.tif&quot;</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">_segmentation.tif&quot;</span>
+            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">_segmentation_masks.tif&quot;</span>
         <span class="n">output_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">output_filename</span>
         
-        <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">),</span> <span class="n">mask</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint32</span><span class="p">),</span> <span class="n">compression</span><span class="o">=</span><span class="s1">&#39;lzw&#39;</span><span class="p">)</span>
-        
-        <span class="c1"># Also save as numpy array for easier loading</span>
-        <span class="n">np</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;.tif&#39;</span><span class="p">,</span> <span class="s1">&#39;.npy&#39;</span><span class="p">),</span> <span class="n">mask</span><span class="p">)</span>
+        <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">),</span> <span class="n">mask</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">),</span> <span class="n">compression</span><span class="o">=</span><span class="s1">&#39;lzw&#39;</span><span class="p">)</span>
     
     <span class="k">return</span> <span class="n">mask</span></div>
 
@@ -767,7 +865,7 @@
     <span class="n">intensity</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">denoise_settings</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">arcsinh</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span><span class="p">,</span>
+    <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
     <span class="n">spillover_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">excluded_channels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">set</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">selected_features</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
@@ -807,9 +905,12 @@
         <span class="k">if</span> <span class="n">acq</span><span class="o">.</span><span class="n">id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">masks_dict</span><span class="p">:</span>
             <span class="k">continue</span>
         
+        <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
+        <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        
         <span class="n">mask</span> <span class="o">=</span> <span class="n">masks_dict</span><span class="p">[</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">]</span>
-        <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-        <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
+        <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
         
         <span class="c1"># Prepare acquisition info</span>
         <span class="n">acq_info</span> <span class="o">=</span> <span class="p">{</span>
@@ -1798,8 +1899,11 @@
     <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">spearmanr</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">statsmodels.stats.multitest</span><span class="w"> </span><span class="kn">import</span> <span class="n">multipletests</span>
     
+    <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
+    <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    
     <span class="c1"># Load image stack for all channels</span>
-    <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
     
     <span class="c1"># Determine shape - loaders return HWC format (H, W, C)</span>
     <span class="k">if</span> <span class="n">img_stack</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
@@ -1918,6 +2022,9 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        DataFrame with QC metrics per channel</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
+    <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    
     <span class="c1"># Optional scikit-image for Otsu thresholding</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">skimage.filters</span><span class="w"> </span><span class="kn">import</span> <span class="n">threshold_otsu</span>
@@ -1945,7 +2052,7 @@
     <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">channels</span><span class="p">:</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="c1"># Load image</span>
-            <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+            <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">img</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">continue</span>
             
@@ -2781,7 +2888,8 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">spatial_neighborhood_enrichment</span><span class="p">(</span>
     <span class="n">anndata_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="s1">&#39;ad.AnnData&#39;</span><span class="p">],</span>
     <span class="n">cluster_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;cluster&quot;</span><span class="p">,</span>
-    <span class="n">aggregation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mean&quot;</span>
+    <span class="n">aggregation</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mean&quot;</span><span class="p">,</span>
+    <span class="n">significance_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">2.0</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Compute neighborhood enrichment using squidpy.</span>
 <span class="sd">    </span>
@@ -2791,12 +2899,14 @@
 <span class="sd">        anndata_dict: Dictionary mapping ROI ID to AnnData object with spatial graph</span>
 <span class="sd">        cluster_key: Column name containing cluster labels (default: &quot;cluster&quot;)</span>
 <span class="sd">        aggregation: Aggregation method for multiple ROIs (&quot;mean&quot; or &quot;sum&quot;, default: &quot;mean&quot;)</span>
+<span class="sd">        significance_threshold: Z-score threshold for significant interactions (default: 2.0)</span>
 <span class="sd">    </span>
 <span class="sd">    Returns:</span>
 <span class="sd">        Dictionary with:</span>
 <span class="sd">            - &#39;results&#39;: Dict mapping ROI ID to enrichment results</span>
 <span class="sd">            - &#39;aggregated&#39;: Aggregated enrichment matrix (if multiple ROIs)</span>
 <span class="sd">            - &#39;cluster_categories&#39;: List of cluster categories</span>
+<span class="sd">            - &#39;significant_counts&#39;: Matrix counting ROIs with significant interactions per cluster pair</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="kn">import</span><span class="w"> </span><span class="nn">squidpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sq</span>
@@ -2809,39 +2919,116 @@
     <span class="n">roi_cluster_map</span> <span class="o">=</span> <span class="p">{}</span>
     
     <span class="k">for</span> <span class="n">roi_id</span><span class="p">,</span> <span class="n">adata</span> <span class="ow">in</span> <span class="n">anndata_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] Processing ROI: </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="s1">&#39;spatial_connectivities&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Skipping </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">: no spatial_connectivities&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="k">if</span> <span class="n">cluster_key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Skipping </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">: cluster_key &#39;</span><span class="si">{</span><span class="n">cluster_key</span><span class="si">}</span><span class="s2">&#39; not in obs&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="c1"># Ensure categorical</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
             <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;category&#39;</span><span class="p">)</span>
         
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Running nhood_enrichment for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   adata.obsp keys before: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Number of cells: </span><span class="si">{</span><span class="n">adata</span><span class="o">.</span><span class="n">n_obs</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Check graph connectivity</span>
+        <span class="k">if</span> <span class="s1">&#39;spatial_connectivities&#39;</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">:</span>
+            <span class="n">conn</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;spatial_connectivities&#39;</span><span class="p">]</span>
+            <span class="n">n_edges</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">nnz</span> <span class="o">//</span> <span class="mi">2</span>  <span class="c1"># Divide by 2 because it&#39;s symmetric</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Graph has </span><span class="si">{</span><span class="n">n_edges</span><span class="si">}</span><span class="s2"> edges (connections)&quot;</span><span class="p">)</span>
+            <span class="c1"># Check if graph is connected</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse.csgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">connected_components</span>
+            <span class="n">n_components</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="n">connected_components</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">directed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_labels</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Graph has </span><span class="si">{</span><span class="n">n_components</span><span class="si">}</span><span class="s2"> connected component(s)&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">n_components</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   WARNING: Graph is not fully connected! This may cause issues.&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Check clusters</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
+            <span class="n">categories</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">categories</span><span class="p">)</span>
+            <span class="n">unique_vals</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">categories</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
+            <span class="n">unique_vals</span> <span class="o">=</span> <span class="n">categories</span>
+        
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Cluster key &#39;</span><span class="si">{</span><span class="n">cluster_key</span><span class="si">}</span><span class="s2">&#39; categories: </span><span class="si">{</span><span class="n">categories</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Number of unique clusters: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   WARNING: Only </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span><span class="si">}</span><span class="s2"> cluster(s) found. Need at least 2 for enrichment analysis!&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Skipping </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> due to insufficient clusters&quot;</span><span class="p">)</span>
+            <span class="k">continue</span>
+        
         <span class="c1"># Run neighborhood enrichment</span>
         <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">nhood_enrichment</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">cluster_key</span><span class="o">=</span><span class="n">cluster_key</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   nhood_enrichment completed for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
-        <span class="c1"># Extract matrix</span>
-        <span class="n">enrichment_data</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;nhood_enrichment&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="c1"># Check ALL keys in uns to see what squidpy stored</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   adata.uns keys after nhood_enrichment: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="s1">&#39;nhood&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;enrich&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found relevant key: &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     Type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">val</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     Dict keys: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">val</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]       &#39;</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">&#39;: type=</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">, shape=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Extract matrix - try multiple possible keys</span>
+        <span class="n">enrichment_data</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">possible_keys</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;nhood_enrichment&#39;</span><span class="p">,</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">cluster_key</span><span class="si">}</span><span class="s1">_nhood_enrichment&#39;</span><span class="p">,</span> <span class="s1">&#39;nhood_enrichment_zscore&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">possible_keys</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+                <span class="n">enrichment_data</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found enrichment data at key: &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
+                <span class="k">break</span>
+        
+        <span class="k">if</span> <span class="n">enrichment_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Try to find any key containing &#39;nhood&#39; or &#39;enrich&#39;</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">if</span> <span class="s1">&#39;nhood&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;enrich&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                    <span class="n">enrichment_data</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found enrichment data at key: &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39; (searched)&quot;</span><span class="p">)</span>
+                    <span class="k">break</span>
+        
+        <span class="k">if</span> <span class="n">enrichment_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">enrichment_data</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   No enrichment data found in uns, using empty dict&quot;</span><span class="p">)</span>
+        
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   enrichment_data type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   enrichment_data keys: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">enrichment_data</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">matrix</span> <span class="o">=</span> <span class="kc">None</span>
         
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
             <span class="k">if</span> <span class="s1">&#39;zscore&#39;</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="p">:</span>
                 <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span><span class="p">[</span><span class="s1">&#39;zscore&#39;</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found zscore matrix, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">elif</span> <span class="s1">&#39;count&#39;</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="p">:</span>
                 <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span><span class="p">[</span><span class="s1">&#39;count&#39;</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found count matrix, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">elif</span> <span class="s1">&#39;stat&#39;</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="p">:</span>
                 <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span><span class="p">[</span><span class="s1">&#39;stat&#39;</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found stat matrix, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Searching for matrix-like value in dict...&quot;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     Key &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;: type=</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">, ndim=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ndim&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
                         <span class="n">matrix</span> <span class="o">=</span> <span class="n">value</span>
+                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found matrix at key &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                         <span class="k">break</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
             <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   enrichment_data is numpy array, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
         <span class="k">if</span> <span class="n">matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">and</span> <span class="n">matrix</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Successfully extracted matrix for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">results</span><span class="p">[</span><span class="n">roi_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span>
             <span class="n">enrichment_matrices</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">roi_id</span><span class="p">,</span> <span class="n">matrix</span><span class="p">))</span>
             
@@ -2851,9 +3038,16 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">clusters</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
             <span class="n">roi_cluster_map</span><span class="p">[</span><span class="n">roi_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">clusters</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Added </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">clusters</span><span class="p">)</span><span class="si">}</span><span class="s2"> clusters&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Failed to extract valid matrix for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     matrix is None: </span><span class="si">{</span><span class="n">matrix</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     matrix type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">matrix</span><span class="p">)</span><span class="si">}</span><span class="s2">, ndim: </span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ndim&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     
     <span class="c1"># Aggregate if multiple ROIs</span>
     <span class="n">aggregated_matrix</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">significant_counts_matrix</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">all_clusters_union</span> <span class="o">=</span> <span class="p">[]</span>
     
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">enrichment_matrices</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
@@ -2864,6 +3058,7 @@
         <span class="k">if</span> <span class="n">all_clusters_union</span><span class="p">:</span>
             <span class="c1"># Align all matrices to the union of clusters</span>
             <span class="n">aligned_matrices</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">significant_matrices</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># Track significant interactions per ROI</span>
             <span class="n">n_clusters</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_clusters_union</span><span class="p">)</span>
             
             <span class="k">for</span> <span class="n">roi_id</span><span class="p">,</span> <span class="n">matrix</span> <span class="ow">in</span> <span class="n">enrichment_matrices</span><span class="p">:</span>
@@ -2872,6 +3067,7 @@
                 <span class="k">if</span> <span class="n">roi_clusters</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="c1"># Create aligned matrix</span>
                     <span class="n">aligned_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">n_clusters</span><span class="p">,</span> <span class="n">n_clusters</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+                    <span class="n">significant_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">n_clusters</span><span class="p">,</span> <span class="n">n_clusters</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
                     
                     <span class="c1"># Map old indices to new indices</span>
                     <span class="n">cluster_to_new_idx</span> <span class="o">=</span> <span class="p">{</span><span class="n">clust</span><span class="p">:</span> <span class="n">idx</span> <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">clust</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">all_clusters_union</span><span class="p">)}</span>
@@ -2884,27 +3080,49 @@
                                 <span class="k">if</span> <span class="n">old_clust_j</span> <span class="ow">in</span> <span class="n">cluster_to_new_idx</span><span class="p">:</span>
                                     <span class="n">new_j</span> <span class="o">=</span> <span class="n">cluster_to_new_idx</span><span class="p">[</span><span class="n">old_clust_j</span><span class="p">]</span>
                                     <span class="n">aligned_matrix</span><span class="p">[</span><span class="n">new_i</span><span class="p">,</span> <span class="n">new_j</span><span class="p">]</span> <span class="o">=</span> <span class="n">matrix</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span>
+                                    <span class="c1"># Mark as significant if |z-score| &gt; threshold</span>
+                                    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">matrix</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span> <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">matrix</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">])</span> <span class="o">&gt;</span> <span class="n">significance_threshold</span><span class="p">:</span>
+                                        <span class="n">significant_matrix</span><span class="p">[</span><span class="n">new_i</span><span class="p">,</span> <span class="n">new_j</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
                     
                     <span class="n">aligned_matrices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">aligned_matrix</span><span class="p">)</span>
+                    <span class="n">significant_matrices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">significant_matrix</span><span class="p">)</span>
                 <span class="k">else</span><span class="p">:</span>
                     <span class="n">aligned_matrices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">matrix</span><span class="p">)</span>
+                    <span class="c1"># Create significant matrix for this ROI</span>
+                    <span class="n">significant_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">matrix</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">significance_threshold</span>
+                    <span class="n">significant_matrices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">significant_matrix</span><span class="p">)</span>
             
-            <span class="c1"># Aggregate</span>
+            <span class="c1"># Aggregate z-scores</span>
             <span class="n">stacked</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">aligned_matrices</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">aggregation</span> <span class="o">==</span> <span class="s1">&#39;mean&#39;</span><span class="p">:</span>
                 <span class="n">aggregated_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">stacked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>  <span class="c1"># sum</span>
                 <span class="n">aggregated_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nansum</span><span class="p">(</span><span class="n">stacked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            
+            <span class="c1"># Count significant interactions across ROIs</span>
+            <span class="n">significant_stacked</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">significant_matrices</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">significant_counts_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">significant_stacked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">aggregated_matrix</span> <span class="o">=</span> <span class="n">enrichment_matrices</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">enrichment_matrices</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">aggregated_matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">significant_counts_matrix</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">aggregated_matrix</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">significance_threshold</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
     <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">enrichment_matrices</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
         <span class="n">aggregated_matrix</span> <span class="o">=</span> <span class="n">enrichment_matrices</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
         <span class="n">all_clusters_union</span> <span class="o">=</span> <span class="n">roi_cluster_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">enrichment_matrices</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="n">aggregated_matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">significant_counts_matrix</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">aggregated_matrix</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">significance_threshold</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_neighborhood_enrichment: Returning results&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - results: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2"> ROIs&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - aggregated: </span><span class="si">{</span><span class="n">aggregated_matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">aggregated_matrix</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="kc">None</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - cluster_categories: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_clusters_union</span><span class="p">)</span><span class="si">}</span><span class="s2"> clusters&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - significant_counts: </span><span class="si">{</span><span class="n">significant_counts_matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">significant_counts_matrix</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="kc">None</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     
     <span class="k">return</span> <span class="p">{</span>
         <span class="s1">&#39;results&#39;</span><span class="p">:</span> <span class="n">results</span><span class="p">,</span>
         <span class="s1">&#39;aggregated&#39;</span><span class="p">:</span> <span class="n">aggregated_matrix</span><span class="p">,</span>
-        <span class="s1">&#39;cluster_categories&#39;</span><span class="p">:</span> <span class="n">all_clusters_union</span>
+        <span class="s1">&#39;cluster_categories&#39;</span><span class="p">:</span> <span class="n">all_clusters_union</span><span class="p">,</span>
+        <span class="s1">&#39;significant_counts&#39;</span><span class="p">:</span> <span class="n">significant_counts_matrix</span>
     <span class="p">}</span></div>
 
 
