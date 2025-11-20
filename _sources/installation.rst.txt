@@ -54,7 +54,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
 .. code-block:: bash
 
    # Clone the repository
-   git clone <repository-url>
+   git clone https://github.com/dean-tessone/OpenIMC.git
    cd OpenIMC
 
    # Create conda environment
@@ -81,7 +81,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
 .. code-block:: bash
 
    # Clone the repository
-   git clone <repository-url>
+   git clone https://github.com/dean-tessone/OpenIMC.git
    cd OpenIMC
 
    # Create virtual environment
@@ -118,7 +118,7 @@ core requirements, but the CLI can be used without a display.
 .. code-block:: bash
 
    # Clone the repository
-   git clone <repository-url>
+   git clone https://github.com/dean-tessone/OpenIMC.git
    cd OpenIMC
 
    # Create conda environment
@@ -142,7 +142,7 @@ core requirements, but the CLI can be used without a display.
 .. code-block:: bash
 
    # Clone the repository
-   git clone <repository-url>
+   git clone https://github.com/dean-tessone/OpenIMC.git
    cd OpenIMC
 
    # Create virtual environment
