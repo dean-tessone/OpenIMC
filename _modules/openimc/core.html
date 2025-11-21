@@ -2321,7 +2321,10 @@
     <span class="n">output_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;float&quot;</span><span class="p">,</span>
     <span class="n">loader_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">source_file_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">unique_acq_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">unique_acq_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">passes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">contributions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">kernel</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply Richardson-Lucy deconvolution to high resolution IMC images.</span>
 <span class="sd">    </span>
@@ -2375,6 +2378,67 @@
     <span class="k">if</span> <span class="n">unique_acq_id</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">unique_acq_id</span> <span class="o">=</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">id</span>
     
+    <span class="c1"># Determine loader type</span>
+    <span class="n">loader_type</span> <span class="o">=</span> <span class="s2">&quot;mcd&quot;</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">loader</span><span class="p">,</span> <span class="n">MCDLoader</span><span class="p">)</span> <span class="k">else</span> <span class="s2">&quot;ometiff&quot;</span>
+    
+    <span class="c1"># Extract channel names from acquisition</span>
+    <span class="n">channel_names</span> <span class="o">=</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">channels</span> <span class="k">if</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">channels</span> <span class="k">else</span> <span class="kc">None</span>
+    
+    <span class="c1"># Extract pixel size from metadata</span>
+    <span class="n">pixel_size_x</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">pixel_size_y</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">pixel_size_unit</span> <span class="o">=</span> <span class="s2">&quot;µm&quot;</span>  <span class="c1"># Default unit</span>
+    
+    <span class="k">if</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">metadata</span><span class="p">:</span>
+        <span class="c1"># Look for common pixel size keys in metadata</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">key_lower</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="k">if</span> <span class="s1">&#39;pixel&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span> <span class="ow">and</span> <span class="s1">&#39;size&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span><span class="p">:</span>
+                <span class="k">if</span> <span class="s1">&#39;x&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span> <span class="ow">or</span> <span class="s1">&#39;width&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">pixel_size_x</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                        <span class="k">pass</span>
+                <span class="k">elif</span> <span class="s1">&#39;y&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span> <span class="ow">or</span> <span class="s1">&#39;height&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">pixel_size_y</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                        <span class="k">pass</span>
+            <span class="k">elif</span> <span class="s1">&#39;resolution&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c1"># Sometimes resolution is given as a single value</span>
+                    <span class="n">pixel_size_x</span> <span class="o">=</span> <span class="n">pixel_size_y</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                    <span class="k">pass</span>
+            <span class="k">elif</span> <span class="s1">&#39;unit&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span> <span class="ow">and</span> <span class="s1">&#39;pixel&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span><span class="p">:</span>
+                <span class="n">pixel_size_unit</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="s1">&#39;microns&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span> <span class="ow">or</span> <span class="s1">&#39;micrometers&#39;</span> <span class="ow">in</span> <span class="n">key_lower</span><span class="p">:</span>
+                <span class="c1"># Sometimes pixel size is given as &quot;microns per pixel&quot;</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">pixel_size_x</span> <span class="o">=</span> <span class="n">pixel_size_y</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                    <span class="n">pixel_size_unit</span> <span class="o">=</span> <span class="s2">&quot;µm&quot;</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                    <span class="k">pass</span>
+            <span class="c1"># Also check for OME standard keys</span>
+            <span class="k">elif</span> <span class="n">key</span> <span class="o">==</span> <span class="s1">&#39;PhysicalSizeX&#39;</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">pixel_size_x</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                    <span class="k">pass</span>
+            <span class="k">elif</span> <span class="n">key</span> <span class="o">==</span> <span class="s1">&#39;PhysicalSizeY&#39;</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">pixel_size_y</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+                    <span class="k">pass</span>
+            <span class="k">elif</span> <span class="n">key</span> <span class="o">==</span> <span class="s1">&#39;PhysicalSizeXUnit&#39;</span> <span class="ow">or</span> <span class="n">key</span> <span class="o">==</span> <span class="s1">&#39;PhysicalSizeYUnit&#39;</span><span class="p">:</span>
+                <span class="n">pixel_size_unit</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    
+    <span class="c1"># If only one dimension found, use it for both</span>
+    <span class="k">if</span> <span class="n">pixel_size_x</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">pixel_size_y</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">pixel_size_y</span> <span class="o">=</span> <span class="n">pixel_size_x</span>
+    <span class="k">elif</span> <span class="n">pixel_size_y</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">pixel_size_x</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">pixel_size_x</span> <span class="o">=</span> <span class="n">pixel_size_y</span>
+    
     <span class="c1"># Call deconvolution worker</span>
     <span class="n">output_path</span> <span class="o">=</span> <span class="n">deconvolve_acquisition</span><span class="p">(</span>
         <span class="n">loader_path</span><span class="p">,</span>
@@ -2383,10 +2447,17 @@
         <span class="n">x0</span><span class="o">=</span><span class="n">x0</span><span class="p">,</span>
         <span class="n">iterations</span><span class="o">=</span><span class="n">iterations</span><span class="p">,</span>
         <span class="n">output_format</span><span class="o">=</span><span class="n">output_format</span><span class="p">,</span>
-        <span class="n">channel_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>  <span class="c1"># Will be auto-detected</span>
+        <span class="n">channel_names</span><span class="o">=</span><span class="n">channel_names</span><span class="p">,</span>
         <span class="n">source_file_path</span><span class="o">=</span><span class="n">source_file_path</span><span class="p">,</span>
         <span class="n">unique_acq_id</span><span class="o">=</span><span class="n">unique_acq_id</span><span class="p">,</span>
-        <span class="n">well_name</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="n">acquisition</span><span class="p">,</span> <span class="s1">&#39;well&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">loader_type</span><span class="o">=</span><span class="n">loader_type</span><span class="p">,</span>
+        <span class="n">well_name</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="n">acquisition</span><span class="p">,</span> <span class="s1">&#39;well&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+        <span class="n">pixel_size_x</span><span class="o">=</span><span class="n">pixel_size_x</span><span class="p">,</span>
+        <span class="n">pixel_size_y</span><span class="o">=</span><span class="n">pixel_size_y</span><span class="p">,</span>
+        <span class="n">pixel_size_unit</span><span class="o">=</span><span class="n">pixel_size_unit</span><span class="p">,</span>
+        <span class="n">passes</span><span class="o">=</span><span class="n">passes</span><span class="p">,</span>
+        <span class="n">contributions</span><span class="o">=</span><span class="n">contributions</span><span class="p">,</span>
+        <span class="n">kernel</span><span class="o">=</span><span class="n">kernel</span>
     <span class="p">)</span>
     
     <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span></div>
