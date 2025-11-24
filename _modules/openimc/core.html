@@ -383,14 +383,10 @@
     <span class="c1"># Extract original acquisition ID for loader calls (handles multi-file unique IDs)</span>
     <span class="n">original_acq_id</span> <span class="o">=</span> <span class="n">_extract_original_acq_id</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
     
-    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Starting preprocessing for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2"> (original: </span><span class="si">{</span><span class="n">original_acq_id</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
-    
     <span class="c1"># Load and preprocess nuclear channels</span>
     <span class="n">nuclear_imgs</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">nuclear_channels</span><span class="p">:</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading nuclear channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2"> for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded nuclear channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">img</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;nuclear_</span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="c1"># Apply denoising if custom settings provided</span>
         <span class="k">if</span> <span class="n">denoise_settings</span> <span class="ow">and</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">denoise_settings</span><span class="p">:</span>
             <span class="n">img</span> <span class="o">=</span> <span class="n">_apply_denoise_to_channel</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">denoise_settings</span><span class="p">[</span><span class="n">channel</span><span class="p">])</span>
@@ -407,24 +403,18 @@
         <span class="n">nuclear_imgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">img</span><span class="p">)</span>
     
     <span class="c1"># Combine nuclear channels</span>
-    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combining </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">nuclear_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> nuclear channels for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">nuclear_img</span> <span class="o">=</span> <span class="n">combine_channels</span><span class="p">(</span><span class="n">nuclear_imgs</span><span class="p">,</span> <span class="n">nuclear_combo_method</span><span class="p">,</span> <span class="n">nuclear_weights</span><span class="p">)</span>
     <span class="n">nuclear_img</span> <span class="o">=</span> <span class="n">_ensure_0_1_range</span><span class="p">(</span><span class="n">nuclear_img</span><span class="p">)</span>
-    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combined nuclear image created&quot;</span><span class="p">,</span> <span class="n">nuclear_img</span><span class="p">,</span> <span class="s2">&quot;nuclear_img&quot;</span><span class="p">)</span>
     <span class="c1"># Release intermediate images immediately to free memory</span>
-    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleting </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">nuclear_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> nuclear channel images&quot;</span><span class="p">)</span>
     <span class="k">del</span> <span class="n">nuclear_imgs</span>
     <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
-    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After deleting nuclear_imgs&quot;</span><span class="p">)</span>
     
     <span class="c1"># Load and preprocess cytoplasm channels</span>
     <span class="n">cyto_img</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">cyto_channels</span><span class="p">:</span>
         <span class="n">cyto_imgs</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">cyto_channels</span><span class="p">:</span>
-            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading cyto channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2"> for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
-            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loaded cyto channel </span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">img</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;cyto_</span><span class="si">{</span><span class="n">channel</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="c1"># Apply denoising if custom settings provided</span>
             <span class="k">if</span> <span class="n">denoise_settings</span> <span class="ow">and</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">denoise_settings</span><span class="p">:</span>
                 <span class="n">img</span> <span class="o">=</span> <span class="n">_apply_denoise_to_channel</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">denoise_settings</span><span class="p">[</span><span class="n">channel</span><span class="p">])</span>
@@ -441,43 +431,15 @@
             <span class="n">cyto_imgs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">img</span><span class="p">)</span>
         
         <span class="c1"># Combine cytoplasm channels</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combining </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cyto_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> cyto channels for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">combine_channels</span><span class="p">(</span><span class="n">cyto_imgs</span><span class="p">,</span> <span class="n">cyto_combo_method</span><span class="p">,</span> <span class="n">cyto_weights</span><span class="p">)</span>
         <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">_ensure_0_1_range</span><span class="p">(</span><span class="n">cyto_img</span><span class="p">)</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Combined cyto image created&quot;</span><span class="p">,</span> <span class="n">cyto_img</span><span class="p">,</span> <span class="s2">&quot;cyto_img&quot;</span><span class="p">)</span>
         <span class="c1"># Release intermediate images immediately to free memory</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleting </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cyto_imgs</span><span class="p">)</span><span class="si">}</span><span class="s2"> cyto channel images&quot;</span><span class="p">)</span>
         <span class="k">del</span> <span class="n">cyto_imgs</span>
         <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After deleting cyto_imgs&quot;</span><span class="p">)</span>
-    
-    <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Preprocessing complete for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">nuclear_img</span><span class="p">,</span> <span class="s2">&quot;final_nuclear_img&quot;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Preprocessing complete for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">cyto_img</span><span class="p">,</span> <span class="s2">&quot;final_cyto_img&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">nuclear_img</span><span class="p">,</span> <span class="n">cyto_img</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_get_memory_usage_mb</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get current memory usage in MB.&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">_HAVE_PSUTIL</span><span class="p">:</span>
-        <span class="n">process</span> <span class="o">=</span> <span class="n">psutil</span><span class="o">.</span><span class="n">Process</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">())</span>
-        <span class="k">return</span> <span class="n">process</span><span class="o">.</span><span class="n">memory_info</span><span class="p">()</span><span class="o">.</span><span class="n">rss</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="c1"># Fallback: approximate using sys.getsizeof</span>
-        <span class="k">return</span> <span class="n">sys</span><span class="o">.</span><span class="n">getsizeof</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">get_objects</span><span class="p">())</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">_log_memory_debug</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">obj</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">obj_name</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Log memory usage with optional object info.&quot;&quot;&quot;</span>
-    <span class="n">mem_mb</span> <span class="o">=</span> <span class="n">_get_memory_usage_mb</span><span class="p">()</span>
-    <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">obj_name</span><span class="p">:</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
-            <span class="n">obj_size_mb</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">nbytes</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[MEM_DEBUG] </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2"> | Memory: </span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB | </span><span class="si">{</span><span class="n">obj_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">obj</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">obj_size_mb</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> MB)&quot;</span><span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[MEM_DEBUG] </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2"> | Memory: </span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB | </span><span class="si">{</span><span class="n">obj_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[MEM_DEBUG] </span><span class="si">{</span><span class="n">message</span><span class="si">}</span><span class="s2"> | Memory: </span><span class="si">{</span><span class="n">mem_mb</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+<span class="c1"># Memory debugging functions removed - no longer used</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_extract_original_acq_id</span><span class="p">(</span><span class="n">acq_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -603,10 +565,7 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;DeepCell API key is required for CellSAM. Set deepcell_api_key or DEEPCELL_ACCESS_TOKEN environment variable.&quot;</span><span class="p">)</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;DEEPCELL_ACCESS_TOKEN&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">api_key</span>
         
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using custom CellSAM implementation for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        
         <span class="c1"># Preprocess channels</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Starting CellSAM segmentation for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">nuclear_img</span><span class="p">,</span> <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">_preprocess_channels_for_segmentation</span><span class="p">(</span>
             <span class="n">loader</span><span class="p">,</span> <span class="n">acquisition</span><span class="p">,</span> <span class="n">nuclear_channels</span><span class="p">,</span> <span class="n">cyto_channels</span><span class="p">,</span>
             <span class="n">denoise_settings</span><span class="p">,</span> <span class="n">normalization_method</span><span class="p">,</span> <span class="n">arcsinh_cofactor</span><span class="p">,</span>
@@ -615,28 +574,22 @@
         <span class="p">)</span>
         
         <span class="c1"># Prepare input for CellSAM (supports nuclear-only, cyto-only, or combined)</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Preparing CellSAM input for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">nuclear_channels</span> <span class="ow">and</span> <span class="n">cyto_channels</span><span class="p">:</span>
             <span class="c1"># Combined mode: H x W x 3 array</span>
             <span class="n">h</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">nuclear_img</span><span class="o">.</span><span class="n">shape</span>
             <span class="n">cellsam_input</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">h</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
             <span class="n">cellsam_input</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">nuclear_img</span>  <span class="c1"># Channel 1 is nuclear</span>
             <span class="n">cellsam_input</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">cyto_img</span> <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">nuclear_img</span>  <span class="c1"># Channel 2 is cyto</span>
-            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created combined CellSAM input&quot;</span><span class="p">,</span> <span class="n">cellsam_input</span><span class="p">,</span> <span class="s2">&quot;cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">nuclear_channels</span><span class="p">:</span>
             <span class="c1"># Nuclear only mode: H x W array</span>
             <span class="n">cellsam_input</span> <span class="o">=</span> <span class="n">nuclear_img</span>
-            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using nuclear-only CellSAM input&quot;</span><span class="p">,</span> <span class="n">cellsam_input</span><span class="p">,</span> <span class="s2">&quot;cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">elif</span> <span class="n">cyto_channels</span><span class="p">:</span>
             <span class="c1"># Cyto only mode: H x W array</span>
             <span class="n">cellsam_input</span> <span class="o">=</span> <span class="n">cyto_img</span> <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">nuclear_img</span>
-            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using cyto-only CellSAM input&quot;</span><span class="p">,</span> <span class="n">cellsam_input</span><span class="p">,</span> <span class="s2">&quot;cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;At least one channel (nuclear or cyto) must be selected for CellSAM&quot;</span><span class="p">)</span>
         
         <span class="c1"># Run CellSAM pipeline using our custom implementation</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Running CellSAM pipeline for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Before cellsam_pipeline_custom call for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">mask</span> <span class="o">=</span> <span class="n">cellsam_pipeline_custom</span><span class="p">(</span>
             <span class="n">cellsam_input</span><span class="p">,</span>
             <span class="n">bbox_threshold</span><span class="o">=</span><span class="n">bbox_threshold</span><span class="p">,</span>
@@ -644,20 +597,13 @@
             <span class="n">low_contrast_enhancement</span><span class="o">=</span><span class="n">low_contrast_enhancement</span><span class="p">,</span>
             <span class="n">gauge_cell_size</span><span class="o">=</span><span class="n">gauge_cell_size</span>
         <span class="p">)</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After cellsam_pipeline_custom call for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CellSAM pipeline complete, mask created&quot;</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">)</span>
         
         <span class="c1"># Immediately release input images to free memory</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleting CellSAM input images for </span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">del</span> <span class="n">cellsam_input</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted cellsam_input&quot;</span><span class="p">)</span>
         <span class="k">del</span> <span class="n">nuclear_img</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted nuclear_img&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">cyto_img</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">del</span> <span class="n">cyto_img</span>
-            <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted cyto_img&quot;</span><span class="p">)</span>
         <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
-        <span class="n">_log_memory_debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;After GC, mask still exists&quot;</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="s2">&quot;mask_after_cleanup&quot;</span><span class="p">)</span>
         
         <span class="c1"># Use mask directly without modifications</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
@@ -697,8 +643,10 @@
             <span class="n">channels_cp</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>  <span class="c1"># [cytoplasm, nucleus]</span>
         
         <span class="c1"># Initialize Cellpose model</span>
+        <span class="c1"># Note: Cellpose only accepts &#39;gpu&#39; (boolean), not &#39;device&#39; parameter</span>
+        <span class="c1"># Device selection is handled internally by Cellpose when gpu=True</span>
         <span class="n">use_gpu</span> <span class="o">=</span> <span class="n">gpu_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-        <span class="n">model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">Cellpose</span><span class="p">(</span><span class="n">model_type</span><span class="o">=</span><span class="n">cellpose_model</span><span class="p">,</span> <span class="n">gpu</span><span class="o">=</span><span class="n">use_gpu</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">gpu_id</span><span class="p">)</span>
+        <span class="n">model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">Cellpose</span><span class="p">(</span><span class="n">model_type</span><span class="o">=</span><span class="n">cellpose_model</span><span class="p">,</span> <span class="n">gpu</span><span class="o">=</span><span class="n">use_gpu</span><span class="p">)</span>
         
         <span class="c1"># Run Cellpose</span>
         <span class="n">masks</span><span class="p">,</span> <span class="n">flows</span><span class="p">,</span> <span class="n">styles</span><span class="p">,</span> <span class="n">diams</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">(</span>
@@ -833,6 +781,7 @@
             <span class="s1">&#39;aspect_ratio&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
             <span class="s1">&#39;bbox_area_um2&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
             <span class="s1">&#39;touches_border&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s1">&#39;touches_edge&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
             <span class="s1">&#39;holes_count&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
             <span class="s1">&#39;centroid_x&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
             <span class="s1">&#39;centroid_y&#39;</span><span class="p">:</span> <span class="kc">True</span>
@@ -2781,7 +2730,7 @@
         <span class="n">morpho_names</span> <span class="o">=</span> <span class="p">{</span>
             <span class="s1">&#39;area_um2&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter_um&#39;</span><span class="p">,</span> <span class="s1">&#39;equivalent_diameter_um&#39;</span><span class="p">,</span> <span class="s1">&#39;eccentricity&#39;</span><span class="p">,</span>
             <span class="s1">&#39;solidity&#39;</span><span class="p">,</span> <span class="s1">&#39;extent&#39;</span><span class="p">,</span> <span class="s1">&#39;circularity&#39;</span><span class="p">,</span> <span class="s1">&#39;major_axis_len_um&#39;</span><span class="p">,</span> <span class="s1">&#39;minor_axis_len_um&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;aspect_ratio&#39;</span><span class="p">,</span> <span class="s1">&#39;bbox_area_um2&#39;</span><span class="p">,</span> <span class="s1">&#39;touches_border&#39;</span><span class="p">,</span> <span class="s1">&#39;holes_count&#39;</span>
+            <span class="s1">&#39;aspect_ratio&#39;</span><span class="p">,</span> <span class="s1">&#39;bbox_area_um2&#39;</span><span class="p">,</span> <span class="s1">&#39;touches_border&#39;</span><span class="p">,</span> <span class="s1">&#39;touches_edge&#39;</span><span class="p">,</span> <span class="s1">&#39;holes_count&#39;</span>
         <span class="p">}</span>
         <span class="n">morpho_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">all_feature_cols</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">morpho_names</span><span class="p">]</span>
         <span class="n">feature_cols</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">morpho_cols</span><span class="p">)</span>
