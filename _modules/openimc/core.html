@@ -930,6 +930,7 @@
     <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">,</span>
     <span class="n">n_neighbors</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span>  <span class="c1"># Number of neighbors for k-NN graph</span>
     <span class="n">metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euclidean&quot;</span><span class="p">,</span>  <span class="c1"># Distance metric for k-NN graph</span>
+    <span class="n">use_jaccard</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>  <span class="c1"># Use Jaccard similarity for edge weights (PhenoGraph-like)</span>
     <span class="c1"># K-means parameters</span>
     <span class="n">n_init</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>  <span class="c1"># Number of initializations for K-means</span>
     <span class="c1"># HDBSCAN parameters</span>
@@ -954,6 +955,7 @@
 <span class="sd">        seed: Random seed for reproducibility</span>
 <span class="sd">        n_neighbors: Number of neighbors for k-NN graph construction (Leiden/Louvain only, default: 15)</span>
 <span class="sd">        metric: Distance metric for k-NN graph (Leiden/Louvain only, default: &quot;euclidean&quot;)</span>
+<span class="sd">        use_jaccard: Use Jaccard similarity for edge weights instead of inverse distance (PhenoGraph-like, default: False)</span>
 <span class="sd">        n_init: Number of initializations for K-means (default: 10)</span>
 <span class="sd">        min_cluster_size: Minimum cluster size for HDBSCAN (default: 10)</span>
 <span class="sd">        min_samples: Minimum samples for HDBSCAN (default: 5)</span>
@@ -1114,13 +1116,30 @@
         <span class="n">edges</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">weights</span> <span class="o">=</span> <span class="p">[]</span>
         
-        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
-            <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
-                <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
-                    <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
-                    <span class="c1"># Convert distance to similarity (inverse, normalized) - matching old GUI</span>
-                    <span class="n">weight</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">distances_knn</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j_idx</span><span class="p">])</span>
-                    <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">use_jaccard</span><span class="p">:</span>
+            <span class="c1"># Compute neighbor sets for Jaccard similarity (PhenoGraph-like)</span>
+            <span class="c1"># Each node&#39;s neighbor set includes itself and its k-nearest neighbors</span>
+            <span class="n">neighbor_sets</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="o">|</span> <span class="p">{</span><span class="n">i</span><span class="p">}</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)]</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Computed neighbor sets for Jaccard weighting&quot;</span><span class="p">)</span>
+            
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
+                    <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
+                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="c1"># Compute Jaccard similarity: |N(i) ∩ N(j)| / |N(i) ∪ N(j)|</span>
+                        <span class="n">intersection</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&amp;</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
+                        <span class="n">union</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">|</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
+                        <span class="n">jaccard</span> <span class="o">=</span> <span class="n">intersection</span> <span class="o">/</span> <span class="n">union</span> <span class="k">if</span> <span class="n">union</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">jaccard</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Use inverse distance weighting (default)</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
+                    <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
+                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="c1"># Convert distance to similarity (inverse, normalized) - matching old GUI</span>
+                        <span class="n">weight</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">distances_knn</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j_idx</span><span class="p">])</span>
+                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Edge list creation took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Created </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span><span class="si">}</span><span class="s2"> edges from k-NN&quot;</span><span class="p">)</span>
@@ -1184,13 +1203,30 @@
         <span class="n">edges</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">weights</span> <span class="o">=</span> <span class="p">[]</span>
         
-        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
-            <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
-                <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
-                    <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
-                    <span class="c1"># Convert distance to similarity (inverse, normalized)</span>
-                    <span class="n">weight</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">distances_knn</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j_idx</span><span class="p">])</span>
-                    <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">use_jaccard</span><span class="p">:</span>
+            <span class="c1"># Compute neighbor sets for Jaccard similarity (PhenoGraph-like)</span>
+            <span class="c1"># Each node&#39;s neighbor set includes itself and its k-nearest neighbors</span>
+            <span class="n">neighbor_sets</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="o">|</span> <span class="p">{</span><span class="n">i</span><span class="p">}</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)]</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Computed neighbor sets for Jaccard weighting&quot;</span><span class="p">)</span>
+            
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
+                    <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
+                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="c1"># Compute Jaccard similarity: |N(i) ∩ N(j)| / |N(i) ∪ N(j)|</span>
+                        <span class="n">intersection</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&amp;</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
+                        <span class="n">union</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">|</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
+                        <span class="n">jaccard</span> <span class="o">=</span> <span class="n">intersection</span> <span class="o">/</span> <span class="n">union</span> <span class="k">if</span> <span class="n">union</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">jaccard</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Use inverse distance weighting (default)</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
+                    <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
+                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="c1"># Convert distance to similarity (inverse, normalized)</span>
+                        <span class="n">weight</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">distances_knn</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j_idx</span><span class="p">])</span>
+                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Edge list creation took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Created </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span><span class="si">}</span><span class="s2"> edges from k-NN&quot;</span><span class="p">)</span>
@@ -2005,27 +2041,57 @@
             <span class="k">if</span> <span class="n">img</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">continue</span>
             
-            <span class="n">img_flat</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
-            <span class="n">img_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">img_flat</span><span class="p">))</span>
-            <span class="n">img_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">img_flat</span><span class="p">))</span>
-            <span class="n">img_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">img_flat</span><span class="p">))</span>
-            <span class="n">img_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">img_flat</span><span class="p">))</span>
-            <span class="n">img_median</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">img_flat</span><span class="p">))</span>
+            <span class="c1"># Optimize: compute statistics more efficiently without flattening</span>
+            <span class="c1"># Use np.nanmin/nanmax for better performance on large arrays</span>
+            <span class="n">img_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">img</span><span class="p">))</span>
+            <span class="n">img_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">img</span><span class="p">))</span>
+            <span class="n">img_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">img</span><span class="p">))</span>
+            <span class="n">img_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">img</span><span class="p">))</span>
+            <span class="c1"># Median is expensive, compute only if needed</span>
+            <span class="n">img_median</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">img</span><span class="p">))</span>
             
             <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;pixel&quot;</span><span class="p">:</span>
                 <span class="c1"># Pixel-level QC using Otsu threshold</span>
                 <span class="k">if</span> <span class="n">_HAVE_SCIKIT_IMAGE</span><span class="p">:</span>
                     <span class="k">try</span><span class="p">:</span>
-                        <span class="n">threshold</span> <span class="o">=</span> <span class="n">threshold_otsu</span><span class="p">(</span><span class="n">img</span><span class="p">)</span>
-                        <span class="n">signal_mask</span> <span class="o">=</span> <span class="n">img</span> <span class="o">&gt;</span> <span class="n">threshold</span>
-                        <span class="n">background_mask</span> <span class="o">=</span> <span class="n">img</span> <span class="o">&lt;=</span> <span class="n">threshold</span>
+                        <span class="c1"># For very large images, consider downsampling for Otsu threshold</span>
+                        <span class="c1"># Otsu thresholding is O(n) but can be slow on huge images</span>
+                        <span class="n">img_for_otsu</span> <span class="o">=</span> <span class="n">img</span>
+                        <span class="n">downsample_factor</span> <span class="o">=</span> <span class="mi">1</span>
+                        <span class="k">if</span> <span class="n">img</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">50_000_000</span><span class="p">:</span>  <span class="c1"># &gt; ~7000x7000 pixels</span>
+                            <span class="c1"># Downsample by 2x for Otsu threshold calculation</span>
+                            <span class="n">downsample_factor</span> <span class="o">=</span> <span class="mi">2</span>
+                            <span class="kn">from</span><span class="w"> </span><span class="nn">scipy</span><span class="w"> </span><span class="kn">import</span> <span class="n">ndimage</span>
+                            <span class="n">img_for_otsu</span> <span class="o">=</span> <span class="n">img</span><span class="p">[::</span><span class="n">downsample_factor</span><span class="p">,</span> <span class="p">::</span><span class="n">downsample_factor</span><span class="p">]</span>
                         
-                        <span class="n">signal_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">img</span><span class="p">[</span><span class="n">signal_mask</span><span class="p">]))</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">signal_mask</span><span class="p">)</span> <span class="k">else</span> <span class="n">img_mean</span>
-                        <span class="n">background_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">img</span><span class="p">[</span><span class="n">background_mask</span><span class="p">]))</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">background_mask</span><span class="p">)</span> <span class="k">else</span> <span class="n">img_mean</span>
-                        <span class="n">background_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">img</span><span class="p">[</span><span class="n">background_mask</span><span class="p">]))</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">background_mask</span><span class="p">)</span> <span class="k">else</span> <span class="n">img_std</span>
+                        <span class="n">threshold</span> <span class="o">=</span> <span class="n">threshold_otsu</span><span class="p">(</span><span class="n">img_for_otsu</span><span class="p">)</span>
+                        <span class="c1"># Scale threshold back if downsampled</span>
+                        <span class="k">if</span> <span class="n">downsample_factor</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                            <span class="c1"># Threshold should be similar, but adjust if needed</span>
+                            <span class="k">pass</span>  <span class="c1"># Otsu threshold is intensity-based, not position-based</span>
+                        
+                        <span class="n">signal_mask</span> <span class="o">=</span> <span class="n">img</span> <span class="o">&gt;</span> <span class="n">threshold</span>
+                        <span class="c1"># Optimize: only compute background_mask if needed, otherwise use ~signal_mask</span>
+                        <span class="n">background_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">signal_mask</span>
+                        
+                        <span class="c1"># Vectorized operations - faster than conditional indexing</span>
+                        <span class="n">signal_pixels</span> <span class="o">=</span> <span class="n">img</span><span class="p">[</span><span class="n">signal_mask</span><span class="p">]</span>
+                        <span class="n">background_pixels</span> <span class="o">=</span> <span class="n">img</span><span class="p">[</span><span class="n">background_mask</span><span class="p">]</span>
+                        
+                        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">signal_pixels</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                            <span class="n">signal_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">signal_pixels</span><span class="p">))</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">signal_mean</span> <span class="o">=</span> <span class="n">img_mean</span>
+                        
+                        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">background_pixels</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                            <span class="n">background_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">background_pixels</span><span class="p">))</span>
+                            <span class="n">background_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">background_pixels</span><span class="p">))</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">background_mean</span> <span class="o">=</span> <span class="n">img_mean</span>
+                            <span class="n">background_std</span> <span class="o">=</span> <span class="n">img_std</span>
                         
                         <span class="n">snr</span> <span class="o">=</span> <span class="n">_calculate_snr</span><span class="p">(</span><span class="n">signal_mean</span><span class="p">,</span> <span class="n">background_mean</span><span class="p">,</span> <span class="n">background_std</span><span class="p">,</span> <span class="n">img_min</span><span class="p">,</span> <span class="n">img_max</span><span class="p">)</span>
-                        <span class="n">coverage</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">signal_mask</span><span class="p">)</span> <span class="o">/</span> <span class="n">signal_mask</span><span class="o">.</span><span class="n">size</span><span class="p">)</span> <span class="k">if</span> <span class="n">signal_mask</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+                        <span class="n">coverage</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">signal_pixels</span><span class="p">)</span> <span class="o">/</span> <span class="n">img</span><span class="o">.</span><span class="n">size</span><span class="p">)</span> <span class="k">if</span> <span class="n">img</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
                     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                         <span class="c1"># Fallback if Otsu fails</span>
                         <span class="n">signal_mean</span> <span class="o">=</span> <span class="n">img_mean</span>
@@ -2066,40 +2132,82 @@
                 <span class="k">if</span> <span class="n">mask</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="n">img</span><span class="o">.</span><span class="n">shape</span><span class="p">:</span>
                     <span class="k">continue</span>
                 
-                <span class="c1"># Calculate metrics per cell</span>
+                <span class="c1"># Get unique cell IDs first (needed for both paths)</span>
                 <span class="n">cell_ids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">mask</span><span class="p">[</span><span class="n">mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">])</span>
                 <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_ids</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
                     <span class="k">continue</span>
                 
-                <span class="n">cell_intensities</span> <span class="o">=</span> <span class="p">[]</span>
-                <span class="k">for</span> <span class="n">cell_id</span> <span class="ow">in</span> <span class="n">cell_ids</span><span class="p">:</span>
-                    <span class="n">cell_mask</span> <span class="o">=</span> <span class="n">mask</span> <span class="o">==</span> <span class="n">cell_id</span>
-                    <span class="n">cell_intensity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">img</span><span class="p">[</span><span class="n">cell_mask</span><span class="p">])</span>
-                    <span class="n">cell_intensities</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cell_intensity</span><span class="p">)</span>
+                <span class="c1"># Optimize: vectorized cell intensity calculation using scipy.ndimage</span>
+                <span class="c1"># This is much faster than looping through each cell</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="kn">from</span><span class="w"> </span><span class="nn">scipy</span><span class="w"> </span><span class="kn">import</span> <span class="n">ndimage</span> <span class="k">as</span> <span class="n">ndi</span>
+                    
+                    <span class="c1"># Vectorized calculation: use labeled_comprehension to compute mean intensity per cell</span>
+                    <span class="c1"># This computes mean intensity per cell in one pass (much faster than per-cell loops)</span>
+                    <span class="n">cell_counts</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">labeled_comprehension</span><span class="p">(</span>
+                        <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
+                        <span class="n">mask</span><span class="p">,</span> <span class="n">cell_ids</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="mf">0.0</span>
+                    <span class="p">)</span>
+                    <span class="n">cell_sums</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">labeled_comprehension</span><span class="p">(</span>
+                        <span class="n">img</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
+                        <span class="n">mask</span><span class="p">,</span> <span class="n">cell_ids</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="mf">0.0</span>
+                    <span class="p">)</span>
+                    
+                    <span class="c1"># Avoid division by zero</span>
+                    <span class="n">valid_cells</span> <span class="o">=</span> <span class="n">cell_counts</span> <span class="o">&gt;</span> <span class="mi">0</span>
+                    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">valid_cells</span><span class="p">):</span>
+                        <span class="n">cell_intensities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">divide</span><span class="p">(</span>
+                            <span class="n">cell_sums</span><span class="p">[</span><span class="n">valid_cells</span><span class="p">],</span>
+                            <span class="n">cell_counts</span><span class="p">[</span><span class="n">valid_cells</span><span class="p">],</span>
+                            <span class="n">out</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">cell_sums</span><span class="p">[</span><span class="n">valid_cells</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">),</span>
+                            <span class="n">where</span><span class="o">=</span><span class="p">(</span><span class="n">cell_counts</span><span class="p">[</span><span class="n">valid_cells</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+                        <span class="p">)</span>
+                        <span class="n">signal_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">))</span>
+                        <span class="n">signal_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">))</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">signal_mean</span> <span class="o">=</span> <span class="n">img_mean</span>
+                        <span class="n">signal_std</span> <span class="o">=</span> <span class="n">img_std</span>
+                    
+                <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+                    <span class="c1"># Fallback to optimized loop if scipy not available</span>
+                    <span class="c1"># Optimized: use boolean indexing more efficiently</span>
+                    <span class="n">cell_mask</span> <span class="o">=</span> <span class="n">mask</span> <span class="o">&gt;</span> <span class="mi">0</span>
+                    <span class="n">cell_pixels</span> <span class="o">=</span> <span class="n">img</span><span class="p">[</span><span class="n">cell_mask</span><span class="p">]</span>
+                    <span class="n">cell_mask_values</span> <span class="o">=</span> <span class="n">mask</span><span class="p">[</span><span class="n">cell_mask</span><span class="p">]</span>
+                    
+                    <span class="c1"># Group by cell_id using numpy operations</span>
+                    <span class="n">cell_intensities</span> <span class="o">=</span> <span class="p">[]</span>
+                    <span class="k">for</span> <span class="n">cell_id</span> <span class="ow">in</span> <span class="n">cell_ids</span><span class="p">:</span>
+                        <span class="c1"># More efficient: use boolean indexing on already-masked arrays</span>
+                        <span class="n">cell_intensity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">cell_pixels</span><span class="p">[</span><span class="n">cell_mask_values</span> <span class="o">==</span> <span class="n">cell_id</span><span class="p">])</span>
+                        <span class="n">cell_intensities</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cell_intensity</span><span class="p">)</span>
+                    
+                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    
+                    <span class="n">cell_intensities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">)</span>
+                    <span class="n">signal_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">))</span>
+                    <span class="n">signal_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">))</span>
                 
-                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-                    <span class="k">continue</span>
-                
-                <span class="n">cell_intensities</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">)</span>
-                <span class="n">signal_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">))</span>
-                <span class="n">signal_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">cell_intensities</span><span class="p">))</span>
-                
-                <span class="c1"># Background is pixels outside cells</span>
+                <span class="c1"># Background is pixels outside cells - vectorized</span>
                 <span class="n">background_mask</span> <span class="o">=</span> <span class="n">mask</span> <span class="o">==</span> <span class="mi">0</span>
                 <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">background_mask</span><span class="p">):</span>
-                    <span class="n">background_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">img</span><span class="p">[</span><span class="n">background_mask</span><span class="p">]))</span>
-                    <span class="n">background_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">img</span><span class="p">[</span><span class="n">background_mask</span><span class="p">]))</span>
+                    <span class="n">background_pixels</span> <span class="o">=</span> <span class="n">img</span><span class="p">[</span><span class="n">background_mask</span><span class="p">]</span>
+                    <span class="n">background_mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">background_pixels</span><span class="p">))</span>
+                    <span class="n">background_std</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">background_pixels</span><span class="p">))</span>
                 <span class="k">else</span><span class="p">:</span>
                     <span class="n">background_mean</span> <span class="o">=</span> <span class="n">img_mean</span>
                     <span class="n">background_std</span> <span class="o">=</span> <span class="n">img_std</span>
                 
                 <span class="n">snr</span> <span class="o">=</span> <span class="n">_calculate_snr</span><span class="p">(</span><span class="n">signal_mean</span><span class="p">,</span> <span class="n">background_mean</span><span class="p">,</span> <span class="n">background_std</span><span class="p">,</span> <span class="n">img_min</span><span class="p">,</span> <span class="n">img_max</span><span class="p">)</span>
                 
-                <span class="c1"># Coverage: fraction of pixels covered by cells</span>
-                <span class="n">coverage</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">/</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span><span class="p">)</span> <span class="k">if</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+                <span class="c1"># Coverage: fraction of pixels covered by cells - optimized</span>
+                <span class="n">n_cell_pixels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+                <span class="n">coverage</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">n_cell_pixels</span> <span class="o">/</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span><span class="p">)</span> <span class="k">if</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
                 
                 <span class="c1"># Cell density: cells per unit area (assuming pixels)</span>
-                <span class="n">cell_density</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">cell_ids</span><span class="p">)</span> <span class="o">/</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span><span class="p">)</span> <span class="k">if</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+                <span class="n">n_cells</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_ids</span><span class="p">)</span>
+                <span class="n">cell_density</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">n_cells</span> <span class="o">/</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span><span class="p">)</span> <span class="k">if</span> <span class="n">mask</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
                 
                 <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
                     <span class="s1">&#39;acquisition_id&#39;</span><span class="p">:</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
@@ -2118,7 +2226,7 @@
                     <span class="s1">&#39;intensity_max&#39;</span><span class="p">:</span> <span class="n">img_max</span><span class="p">,</span>
                     <span class="s1">&#39;coverage&#39;</span><span class="p">:</span> <span class="n">coverage</span><span class="p">,</span>
                     <span class="s1">&#39;cell_density&#39;</span><span class="p">:</span> <span class="n">cell_density</span><span class="p">,</span>
-                    <span class="s1">&#39;n_cells&#39;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">cell_ids</span><span class="p">)</span>
+                    <span class="s1">&#39;n_cells&#39;</span><span class="p">:</span> <span class="n">n_cells</span>
                 <span class="p">})</span>
         
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
