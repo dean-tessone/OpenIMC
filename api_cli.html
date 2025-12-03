@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CLI API &mdash; OpenIMC 0.1.0 documentation</title>
+  <title>CLI API Reference &mdash; OpenIMC 0.1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -65,9 +65,35 @@
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">CLI API</a><ul>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">CLI API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#main-entry-point">Main Entry Point</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#command-functions">Command Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#command-functions">Command Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#preprocessing">Preprocessing</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#segmentation">Segmentation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#feature-extraction">Feature Extraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#clustering">Clustering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-analysis">Spatial Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#batch-correction">Batch Correction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pixel-correlation">Pixel Correlation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#quality-control-analysis">Quality Control Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spillover-correction">Spillover Correction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#generate-spillover-matrix">Generate Spillover Matrix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#deconvolution">Deconvolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-enrichment">Spatial Enrichment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-distance">Spatial Distance</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-anndata">Spatial AnnData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-neighborhood-enrichment">Spatial Neighborhood Enrichment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-co-occurrence">Spatial Co-occurrence</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-autocorrelation">Spatial Autocorrelation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-ripley">Spatial Ripley</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#export-anndata">Export AnnData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cluster-figures">Cluster Figures</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#spatial-figures">Spatial Figures</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#workflow">Workflow</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#additional-notes">Additional Notes</a></li>
 </ul>
 </li>
 </ul>
@@ -86,7 +112,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">CLI API</li>
+      <li class="breadcrumb-item active">CLI API Reference</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/api_cli.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -96,15 +122,618 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="cli-api">
-<h1>CLI API<a class="headerlink" href="#cli-api" title="Link to this heading"></a></h1>
-<p>The OpenIMC command-line interface provides batch processing capabilities without the GUI.</p>
+  <section id="cli-api-reference">
+<h1>CLI API Reference<a class="headerlink" href="#cli-api-reference" title="Link to this heading"></a></h1>
+<p>The OpenIMC command-line interface provides batch processing capabilities without the GUI.
+All commands can be accessed via the <code class="docutils literal notranslate"><span class="pre">openimc</span></code> command-line tool.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The CLI supports 22 commands covering the complete OpenIMC analysis workflow:</p>
+<p><strong>Data Processing:</strong>
+- <code class="docutils literal notranslate"><span class="pre">preprocess</span></code> - Denoise and export images to OME-TIFF format
+- <code class="docutils literal notranslate"><span class="pre">segment</span></code> - Perform cell segmentation using various methods
+- <code class="docutils literal notranslate"><span class="pre">extract-features</span></code> - Extract morphological and intensity features from segmented cells
+- <code class="docutils literal notranslate"><span class="pre">deconvolution</span></code> - Apply deconvolution to high resolution IMC images</p>
+<p><strong>Analysis:</strong>
+- <code class="docutils literal notranslate"><span class="pre">cluster</span></code> - Perform clustering analysis on feature data
+- <code class="docutils literal notranslate"><span class="pre">spatial</span></code> - Perform spatial analysis including graph construction and community detection
+- <code class="docutils literal notranslate"><span class="pre">spatial-anndata</span></code> - Build spatial graph using AnnData/squidpy approach
+- <code class="docutils literal notranslate"><span class="pre">spatial-enrichment</span></code> - Compute pairwise spatial enrichment between clusters
+- <code class="docutils literal notranslate"><span class="pre">spatial-distance</span></code> - Compute distance distributions between clusters
+- <code class="docutils literal notranslate"><span class="pre">spatial-nhood-enrichment</span></code> - Run neighborhood enrichment analysis using squidpy
+- <code class="docutils literal notranslate"><span class="pre">spatial-cooccurrence</span></code> - Run co-occurrence analysis using squidpy
+- <code class="docutils literal notranslate"><span class="pre">spatial-autocorr</span></code> - Run spatial autocorrelation (Moran’s I) analysis using squidpy
+- <code class="docutils literal notranslate"><span class="pre">spatial-ripley</span></code> - Run Ripley function analysis using squidpy</p>
+<p><strong>Quality Control &amp; Correction:</strong>
+- <code class="docutils literal notranslate"><span class="pre">batch-correction</span></code> - Apply batch correction methods (Harmony, ComBat)
+- <code class="docutils literal notranslate"><span class="pre">pixel-correlation</span></code> - Compute pixel-level correlations between markers
+- <code class="docutils literal notranslate"><span class="pre">qc-analysis</span></code> - Perform quality control analysis
+- <code class="docutils literal notranslate"><span class="pre">spillover-correction</span></code> - Apply spillover correction to feature data
+- <code class="docutils literal notranslate"><span class="pre">generate-spillover-matrix</span></code> - Generate spillover matrix from single-stain controls</p>
+<p><strong>Export &amp; Visualization:</strong>
+- <code class="docutils literal notranslate"><span class="pre">export-anndata</span></code> - Export AnnData objects to H5AD file(s)
+- <code class="docutils literal notranslate"><span class="pre">cluster-figures</span></code> - Generate cluster visualization figures
+- <code class="docutils literal notranslate"><span class="pre">spatial-figures</span></code> - Generate spatial analysis visualization figures</p>
+<p><strong>Workflow:</strong>
+- <code class="docutils literal notranslate"><span class="pre">workflow</span></code> - Execute a complete workflow from a YAML configuration file</p>
+</section>
 <section id="main-entry-point">
 <h2>Main Entry Point<a class="headerlink" href="#main-entry-point" title="Link to this heading"></a></h2>
 </section>
 <section id="command-functions">
 <h2>Command Functions<a class="headerlink" href="#command-functions" title="Link to this heading"></a></h2>
-<p>The following command functions are available:</p>
+<section id="preprocessing">
+<h3>Preprocessing<a class="headerlink" href="#preprocessing" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Basic preprocessing</span>
+openimc<span class="w"> </span>preprocess<span class="w"> </span>input.mcd<span class="w"> </span>output/
+
+<span class="c1"># With denoising on all channels</span>
+openimc<span class="w"> </span>preprocess<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--denoise<span class="w"> </span>all<span class="w"> </span>--denoise-method<span class="w"> </span>median3
+
+<span class="c1"># With custom denoise settings per channel</span>
+openimc<span class="w"> </span>preprocess<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--denoise-settings<span class="w"> </span>denoise_config.json
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file or OME-TIFF directory (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output directory for processed OME-TIFF files (required)
+- <code class="docutils literal notranslate"><span class="pre">--denoise</span></code> - Apply denoising to all channels (use “all” for hot pixel removal)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-method</span></code> - Hot pixel removal method: <code class="docutils literal notranslate"><span class="pre">median3</span></code> (3x3 median filter) or <code class="docutils literal notranslate"><span class="pre">n_sd_local_median</span></code> (default: <code class="docutils literal notranslate"><span class="pre">median3</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-n-sd</span></code> - Number of standard deviations for <code class="docutils literal notranslate"><span class="pre">n_sd_local_median</span></code> method (default: 5.0)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-settings</span></code> - JSON file or string with denoise settings per channel
+- <code class="docutils literal notranslate"><span class="pre">--channel-format</span></code> - Channel format for OME-TIFF files: <code class="docutils literal notranslate"><span class="pre">CHW</span></code> or <code class="docutils literal notranslate"><span class="pre">HWC</span></code> (default: <code class="docutils literal notranslate"><span class="pre">CHW</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+<p><strong>Note:</strong> Arcsinh normalization is not applied to exported images. Use during feature extraction instead.</p>
+</section>
+<section id="segmentation">
+<h3>Segmentation<a class="headerlink" href="#segmentation" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Cellpose segmentation</span>
+openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>cellpose<span class="w"> </span>--nuclear-channels<span class="w"> </span>DAPI<span class="w"> </span>--model<span class="w"> </span>cyto3<span class="w"> </span>--gpu-id<span class="w"> </span><span class="m">0</span>
+
+<span class="c1"># Watershed segmentation (requires both channels)</span>
+openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>watershed<span class="w"> </span>--nuclear-channels<span class="w"> </span>DNA1<span class="w"> </span>--cytoplasm-channels<span class="w"> </span>CK8_CK18
+
+<span class="c1"># CellSAM segmentation (requires API key)</span>
+openimc<span class="w"> </span>segment<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--method<span class="w"> </span>cellsam<span class="w"> </span>--nuclear-channels<span class="w"> </span>DAPI<span class="w"> </span>--deepcell-api-key<span class="w"> </span>YOUR_KEY
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file or OME-TIFF directory (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output directory for segmentation masks (required)
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Segmentation method: <code class="docutils literal notranslate"><span class="pre">cellsam</span></code>, <code class="docutils literal notranslate"><span class="pre">cellpose</span></code>, or <code class="docutils literal notranslate"><span class="pre">watershed</span></code> (default: <code class="docutils literal notranslate"><span class="pre">cellsam</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--nuclear-channels</span></code> - Comma-separated list of nuclear channel names (required)
+- <code class="docutils literal notranslate"><span class="pre">--cytoplasm-channels</span></code> - Comma-separated list of cytoplasm channel names (optional, for cyto3 model)
+- <code class="docutils literal notranslate"><span class="pre">--nuclear-fusion-method</span></code> - Method to combine nuclear channels: <code class="docutils literal notranslate"><span class="pre">single</span></code>, <code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">weighted</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">pca1</span></code> (default: <code class="docutils literal notranslate"><span class="pre">mean</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--cyto-fusion-method</span></code> - Method to combine cytoplasm channels (default: <code class="docutils literal notranslate"><span class="pre">mean</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--nuclear-weights</span></code> - Comma-separated weights for nuclear channels (e.g., “0.5,0.3,0.2”)
+- <code class="docutils literal notranslate"><span class="pre">--cyto-weights</span></code> - Comma-separated weights for cytoplasm channels
+- <code class="docutils literal notranslate"><span class="pre">--model</span></code> - Cellpose model type: <code class="docutils literal notranslate"><span class="pre">cyto3</span></code> or <code class="docutils literal notranslate"><span class="pre">nuclei</span></code> (default: <code class="docutils literal notranslate"><span class="pre">cyto3</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--diameter</span></code> - Cell diameter in pixels (Cellpose, optional)
+- <code class="docutils literal notranslate"><span class="pre">--flow-threshold</span></code> - Flow threshold (Cellpose, default: 0.4)
+- <code class="docutils literal notranslate"><span class="pre">--cellprob-threshold</span></code> - Cell probability threshold (Cellpose, default: 0.0)
+- <code class="docutils literal notranslate"><span class="pre">--gpu-id</span></code> - GPU ID to use (Cellpose, optional)
+- <code class="docutils literal notranslate"><span class="pre">--min-cell-area</span></code> - Minimum cell area in pixels (watershed, default: 100)
+- <code class="docutils literal notranslate"><span class="pre">--max-cell-area</span></code> - Maximum cell area in pixels (watershed, default: 10000)
+- <code class="docutils literal notranslate"><span class="pre">--compactness</span></code> - Watershed compactness (default: 0.01)
+- <code class="docutils literal notranslate"><span class="pre">--deepcell-api-key</span></code> - DeepCell API key (CellSAM, can also use DEEPCELL_ACCESS_TOKEN env var)
+- <code class="docutils literal notranslate"><span class="pre">--bbox-threshold</span></code> - Bbox threshold for CellSAM (default: 0.4, lower for faint cells: 0.01-0.1)
+- <code class="docutils literal notranslate"><span class="pre">--use-wsi</span></code> - Use WSI mode for CellSAM (for ROIs with &gt;500 cells)
+- <code class="docutils literal notranslate"><span class="pre">--low-contrast-enhancement</span></code> - Enable low contrast enhancement for CellSAM
+- <code class="docutils literal notranslate"><span class="pre">--gauge-cell-size</span></code> - Enable gauge cell size for CellSAM (runs twice: estimates error, then returns mask)
+- <code class="docutils literal notranslate"><span class="pre">--arcsinh</span></code> - Apply arcsinh normalization before segmentation
+- <code class="docutils literal notranslate"><span class="pre">--arcsinh-cofactor</span></code> - Arcsinh cofactor (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--denoise</span></code> - Apply denoising to all channels
+- <code class="docutils literal notranslate"><span class="pre">--denoise-method</span></code> - Denoising method (default: <code class="docutils literal notranslate"><span class="pre">median3</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-n-sd</span></code> - Number of standard deviations for denoising (default: 5.0)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-settings</span></code> - JSON file or string with per-channel denoise settings
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="feature-extraction">
+<h3>Feature Extraction<a class="headerlink" href="#feature-extraction" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Extract all features</span>
+openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span>--mask<span class="w"> </span>output/masks/<span class="w"> </span>--morphological<span class="w"> </span>--intensity
+
+<span class="c1"># Extract with denoising</span>
+openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span>--mask<span class="w"> </span>output/masks/<span class="w"> </span>--denoise<span class="w"> </span>all<span class="w"> </span>--denoise-method<span class="w"> </span>median3
+
+<span class="c1"># Extract with arcsinh transformation</span>
+openimc<span class="w"> </span>extract-features<span class="w"> </span>input.mcd<span class="w"> </span>features.csv<span class="w"> </span>--mask<span class="w"> </span>output/masks/<span class="w"> </span>--arcsinh<span class="w"> </span>--arcsinh-cofactor<span class="w"> </span><span class="m">1</span>.0
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file or OME-TIFF directory (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file path (required)
+- <code class="docutils literal notranslate"><span class="pre">--mask</span></code> - Path to segmentation mask directory or single mask file (.tif, .tiff, or .npy) (required)
+- <code class="docutils literal notranslate"><span class="pre">--acquisition</span></code> - Acquisition ID or name (uses first if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--morphological</span></code> - Extract morphological features (default: True if neither specified)
+- <code class="docutils literal notranslate"><span class="pre">--intensity</span></code> - Extract intensity features (default: True if neither specified)
+- <code class="docutils literal notranslate"><span class="pre">--arcsinh</span></code> - Apply arcsinh transformation to extracted intensity features
+- <code class="docutils literal notranslate"><span class="pre">--arcsinh-cofactor</span></code> - Arcsinh cofactor (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--denoise</span></code> - Apply denoising to all channels
+- <code class="docutils literal notranslate"><span class="pre">--denoise-method</span></code> - Denoising method (default: <code class="docutils literal notranslate"><span class="pre">median3</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-n-sd</span></code> - Number of standard deviations for denoising (default: 5.0)
+- <code class="docutils literal notranslate"><span class="pre">--denoise-settings</span></code> - JSON file or string with per-channel denoise settings
+- <code class="docutils literal notranslate"><span class="pre">--channel-format</span></code> - Channel format for OME-TIFF files (default: <code class="docutils literal notranslate"><span class="pre">CHW</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+<p><strong>Note:</strong> The mask can be a directory (masks matched to acquisitions by filename) or a single mask file.</p>
+</section>
+<section id="clustering">
+<h3>Clustering<a class="headerlink" href="#clustering" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Leiden clustering</span>
+openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered.csv<span class="w"> </span>--method<span class="w"> </span>leiden<span class="w"> </span>--resolution<span class="w"> </span><span class="m">1</span>.0
+
+<span class="c1"># Hierarchical clustering</span>
+openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered.csv<span class="w"> </span>--method<span class="w"> </span>hierarchical<span class="w"> </span>--n-clusters<span class="w"> </span><span class="m">10</span><span class="w"> </span>--linkage<span class="w"> </span>ward
+
+<span class="c1"># HDBSCAN clustering</span>
+openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered.csv<span class="w"> </span>--method<span class="w"> </span>hdbscan<span class="w"> </span>--min-cluster-size<span class="w"> </span><span class="m">10</span>
+
+<span class="c1"># K-means clustering</span>
+openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered.csv<span class="w"> </span>--method<span class="w"> </span>kmeans<span class="w"> </span>--n-clusters<span class="w"> </span><span class="m">8</span>
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with cluster labels (required)
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Clustering method: <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">leiden</span></code>, <code class="docutils literal notranslate"><span class="pre">louvain</span></code>, <code class="docutils literal notranslate"><span class="pre">kmeans</span></code>, or <code class="docutils literal notranslate"><span class="pre">hdbscan</span></code> (default: <code class="docutils literal notranslate"><span class="pre">leiden</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--columns</span></code> - Comma-separated list of columns to use for clustering (auto-detect if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--scaling</span></code> - Feature scaling method: <code class="docutils literal notranslate"><span class="pre">none</span></code>, <code class="docutils literal notranslate"><span class="pre">zscore</span></code>, or <code class="docutils literal notranslate"><span class="pre">mad</span></code> (default: <code class="docutils literal notranslate"><span class="pre">zscore</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--n-clusters</span></code> - Number of clusters (required for hierarchical and kmeans)
+- <code class="docutils literal notranslate"><span class="pre">--linkage</span></code> - Linkage method for hierarchical clustering: <code class="docutils literal notranslate"><span class="pre">ward</span></code>, <code class="docutils literal notranslate"><span class="pre">complete</span></code>, or <code class="docutils literal notranslate"><span class="pre">average</span></code> (default: <code class="docutils literal notranslate"><span class="pre">ward</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--resolution</span></code> - Resolution parameter for Leiden clustering (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--n-neighbors</span></code> - Number of neighbors for k-NN graph (Leiden/Louvain only, default: 15)
+- <code class="docutils literal notranslate"><span class="pre">--metric</span></code> - Distance metric for k-NN graph: <code class="docutils literal notranslate"><span class="pre">euclidean</span></code>, <code class="docutils literal notranslate"><span class="pre">manhattan</span></code>, or <code class="docutils literal notranslate"><span class="pre">cosine</span></code> (default: <code class="docutils literal notranslate"><span class="pre">euclidean</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--use-jaccard</span></code> - Use Jaccard similarity for edge weights (PhenoGraph-like, Leiden/Louvain only)
+- <code class="docutils literal notranslate"><span class="pre">--n-init</span></code> - Number of initializations for K-means (default: 10)
+- <code class="docutils literal notranslate"><span class="pre">--min-cluster-size</span></code> - Minimum cluster size (HDBSCAN, default: 10)
+- <code class="docutils literal notranslate"><span class="pre">--min-samples</span></code> - Minimum samples (HDBSCAN, default: 5)
+- <code class="docutils literal notranslate"><span class="pre">--cluster-selection-method</span></code> - Cluster selection method for HDBSCAN: <code class="docutils literal notranslate"><span class="pre">eom</span></code> or <code class="docutils literal notranslate"><span class="pre">leaf</span></code> (default: <code class="docutils literal notranslate"><span class="pre">eom</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--hdbscan-metric</span></code> - Distance metric for HDBSCAN: <code class="docutils literal notranslate"><span class="pre">euclidean</span></code> or <code class="docutils literal notranslate"><span class="pre">manhattan</span></code> (default: <code class="docutils literal notranslate"><span class="pre">euclidean</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-analysis">
+<h3>Spatial Analysis<a class="headerlink" href="#spatial-analysis" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Basic spatial graph construction</span>
+openimc<span class="w"> </span>spatial<span class="w"> </span>features.csv<span class="w"> </span>edges.csv<span class="w"> </span>--method<span class="w"> </span>kNN<span class="w"> </span>--k-neighbors<span class="w"> </span><span class="m">10</span>
+
+<span class="c1"># Radius-based spatial graph</span>
+openimc<span class="w"> </span>spatial<span class="w"> </span>features.csv<span class="w"> </span>edges.csv<span class="w"> </span>--method<span class="w"> </span>Radius<span class="w"> </span>--radius<span class="w"> </span><span class="m">50</span><span class="w"> </span>--k-neighbors<span class="w"> </span><span class="m">10</span>
+
+<span class="c1"># With community detection</span>
+openimc<span class="w"> </span>spatial<span class="w"> </span>features.csv<span class="w"> </span>edges.csv<span class="w"> </span>--method<span class="w"> </span>kNN<span class="w"> </span>--k-neighbors<span class="w"> </span><span class="m">10</span><span class="w"> </span>--detect-communities
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (must contain <code class="docutils literal notranslate"><span class="pre">centroid_x</span></code>, <code class="docutils literal notranslate"><span class="pre">centroid_y</span></code>) (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with spatial graph edges (required)
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Graph construction method: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>, <code class="docutils literal notranslate"><span class="pre">Radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">Delaunay</span></code> (default: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--radius</span></code> - Maximum distance for edges in pixels (required for Radius method)
+- <code class="docutils literal notranslate"><span class="pre">--k-neighbors</span></code> - k for k-nearest neighbors (default: 10, used for kNN method)
+- <code class="docutils literal notranslate"><span class="pre">--pixel-size-um</span></code> - Pixel size in micrometers (default: 1.0, used for distance_um conversion)
+- <code class="docutils literal notranslate"><span class="pre">--detect-communities</span></code> - Also detect spatial communities
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="batch-correction">
+<h3>Batch Correction<a class="headerlink" href="#batch-correction" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Harmony batch correction</span>
+openimc<span class="w"> </span>batch-correction<span class="w"> </span>features.csv<span class="w"> </span>corrected.csv<span class="w"> </span>--method<span class="w"> </span>harmony<span class="w"> </span>--batch-var<span class="w"> </span>batch_id
+
+<span class="c1"># ComBat batch correction</span>
+openimc<span class="w"> </span>batch-correction<span class="w"> </span>features.csv<span class="w"> </span>corrected.csv<span class="w"> </span>--method<span class="w"> </span>combat<span class="w"> </span>--batch-var<span class="w"> </span>batch_id<span class="w"> </span>--covariates<span class="w"> </span>condition
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with corrected features (required)
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Batch correction method: <code class="docutils literal notranslate"><span class="pre">combat</span></code> or <code class="docutils literal notranslate"><span class="pre">harmony</span></code> (default: <code class="docutils literal notranslate"><span class="pre">harmony</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--batch-var</span></code> - Column name containing batch identifiers (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--columns</span></code> - Comma-separated list of feature columns to correct (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--covariates</span></code> - Comma-separated list of covariate columns (ComBat only)
+- <code class="docutils literal notranslate"><span class="pre">--n-clusters</span></code> - Number of Harmony clusters (default: 30)
+- <code class="docutils literal notranslate"><span class="pre">--sigma</span></code> - Width of soft kmeans clusters for Harmony (default: 0.1)
+- <code class="docutils literal notranslate"><span class="pre">--theta</span></code> - Diversity clustering penalty parameter for Harmony (default: 2.0)
+- <code class="docutils literal notranslate"><span class="pre">--lambda-reg</span></code> - Regularization parameter for Harmony (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--max-iter</span></code> - Maximum iterations for Harmony (default: 20)
+- <code class="docutils literal notranslate"><span class="pre">--pca-variance</span></code> - Proportion of variance to retain in PCA for Harmony (default: 0.9)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="pixel-correlation">
+<h3>Pixel Correlation<a class="headerlink" href="#pixel-correlation" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Analyze all channels</span>
+openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>correlations.csv
+
+<span class="c1"># Analyze specific channels</span>
+openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>correlations.csv<span class="w"> </span>--channels<span class="w"> </span>CD3,CD4,CD8
+
+<span class="c1"># With multiple testing correction</span>
+openimc<span class="w"> </span>pixel-correlation<span class="w"> </span>input.mcd<span class="w"> </span>correlations.csv<span class="w"> </span>--multiple-testing-correction<span class="w"> </span>fdr_bh
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file or OME-TIFF directory (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with correlation results (required)
+- <code class="docutils literal notranslate"><span class="pre">--channel-format</span></code> - Channel format for OME-TIFF files (default: <code class="docutils literal notranslate"><span class="pre">CHW</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--acquisition</span></code> - Acquisition ID or name (uses first if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--channels</span></code> - Comma-separated list of channels to analyze (uses all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--mask</span></code> - Path to segmentation mask file (optional, for within-cell analysis)
+- <code class="docutils literal notranslate"><span class="pre">--multiple-testing-correction</span></code> - Multiple testing correction method: <code class="docutils literal notranslate"><span class="pre">bonferroni</span></code>, <code class="docutils literal notranslate"><span class="pre">fdr_bh</span></code>, or <code class="docutils literal notranslate"><span class="pre">fdr_by</span></code>
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="quality-control-analysis">
+<h3>Quality Control Analysis<a class="headerlink" href="#quality-control-analysis" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Pixel-level QC analysis</span>
+openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>qc_results.csv<span class="w"> </span>--mode<span class="w"> </span>pixel
+
+<span class="c1"># Cell-level QC analysis (requires mask)</span>
+openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>qc_results.csv<span class="w"> </span>--mode<span class="w"> </span>cell<span class="w"> </span>--mask<span class="w"> </span>masks/roi1.tif
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file or OME-TIFF directory (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with QC metrics (required)
+- <code class="docutils literal notranslate"><span class="pre">--channel-format</span></code> - Channel format for OME-TIFF files (default: <code class="docutils literal notranslate"><span class="pre">CHW</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--acquisition</span></code> - Acquisition ID or name (uses first if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--channels</span></code> - Comma-separated list of channels to analyze (uses all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--mode</span></code> - Analysis mode: <code class="docutils literal notranslate"><span class="pre">pixel</span></code> or <code class="docutils literal notranslate"><span class="pre">cell</span></code> (default: <code class="docutils literal notranslate"><span class="pre">pixel</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--mask</span></code> - Path to segmentation mask file (required for cell mode)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spillover-correction">
+<h3>Spillover Correction<a class="headerlink" href="#spillover-correction" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Apply spillover correction using NNLS</span>
+openimc<span class="w"> </span>spillover-correction<span class="w"> </span>features.csv<span class="w"> </span>spillover_matrix.csv<span class="w"> </span>corrected.csv<span class="w"> </span>--method<span class="w"> </span>nnls
+
+<span class="c1"># Apply spillover correction using PGD</span>
+openimc<span class="w"> </span>spillover-correction<span class="w"> </span>features.csv<span class="w"> </span>spillover_matrix.csv<span class="w"> </span>corrected.csv<span class="w"> </span>--method<span class="w"> </span>pgd<span class="w"> </span>--arcsinh-cofactor<span class="w"> </span><span class="m">1</span>.0
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">spillover_matrix</span></code> - Path to spillover matrix CSV file (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with corrected features (required)
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Compensation method: <code class="docutils literal notranslate"><span class="pre">nnls</span></code> or <code class="docutils literal notranslate"><span class="pre">pgd</span></code> (default: <code class="docutils literal notranslate"><span class="pre">pgd</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--arcsinh-cofactor</span></code> - Optional cofactor for arcsinh transformation
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="generate-spillover-matrix">
+<h3>Generate Spillover Matrix<a class="headerlink" href="#generate-spillover-matrix" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate spillover matrix from single-stain controls</span>
+openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>controls.mcd<span class="w"> </span>spillover_matrix.csv
+
+<span class="c1"># With donor mapping</span>
+openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>controls.mcd<span class="w"> </span>spillover_matrix.csv<span class="w"> </span>--donor-map<span class="w"> </span>donor_map.json
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file with single-stain controls (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file for spillover matrix (required)
+- <code class="docutils literal notranslate"><span class="pre">--donor-map</span></code> - JSON file or string mapping acquisition IDs to donor channel names
+- <code class="docutils literal notranslate"><span class="pre">--cap</span></code> - Maximum spillover coefficient (default: 0.3)
+- <code class="docutils literal notranslate"><span class="pre">--aggregate</span></code> - Aggregation method: <code class="docutils literal notranslate"><span class="pre">median</span></code> or <code class="docutils literal notranslate"><span class="pre">mean</span></code> (default: <code class="docutils literal notranslate"><span class="pre">median</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="deconvolution">
+<h3>Deconvolution<a class="headerlink" href="#deconvolution" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Basic deconvolution</span>
+openimc<span class="w"> </span>deconvolution<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--x0<span class="w"> </span><span class="m">7</span>.0<span class="w"> </span>--iterations<span class="w"> </span><span class="m">4</span>
+
+<span class="c1"># With specific acquisition</span>
+openimc<span class="w"> </span>deconvolution<span class="w"> </span>input.mcd<span class="w"> </span>output/<span class="w"> </span>--acquisition<span class="w"> </span>ROI1<span class="w"> </span>--x0<span class="w"> </span><span class="m">7</span>.0<span class="w"> </span>--iterations<span class="w"> </span><span class="m">4</span>
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input MCD file or OME-TIFF directory (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output directory for deconvolved images (required)
+- <code class="docutils literal notranslate"><span class="pre">--channel-format</span></code> - Channel format for OME-TIFF files (default: <code class="docutils literal notranslate"><span class="pre">CHW</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--acquisition</span></code> - Acquisition ID or name (processes all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--x0</span></code> - Parameter for kernel calculation (default: 7.0)
+- <code class="docutils literal notranslate"><span class="pre">--iterations</span></code> - Number of Richardson-Lucy iterations (default: 4)
+- <code class="docutils literal notranslate"><span class="pre">--output-format</span></code> - Output format: <code class="docutils literal notranslate"><span class="pre">float</span></code> or <code class="docutils literal notranslate"><span class="pre">uint16</span></code> (default: <code class="docutils literal notranslate"><span class="pre">float</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-enrichment">
+<h3>Spatial Enrichment<a class="headerlink" href="#spatial-enrichment" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Compute spatial enrichment between clusters</span>
+openimc<span class="w"> </span>spatial-enrichment<span class="w"> </span>features.csv<span class="w"> </span>edges.csv<span class="w"> </span>enrichment.csv<span class="w"> </span>--n-permutations<span class="w"> </span><span class="m">100</span>
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features and cluster labels (required)
+- <code class="docutils literal notranslate"><span class="pre">edges</span></code> - Input CSV file with spatial graph edges (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with enrichment results (required)
+- <code class="docutils literal notranslate"><span class="pre">--cluster-column</span></code> - Column name containing cluster labels (default: <code class="docutils literal notranslate"><span class="pre">cluster</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--n-permutations</span></code> - Number of permutations for null distribution (default: 100)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-distance">
+<h3>Spatial Distance<a class="headerlink" href="#spatial-distance" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Compute distance distributions between clusters</span>
+openimc<span class="w"> </span>spatial-distance<span class="w"> </span>features.csv<span class="w"> </span>edges.csv<span class="w"> </span>distances.csv
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features and cluster labels (required)
+- <code class="docutils literal notranslate"><span class="pre">edges</span></code> - Input CSV file with spatial graph edges (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output CSV file with distance distribution results (required)
+- <code class="docutils literal notranslate"><span class="pre">--cluster-column</span></code> - Column name containing cluster labels (default: <code class="docutils literal notranslate"><span class="pre">cluster</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-anndata">
+<h3>Spatial AnnData<a class="headerlink" href="#spatial-anndata" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build spatial graph using AnnData/squidpy</span>
+openimc<span class="w"> </span>spatial-anndata<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>anndata.h5ad<span class="w"> </span>--method<span class="w"> </span>kNN<span class="w"> </span>--k-neighbors<span class="w"> </span><span class="m">20</span>
+
+<span class="c1"># Radius-based with specific ROI</span>
+openimc<span class="w"> </span>spatial-anndata<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>anndata.h5ad<span class="w"> </span>--method<span class="w"> </span>Radius<span class="w"> </span>--radius<span class="w"> </span><span class="m">50</span><span class="w"> </span>--roi-id<span class="w"> </span>ROI1
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (must contain <code class="docutils literal notranslate"><span class="pre">centroid_x</span></code>, <code class="docutils literal notranslate"><span class="pre">centroid_y</span></code>) (required)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code> - Output H5AD file or directory for AnnData objects
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Graph construction method: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>, <code class="docutils literal notranslate"><span class="pre">Radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">Delaunay</span></code> (default: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--radius</span></code> - Maximum distance for edges in micrometers (required for Radius method)
+- <code class="docutils literal notranslate"><span class="pre">--k-neighbors</span></code> - k for k-nearest neighbors (default: 20, used for kNN method)
+- <code class="docutils literal notranslate"><span class="pre">--pixel-size-um</span></code> - Pixel size in micrometers (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--roi-id</span></code> - Specific ROI ID to process (processes all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--combined</span></code> - Export as single combined file (default: separate files per ROI)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-neighborhood-enrichment">
+<h3>Spatial Neighborhood Enrichment<a class="headerlink" href="#spatial-neighborhood-enrichment" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run neighborhood enrichment analysis</span>
+openimc<span class="w"> </span>spatial-nhood-enrichment<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>enrichment.h5ad<span class="w"> </span>--cluster-column<span class="w"> </span>cluster
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code> - Output H5AD file or directory for results
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Graph construction method: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>, <code class="docutils literal notranslate"><span class="pre">Radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">Delaunay</span></code> (default: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--radius</span></code> - Maximum distance for edges in micrometers (required for Radius method)
+- <code class="docutils literal notranslate"><span class="pre">--k-neighbors</span></code> - k for k-nearest neighbors (default: 20)
+- <code class="docutils literal notranslate"><span class="pre">--pixel-size-um</span></code> - Pixel size in micrometers (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--roi-id</span></code> - Specific ROI ID to process (processes all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--cluster-column</span></code> - Column name containing cluster labels (default: <code class="docutils literal notranslate"><span class="pre">cluster</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--aggregation</span></code> - Aggregation method for multiple ROIs: <code class="docutils literal notranslate"><span class="pre">mean</span></code> or <code class="docutils literal notranslate"><span class="pre">sum</span></code> (default: <code class="docutils literal notranslate"><span class="pre">mean</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--combined</span></code> - Export as single combined file (default: separate files per ROI)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-co-occurrence">
+<h3>Spatial Co-occurrence<a class="headerlink" href="#spatial-co-occurrence" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run co-occurrence analysis</span>
+openimc<span class="w"> </span>spatial-cooccurrence<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>cooccurrence.h5ad<span class="w"> </span>--interval<span class="w"> </span><span class="m">10</span>,20,30,50,100
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code> - Output H5AD file or directory for results
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Graph construction method: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>, <code class="docutils literal notranslate"><span class="pre">Radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">Delaunay</span></code> (default: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--radius</span></code> - Maximum distance for edges in micrometers (required for Radius method)
+- <code class="docutils literal notranslate"><span class="pre">--k-neighbors</span></code> - k for k-nearest neighbors (default: 20)
+- <code class="docutils literal notranslate"><span class="pre">--pixel-size-um</span></code> - Pixel size in micrometers (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--roi-id</span></code> - Specific ROI ID to process (processes all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--cluster-column</span></code> - Column name containing cluster labels (default: <code class="docutils literal notranslate"><span class="pre">cluster</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--interval</span></code> - Comma-separated distances in micrometers (default: <code class="docutils literal notranslate"><span class="pre">10,20,30,50,100</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--reference-cluster</span></code> - Optional reference cluster for co-occurrence
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--combined</span></code> - Export as single combined file (default: separate files per ROI)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-autocorrelation">
+<h3>Spatial Autocorrelation<a class="headerlink" href="#spatial-autocorrelation" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run spatial autocorrelation for all markers</span>
+openimc<span class="w"> </span>spatial-autocorr<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>autocorr.h5ad
+
+<span class="c1"># Run for specific markers</span>
+openimc<span class="w"> </span>spatial-autocorr<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>autocorr.h5ad<span class="w"> </span>--markers<span class="w"> </span>CD3,CD4,CD8
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code> - Output H5AD file or directory for results
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Graph construction method: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>, <code class="docutils literal notranslate"><span class="pre">Radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">Delaunay</span></code> (default: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--radius</span></code> - Maximum distance for edges in micrometers (required for Radius method)
+- <code class="docutils literal notranslate"><span class="pre">--k-neighbors</span></code> - k for k-nearest neighbors (default: 20)
+- <code class="docutils literal notranslate"><span class="pre">--pixel-size-um</span></code> - Pixel size in micrometers (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--roi-id</span></code> - Specific ROI ID to process (processes all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--markers</span></code> - Comma-separated list of markers to analyze, or <code class="docutils literal notranslate"><span class="pre">all</span></code> (default: <code class="docutils literal notranslate"><span class="pre">all</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--aggregation</span></code> - Aggregation method for multiple ROIs: <code class="docutils literal notranslate"><span class="pre">mean</span></code> or <code class="docutils literal notranslate"><span class="pre">sum</span></code> (default: <code class="docutils literal notranslate"><span class="pre">mean</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--combined</span></code> - Export as single combined file (default: separate files per ROI)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="spatial-ripley">
+<h3>Spatial Ripley<a class="headerlink" href="#spatial-ripley" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run Ripley L function analysis</span>
+openimc<span class="w"> </span>spatial-ripley<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>ripley.h5ad<span class="w"> </span>--mode<span class="w"> </span>L<span class="w"> </span>--max-dist<span class="w"> </span><span class="m">50</span>.0
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (required)
+- <code class="docutils literal notranslate"><span class="pre">--output</span></code> - Output H5AD file or directory for results
+- <code class="docutils literal notranslate"><span class="pre">--method</span></code> - Graph construction method: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>, <code class="docutils literal notranslate"><span class="pre">Radius</span></code>, or <code class="docutils literal notranslate"><span class="pre">Delaunay</span></code> (default: <code class="docutils literal notranslate"><span class="pre">kNN</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--radius</span></code> - Maximum distance for edges in micrometers (required for Radius method)
+- <code class="docutils literal notranslate"><span class="pre">--k-neighbors</span></code> - k for k-nearest neighbors (default: 20)
+- <code class="docutils literal notranslate"><span class="pre">--pixel-size-um</span></code> - Pixel size in micrometers (default: 1.0)
+- <code class="docutils literal notranslate"><span class="pre">--roi-column</span></code> - Column name for ROI grouping (auto-detected if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--roi-id</span></code> - Specific ROI ID to process (processes all if not specified)
+- <code class="docutils literal notranslate"><span class="pre">--cluster-column</span></code> - Column name containing cluster labels (default: <code class="docutils literal notranslate"><span class="pre">cluster</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--mode</span></code> - Ripley function mode: <code class="docutils literal notranslate"><span class="pre">F</span></code>, <code class="docutils literal notranslate"><span class="pre">G</span></code>, or <code class="docutils literal notranslate"><span class="pre">L</span></code> (default: <code class="docutils literal notranslate"><span class="pre">L</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--max-dist</span></code> - Maximum distance in micrometers (default: 50.0)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--combined</span></code> - Export as single combined file (default: separate files per ROI)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="export-anndata">
+<h3>Export AnnData<a class="headerlink" href="#export-anndata" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Export single H5AD file</span>
+openimc<span class="w"> </span>export-anndata<span class="w"> </span>input.h5ad<span class="w"> </span>output.h5ad
+
+<span class="c1"># Export directory of H5AD files</span>
+openimc<span class="w"> </span>export-anndata<span class="w"> </span>input_dir/<span class="w"> </span>output_dir/
+
+<span class="c1"># Combine multiple files</span>
+openimc<span class="w"> </span>export-anndata<span class="w"> </span>input_dir/<span class="w"> </span>output.h5ad<span class="w"> </span>--combined
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">input</span></code> - Input H5AD file or directory containing H5AD files (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output H5AD file (if combined) or directory (if separate) (required)
+- <code class="docutils literal notranslate"><span class="pre">--combined</span></code> - Export as single combined file (default: separate files per ROI)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+</section>
+<section id="cluster-figures">
+<h3>Cluster Figures<a class="headerlink" href="#cluster-figures" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate cluster visualization figures</span>
+openimc<span class="w"> </span>cluster-figures<span class="w"> </span>clustered_features.csv<span class="w"> </span>output/figures/<span class="w"> </span>--dpi<span class="w"> </span><span class="m">300</span><span class="w"> </span>--font-size<span class="w"> </span><span class="m">12</span>
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with clustered features (must contain <code class="docutils literal notranslate"><span class="pre">cluster</span></code> column) (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output directory for figures (required)
+- <code class="docutils literal notranslate"><span class="pre">--dpi</span></code> - Figure DPI (default: 300)
+- <code class="docutils literal notranslate"><span class="pre">--font-size</span></code> - Font size in points (default: 10.0)
+- <code class="docutils literal notranslate"><span class="pre">--width</span></code> - Figure width in inches (default: 8.0)
+- <code class="docutils literal notranslate"><span class="pre">--height</span></code> - Figure height in inches (default: 6.0)
+- <code class="docutils literal notranslate"><span class="pre">--seed</span></code> - Random seed for UMAP reproducibility (default: 42)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+<p><strong>Output Files:</strong>
+- <code class="docutils literal notranslate"><span class="pre">cluster_umap.png</span></code> - UMAP embedding colored by cluster
+- <code class="docutils literal notranslate"><span class="pre">cluster_heatmap.png</span></code> - Heatmap of cluster mean feature values</p>
+</section>
+<section id="spatial-figures">
+<h3>Spatial Figures<a class="headerlink" href="#spatial-figures" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate spatial visualization figures</span>
+openimc<span class="w"> </span>spatial-figures<span class="w"> </span>features.csv<span class="w"> </span>output/figures/<span class="w"> </span>--edges<span class="w"> </span>edges.csv<span class="w"> </span>--dpi<span class="w"> </span><span class="m">300</span>
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">features</span></code> - Input CSV file with features (must contain <code class="docutils literal notranslate"><span class="pre">centroid_x</span></code>, <code class="docutils literal notranslate"><span class="pre">centroid_y</span></code>) (required)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code> - Output directory for figures (required)
+- <code class="docutils literal notranslate"><span class="pre">--edges</span></code> - Optional CSV file with spatial graph edges
+- <code class="docutils literal notranslate"><span class="pre">--dpi</span></code> - Figure DPI (default: 300)
+- <code class="docutils literal notranslate"><span class="pre">--font-size</span></code> - Font size in points (default: 10.0)
+- <code class="docutils literal notranslate"><span class="pre">--width</span></code> - Figure width in inches (default: 8.0)
+- <code class="docutils literal notranslate"><span class="pre">--height</span></code> - Figure height in inches (default: 6.0)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+<p><strong>Output Files:</strong>
+- <code class="docutils literal notranslate"><span class="pre">spatial_distribution.png</span></code> - Spatial scatter plot of cells
+- <code class="docutils literal notranslate"><span class="pre">spatial_graph.png</span></code> - Spatial graph visualization (if edges provided)</p>
+</section>
+<section id="workflow">
+<h3>Workflow<a class="headerlink" href="#workflow" title="Link to this heading"></a></h3>
+<p><strong>Example Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Execute workflow from YAML configuration</span>
+openimc<span class="w"> </span>workflow<span class="w"> </span>config.yaml
+</pre></div>
+</div>
+<p><strong>Parameters:</strong>
+- <code class="docutils literal notranslate"><span class="pre">config</span></code> - Path to YAML configuration file (required)
+- <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
+<p><strong>Workflow Configuration:</strong></p>
+<p>The workflow command supports a YAML configuration file that can chain multiple analysis steps:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">input</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">input.mcd</span>
+<span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">workflow_output/</span>
+<span class="nt">channel_format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CHW</span>
+
+<span class="nt">preprocessing</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">denoise_settings</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+
+<span class="nt">segmentation</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cellpose</span>
+<span class="w">  </span><span class="nt">nuclear_channels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">DAPI</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cyto3</span>
+
+<span class="nt">feature_extraction</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">morphological</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">intensity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">arcsinh</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+
+<span class="nt">clustering</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">leiden</span>
+<span class="w">  </span><span class="nt">resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+
+<span class="nt">spatial_analysis</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kNN</span>
+<span class="w">  </span><span class="nt">k_neighbors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">radius</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
+<span class="w">  </span><span class="nt">detect_communities</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>Each step can specify:
+- <code class="docutils literal notranslate"><span class="pre">enabled</span></code>: true/false
+- <code class="docutils literal notranslate"><span class="pre">input</span></code>: path to input file/directory (optional, uses previous step output if not specified)
+- <code class="docutils literal notranslate"><span class="pre">output</span></code>: path to output file/directory (optional, uses default location if not specified)
+- Step-specific parameters (see individual command documentation)</p>
+</section>
+</section>
+<section id="additional-notes">
+<h2>Additional Notes<a class="headerlink" href="#additional-notes" title="Link to this heading"></a></h2>
+<p><strong>Parallel Processing:</strong>
+Most commands support parallel processing via the <code class="docutils literal notranslate"><span class="pre">--workers</span></code> parameter. By default, the number of workers is set to <code class="docutils literal notranslate"><span class="pre">max(1,</span> <span class="pre">cpu_count()</span> <span class="pre">-</span> <span class="pre">2)</span></code> to leave resources for the system.</p>
+<p><strong>Channel Format:</strong>
+OME-TIFF files can be stored in two formats:
+- <code class="docutils literal notranslate"><span class="pre">CHW</span></code>: Channels × Height × Width (default)
+- <code class="docutils literal notranslate"><span class="pre">HWC</span></code>: Height × Width × Channels</p>
+<p><strong>Denoise Settings:</strong>
+Denoise settings can be specified as:
+- A JSON file path
+- A JSON string
+- Using <code class="docutils literal notranslate"><span class="pre">--denoise</span> <span class="pre">all</span></code> to apply the same method to all channels</p>
+<p>Example JSON format:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;CD3&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;hot&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;median3&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;CD4&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;hot&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;n_sd_local_median&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;n_sd&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>Error Handling:</strong>
+All commands provide informative error messages and will exit with a non-zero status code on failure. Use <code class="docutils literal notranslate"><span class="pre">--help</span></code> on any command to see detailed usage information.</p>
 </section>
 </section>
 
