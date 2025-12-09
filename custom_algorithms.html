@@ -1,0 +1,486 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Custom Algorithms &mdash; OpenIMC 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Core pipeline API" href="api_core.html" />
+    <link rel="prev" title="Advanced Spatial Analysis" href="advanced_spatial_analysis.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OpenIMC
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Custom Algorithms</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#base-classes">Base Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basesegmenter">BaseSegmenter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#baseclusterer">BaseClusterer</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basefeatureextractor">BaseFeatureExtractor</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#integration-with-openimc">Integration with OpenIMC</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#segmentation-integration">Segmentation Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#clustering-integration">Clustering Integration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#feature-extraction-integration">Feature Extraction Integration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#example-implementations">Example Implementations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#common-pitfalls">Common Pitfalls</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#testing-your-implementation">Testing Your Implementation</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OpenIMC</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Custom Algorithms</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/custom_algorithms.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="custom-algorithms">
+<h1>Custom Algorithms<a class="headerlink" href="#custom-algorithms" title="Link to this heading"></a></h1>
+<p>OpenIMC provides base classes that allow developers to easily integrate novel
+segmentation, clustering, and feature extraction algorithms into the framework.
+These base classes define clear interfaces with standardized input/output formats,
+making it straightforward to add new methods while maintaining compatibility with
+the existing OpenIMC pipeline.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The base classes are located in <code class="docutils literal notranslate"><span class="pre">openimc.processing.base</span></code> and provide:</p>
+<ul class="simple">
+<li><p><strong>Clear interface definitions</strong>: Standardized input/output formats</p></li>
+<li><p><strong>Input validation</strong>: Automatic validation of inputs before processing</p></li>
+<li><p><strong>Output validation</strong>: Automatic validation of outputs after processing</p></li>
+<li><p><strong>Documentation</strong>: Comprehensive docstrings explaining expected formats</p></li>
+<li><p><strong>Error handling</strong>: Consistent error messages and exception types</p></li>
+</ul>
+</section>
+<section id="base-classes">
+<h2>Base Classes<a class="headerlink" href="#base-classes" title="Link to this heading"></a></h2>
+<section id="basesegmenter">
+<h3>BaseSegmenter<a class="headerlink" href="#basesegmenter" title="Link to this heading"></a></h3>
+<p>Abstract base class for segmentation algorithms.</p>
+<p><strong>Location</strong>: <code class="docutils literal notranslate"><span class="pre">openimc.processing.base.BaseSegmenter</span></code></p>
+<p><strong>Expected Inputs</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">nuclear_image</span></code>: <code class="docutils literal notranslate"><span class="pre">np.ndarray</span></code>, shape <code class="docutils literal notranslate"><span class="pre">(H,</span> <span class="pre">W)</span></code>, dtype <code class="docutils literal notranslate"><span class="pre">float32</span></code>
+- Preprocessed nuclear channel image (0-1 normalized)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cyto_image</span></code>: <code class="docutils literal notranslate"><span class="pre">np.ndarray</span></code>, shape <code class="docutils literal notranslate"><span class="pre">(H,</span> <span class="pre">W)</span></code>, dtype <code class="docutils literal notranslate"><span class="pre">float32</span></code>, optional
+- Preprocessed cytoplasm channel image (0-1 normalized)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>: Additional algorithm-specific parameters</p></li>
+</ul>
+<p><strong>Expected Output</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mask</span></code>: <code class="docutils literal notranslate"><span class="pre">np.ndarray</span></code>, shape <code class="docutils literal notranslate"><span class="pre">(H,</span> <span class="pre">W)</span></code>, dtype <code class="docutils literal notranslate"><span class="pre">uint32</span></code>
+- Segmentation mask where each cell has a unique integer label
+- <code class="docutils literal notranslate"><span class="pre">0</span></code> = background, <code class="docutils literal notranslate"><span class="pre">1+</span></code> = cell labels</p></li>
+</ul>
+<p><strong>Example Implementation</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseSegmenter</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomSegmenter</span><span class="p">(</span><span class="n">BaseSegmenter</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_segmenter&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">segment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">nuclear_image</span><span class="p">,</span> <span class="n">cyto_image</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c1"># Validate inputs (optional, but recommended)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_inputs</span><span class="p">(</span><span class="n">nuclear_image</span><span class="p">,</span> <span class="n">cyto_image</span><span class="p">)</span>
+
+        <span class="c1"># Your segmentation algorithm here</span>
+        <span class="c1"># ...</span>
+
+        <span class="c1"># Create mask (example: simple thresholding)</span>
+        <span class="n">threshold</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;threshold&#39;</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">nuclear_image</span> <span class="o">&gt;</span> <span class="n">threshold</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint32</span><span class="p">)</span>
+
+        <span class="c1"># Validate output (optional, but recommended)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_output</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">nuclear_image</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">mask</span>
+</pre></div>
+</div>
+</section>
+<section id="baseclusterer">
+<h3>BaseClusterer<a class="headerlink" href="#baseclusterer" title="Link to this heading"></a></h3>
+<p>Abstract base class for clustering algorithms.</p>
+<p><strong>Location</strong>: <code class="docutils literal notranslate"><span class="pre">openimc.processing.base.BaseClusterer</span></code></p>
+<p><strong>Expected Inputs</strong>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">features_df</span></code>: <code class="docutils literal notranslate"><span class="pre">pd.DataFrame</span></code>
+- Feature matrix with one row per cell and one column per feature
+- Required columns: None (all numeric columns are used)
+- Excluded columns: <code class="docutils literal notranslate"><span class="pre">'cell_id'</span></code>, <code class="docutils literal notranslate"><span class="pre">'acquisition_id'</span></code>, <code class="docutils literal notranslate"><span class="pre">'acquisition_name'</span></code>,</p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">'well'</span></code>, <code class="docutils literal notranslate"><span class="pre">'cluster'</span></code>, <code class="docutils literal notranslate"><span class="pre">'label'</span></code>, <code class="docutils literal notranslate"><span class="pre">'source_file'</span></code>, etc.</p>
+</div></blockquote>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">columns</span></code>: <code class="docutils literal notranslate"><span class="pre">List[str]</span></code>, optional
+- Specific feature columns to use for clustering
+- If <code class="docutils literal notranslate"><span class="pre">None</span></code>, auto-detects all numeric columns</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>: Additional algorithm-specific parameters</p></li>
+</ul>
+<p><strong>Expected Output</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">features_df</span></code>: <code class="docutils literal notranslate"><span class="pre">pd.DataFrame</span></code>
+- Same DataFrame as input with <code class="docutils literal notranslate"><span class="pre">'cluster'</span></code> column added
+- <code class="docutils literal notranslate"><span class="pre">'cluster'</span></code> column: <code class="docutils literal notranslate"><span class="pre">int</span></code>, 1-based cluster labels (<code class="docutils literal notranslate"><span class="pre">0</span></code> = unassigned/noise)</p></li>
+</ul>
+<p><strong>Example Implementation</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseClusterer</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.cluster</span><span class="w"> </span><span class="kn">import</span> <span class="n">KMeans</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomClusterer</span><span class="p">(</span><span class="n">BaseClusterer</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_clusterer&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">features_df</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c1"># Validate and prepare inputs</span>
+        <span class="n">data</span><span class="p">,</span> <span class="n">column_names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">validate_inputs</span><span class="p">(</span><span class="n">features_df</span><span class="p">,</span> <span class="n">columns</span><span class="p">)</span>
+        <span class="n">original_shape</span> <span class="o">=</span> <span class="n">features_df</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="c1"># Your clustering algorithm here</span>
+        <span class="n">n_clusters</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;n_clusters&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="n">kmeans</span> <span class="o">=</span> <span class="n">KMeans</span><span class="p">(</span><span class="n">n_clusters</span><span class="o">=</span><span class="n">n_clusters</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+        <span class="n">cluster_labels</span> <span class="o">=</span> <span class="n">kmeans</span><span class="o">.</span><span class="n">fit_predict</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+
+        <span class="c1"># Convert to 1-based labels</span>
+        <span class="n">cluster_labels</span> <span class="o">=</span> <span class="p">(</span><span class="n">cluster_labels</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+
+        <span class="c1"># Add cluster column</span>
+        <span class="n">result_df</span> <span class="o">=</span> <span class="n">features_df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">result_df</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cluster_labels</span>
+
+        <span class="c1"># Validate output</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_output</span><span class="p">(</span><span class="n">result_df</span><span class="p">,</span> <span class="n">original_shape</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result_df</span>
+</pre></div>
+</div>
+</section>
+<section id="basefeatureextractor">
+<h3>BaseFeatureExtractor<a class="headerlink" href="#basefeatureextractor" title="Link to this heading"></a></h3>
+<p>Abstract base class for feature extraction algorithms.</p>
+<p><strong>Location</strong>: <code class="docutils literal notranslate"><span class="pre">openimc.processing.base.BaseFeatureExtractor</span></code></p>
+<p><strong>Expected Inputs</strong>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mask</span></code>: <code class="docutils literal notranslate"><span class="pre">np.ndarray</span></code>, shape <code class="docutils literal notranslate"><span class="pre">(H,</span> <span class="pre">W)</span></code>, dtype <code class="docutils literal notranslate"><span class="pre">uint32</span></code>
+- Segmentation mask with cell labels (<code class="docutils literal notranslate"><span class="pre">0</span></code> = background, <code class="docutils literal notranslate"><span class="pre">1+</span></code> = cells)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">image_stack</span></code>: <code class="docutils literal notranslate"><span class="pre">np.ndarray</span></code>, shape <code class="docutils literal notranslate"><span class="pre">(H,</span> <span class="pre">W,</span> <span class="pre">C)</span></code>, dtype <code class="docutils literal notranslate"><span class="pre">float32</span></code>
+- Image stack with <code class="docutils literal notranslate"><span class="pre">C</span></code> channels</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">channel_names</span></code>: <code class="docutils literal notranslate"><span class="pre">List[str]</span></code>, length <code class="docutils literal notranslate"><span class="pre">C</span></code>
+- Names of each channel in image_stack</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>: Additional algorithm-specific parameters</p></li>
+</ul>
+<p><strong>Expected Output</strong>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">features_df</span></code>: <code class="docutils literal notranslate"><span class="pre">pd.DataFrame</span></code>
+- Feature matrix with one row per cell
+- Required columns:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">'cell_id'</span></code>: <code class="docutils literal notranslate"><span class="pre">int</span></code>, unique identifier for each cell (1-based)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">'label'</span></code>: <code class="docutils literal notranslate"><span class="pre">int</span></code>, cell label from mask (1-based)</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>Additional feature columns (algorithm-specific)</p></li>
+</ul>
+</li>
+</ul>
+<p><strong>Example Implementation</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseFeatureExtractor</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyCustomFeatureExtractor</span><span class="p">(</span><span class="n">BaseFeatureExtractor</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_extractor&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">extract</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="n">image_stack</span><span class="p">,</span> <span class="n">channel_names</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c1"># Validate inputs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_inputs</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">image_stack</span><span class="p">,</span> <span class="n">channel_names</span><span class="p">)</span>
+
+        <span class="c1"># Get unique cell labels (exclude background = 0)</span>
+        <span class="n">unique_labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span>
+        <span class="n">unique_labels</span> <span class="o">=</span> <span class="n">unique_labels</span><span class="p">[</span><span class="n">unique_labels</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">]</span>
+
+        <span class="n">features_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">unique_labels</span><span class="p">):</span>
+            <span class="n">cell_id</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># 1-based</span>
+            <span class="n">features</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;cell_id&#39;</span><span class="p">:</span> <span class="n">cell_id</span><span class="p">,</span> <span class="s1">&#39;label&#39;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">label</span><span class="p">)}</span>
+
+            <span class="c1"># Create binary mask for this cell</span>
+            <span class="n">cell_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="n">label</span><span class="p">)</span>
+
+            <span class="c1"># Extract your custom features here</span>
+            <span class="c1"># ...</span>
+
+            <span class="n">features_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">features</span><span class="p">)</span>
+
+        <span class="c1"># Create DataFrame</span>
+        <span class="n">features_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">features_list</span><span class="p">)</span>
+
+        <span class="c1"># Validate output</span>
+        <span class="n">expected_n_cells</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_labels</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_output</span><span class="p">(</span><span class="n">features_df</span><span class="p">,</span> <span class="n">expected_n_cells</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">features_df</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="integration-with-openimc">
+<h2>Integration with OpenIMC<a class="headerlink" href="#integration-with-openimc" title="Link to this heading"></a></h2>
+<p>Once you’ve implemented a custom algorithm, you can integrate it into OpenIMC
+by modifying the core functions to support your new algorithm. Here’s how:</p>
+<section id="segmentation-integration">
+<h3>Segmentation Integration<a class="headerlink" href="#segmentation-integration" title="Link to this heading"></a></h3>
+<p>Modify <code class="docutils literal notranslate"><span class="pre">openimc.core.segment()</span></code> to add your segmenter:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">segment</span><span class="p">(</span><span class="n">loader</span><span class="p">,</span> <span class="n">acquisition</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+    <span class="c1"># ... existing code ...</span>
+
+    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;my_custom_segmenter&#39;</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">my_module</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyCustomSegmenter</span>
+
+        <span class="c1"># Preprocess channels (same as other methods)</span>
+        <span class="n">nuclear_img</span><span class="p">,</span> <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">_preprocess_channels_for_segmentation</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+        <span class="c1"># Create segmenter instance</span>
+        <span class="n">segmenter</span> <span class="o">=</span> <span class="n">MyCustomSegmenter</span><span class="p">()</span>
+
+        <span class="c1"># Run segmentation</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">segmenter</span><span class="o">.</span><span class="n">segment</span><span class="p">(</span>
+            <span class="n">nuclear_img</span><span class="p">,</span>
+            <span class="n">cyto_image</span><span class="o">=</span><span class="n">cyto_img</span><span class="p">,</span>
+            <span class="n">threshold</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>  <span class="c1"># Your custom parameters</span>
+            <span class="n">min_cell_area</span><span class="o">=</span><span class="mi">50</span>
+        <span class="p">)</span>
+
+    <span class="c1"># ... rest of code ...</span>
+</pre></div>
+</div>
+</section>
+<section id="clustering-integration">
+<h3>Clustering Integration<a class="headerlink" href="#clustering-integration" title="Link to this heading"></a></h3>
+<p>Modify <code class="docutils literal notranslate"><span class="pre">openimc.core.cluster()</span></code> to add your clusterer:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span><span class="n">features_df</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;leiden&#39;</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+    <span class="c1"># ... existing code ...</span>
+
+    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;my_custom_clusterer&#39;</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">my_module</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyCustomClusterer</span>
+
+        <span class="c1"># Create clusterer instance</span>
+        <span class="n">clusterer</span> <span class="o">=</span> <span class="n">MyCustomClusterer</span><span class="p">()</span>
+
+        <span class="c1"># Run clustering</span>
+        <span class="n">result_df</span> <span class="o">=</span> <span class="n">clusterer</span><span class="o">.</span><span class="n">cluster</span><span class="p">(</span>
+            <span class="n">features_df</span><span class="p">,</span>
+            <span class="n">columns</span><span class="o">=</span><span class="n">columns</span><span class="p">,</span>
+            <span class="n">n_clusters</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>  <span class="c1"># Your custom parameters</span>
+            <span class="n">seed</span><span class="o">=</span><span class="mi">42</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">result_df</span>
+
+    <span class="c1"># ... rest of code ...</span>
+</pre></div>
+</div>
+</section>
+<section id="feature-extraction-integration">
+<h3>Feature Extraction Integration<a class="headerlink" href="#feature-extraction-integration" title="Link to this heading"></a></h3>
+<p>Modify <code class="docutils literal notranslate"><span class="pre">openimc.processing.feature_worker.extract_features_for_acquisition()</span></code>
+to add your extractor:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">extract_features_for_acquisition</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">feature_extractor</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="c1"># ... existing code ...</span>
+
+    <span class="k">if</span> <span class="n">feature_extractor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Use custom extractor</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">my_module</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyCustomFeatureExtractor</span>
+        <span class="n">extractor</span> <span class="o">=</span> <span class="n">MyCustomFeatureExtractor</span><span class="p">()</span>
+        <span class="n">features_df</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span>
+            <span class="n">mask</span><span class="p">,</span>
+            <span class="n">img_stack</span><span class="p">,</span>
+            <span class="n">channel_names</span><span class="p">,</span>
+            <span class="n">morphological</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">intensity</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Use default extractor</span>
+        <span class="c1"># ... existing code ...</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="example-implementations">
+<h2>Example Implementations<a class="headerlink" href="#example-implementations" title="Link to this heading"></a></h2>
+<p>Complete example implementations are available in <code class="docutils literal notranslate"><span class="pre">openimc.processing.examples</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">ExampleThresholdSegmenter</span></code>: Simple thresholding-based segmentation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ExampleKMeansClusterer</span></code>: K-means clustering implementation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ExampleBasicFeatureExtractor</span></code>: Basic morphological and intensity features</p></li>
+</ul>
+<p>These examples demonstrate:</p>
+<ul class="simple">
+<li><p>Proper input validation</p></li>
+<li><p>Correct output format</p></li>
+<li><p>Error handling</p></li>
+<li><p>Integration patterns</p></li>
+</ul>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Always validate inputs</strong>: Use the <code class="docutils literal notranslate"><span class="pre">validate_inputs()</span></code> method before processing</p></li>
+<li><p><strong>Always validate outputs</strong>: Use the <code class="docutils literal notranslate"><span class="pre">validate_output()</span></code> method after processing</p></li>
+<li><p><strong>Handle edge cases</strong>: Empty masks, no cells, missing channels, etc.</p></li>
+<li><p><strong>Document parameters</strong>: Clearly document all <code class="docutils literal notranslate"><span class="pre">**kwargs</span></code> parameters</p></li>
+<li><p><strong>Preserve data types</strong>: Ensure outputs match expected dtypes (uint32, float32, etc.)</p></li>
+<li><p><strong>Use 1-based indexing</strong>: Cell IDs and labels should start at 1 (0 = background/unassigned)</p></li>
+<li><p><strong>Handle memory efficiently</strong>: For large datasets, process in chunks if needed</p></li>
+<li><p><strong>Provide informative errors</strong>: Raise <code class="docutils literal notranslate"><span class="pre">ValueError</span></code> with clear messages for invalid inputs</p></li>
+</ol>
+</section>
+<section id="common-pitfalls">
+<h2>Common Pitfalls<a class="headerlink" href="#common-pitfalls" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Wrong dtype</strong>: Segmentation masks must be <code class="docutils literal notranslate"><span class="pre">uint32</span></code>, not <code class="docutils literal notranslate"><span class="pre">uint8</span></code> or <code class="docutils literal notranslate"><span class="pre">int32</span></code></p></li>
+<li><p><strong>Wrong indexing</strong>: Cell IDs and labels must be 1-based (1, 2, 3, …), not 0-based</p></li>
+<li><p><strong>Missing required columns</strong>: Feature DataFrames must have <code class="docutils literal notranslate"><span class="pre">'cell_id'</span></code> and <code class="docutils literal notranslate"><span class="pre">'label'</span></code> columns</p></li>
+<li><p><strong>Shape mismatches</strong>: Output shapes must match input shapes</p></li>
+<li><p><strong>NaN values</strong>: Cluster labels cannot contain NaN (use 0 for unassigned cells)</p></li>
+<li><p><strong>Background handling</strong>: Background pixels should be labeled as 0 in masks</p></li>
+</ol>
+</section>
+<section id="testing-your-implementation">
+<h2>Testing Your Implementation<a class="headerlink" href="#testing-your-implementation" title="Link to this heading"></a></h2>
+<p>Before integrating your algorithm, test it with the base class validation:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">my_module</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyCustomSegmenter</span>
+
+<span class="c1"># Create test data</span>
+<span class="n">nuclear_img</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+
+<span class="c1"># Test segmenter</span>
+<span class="n">segmenter</span> <span class="o">=</span> <span class="n">MyCustomSegmenter</span><span class="p">()</span>
+<span class="n">mask</span> <span class="o">=</span> <span class="n">segmenter</span><span class="o">.</span><span class="n">segment</span><span class="p">(</span><span class="n">nuclear_img</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+
+<span class="c1"># Validation is automatic, but you can also check:</span>
+<span class="k">assert</span> <span class="n">mask</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">uint32</span>
+<span class="k">assert</span> <span class="n">mask</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">nuclear_img</span><span class="o">.</span><span class="n">shape</span>
+<span class="k">assert</span> <span class="n">mask</span><span class="o">.</span><span class="n">min</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+</pre></div>
+</div>
+<p>For more complex testing, use the OpenIMC test fixtures and integration tests.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="advanced_spatial_analysis.html" class="btn btn-neutral float-left" title="Advanced Spatial Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api_core.html" class="btn btn-neutral float-right" title="Core pipeline API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Dean Tessone.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

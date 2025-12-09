@@ -25,6 +25,7 @@ OpenIMC Documentation
    high_resolution_experimental_design
    simple_spatial_analysis
    advanced_spatial_analysis
+   custom_algorithms
 
 .. toctree::
    :maxdepth: 2
