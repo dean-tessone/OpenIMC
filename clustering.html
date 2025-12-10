@@ -1,153 +1,47 @@
-
-
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" data-content_root="./">
-<head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Clustering &mdash; OpenIMC 0.1.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  
-      <script src="_static/jquery.js?v=5d32c60e"></script>
-      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=01f34227"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script src="_static/js/theme.js"></script>
+    <title>Clustering &#8212; OpenIMC 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="LLM-Based Phenotyping" href="llm_phenotyping.html" />
-    <link rel="prev" title="Batch Correction" href="batch_correction.html" /> 
-</head>
+    <link rel="prev" title="Batch Correction" href="batch_correction.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search" >
+  
+  
 
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
           
-          
-          <a href="index.html" class="icon icon-home">
-            OpenIMC
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
-</div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Clustering</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#common-parameters">Common Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#leiden-louvain-parameters">Leiden/Louvain Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hierarchical-parameters">Hierarchical Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#k-means-parameters">K-means Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hdbscan-parameters">HDBSCAN Parameters</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#using-clustering-in-the-gui">Using Clustering in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#using-clustering-in-the-cli">Using Clustering in the CLI</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#basic-leiden-command">Basic Leiden Command</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#with-custom-parameters">With Custom Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hierarchical-command">Hierarchical Command</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#k-means-command">K-means Command</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hdbscan-command">HDBSCAN Command</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#workflow-yaml-example">Workflow YAML Example</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#leiden-algorithm">Leiden Algorithm</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#louvain-algorithm">Louvain Algorithm</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hierarchical-clustering">Hierarchical Clustering</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#k-means-clustering">K-means Clustering</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#hdbscan">HDBSCAN</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="#clustering-visualizations">Clustering Visualizations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#heatmap-visualization">Heatmap Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#umap-visualization">UMAP Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#t-sne-visualization">t-SNE Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#differential-expression-visualization">Differential Expression Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#stacked-bars-visualization">Stacked Bars Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#boxplot-violin-plot-visualization">Boxplot/Violin Plot Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#customizing-font-sizes">Customizing Font Sizes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#customizing-feature-labels">Customizing Feature Labels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
-</ul>
 
-        </div>
-      </div>
-    </nav>
-
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">OpenIMC</a>
-      </nav>
-
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Clustering</li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="_sources/clustering.rst.txt" rel="nofollow"> View page source</a>
-      </li>
-  </ul>
-  <hr/>
-</div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
+          <div class="body" role="main">
+            
   <section id="clustering">
-<h1>Clustering<a class="headerlink" href="#clustering" title="Link to this heading"></a></h1>
+<h1>Clustering<a class="headerlink" href="#clustering" title="Link to this heading">¶</a></h1>
 <p>Clustering groups cells into phenotypically similar populations based on their extracted features, enabling cell type identification and population analysis.</p>
 <section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>Clustering is a fundamental step in single-cell analysis that identifies distinct cell populations. OpenIMC supports multiple clustering algorithms, each with different characteristics suited to different data types and analysis goals.</p>
 </section>
 <section id="options">
-<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading">¶</a></h2>
 <p>OpenIMC supports five clustering methods:</p>
 <ol class="arabic simple">
 <li><p><strong>Leiden</strong> (default): Graph-based clustering using the Leiden algorithm</p></li>
@@ -158,9 +52,9 @@
 </ol>
 </section>
 <section id="parameters">
-<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h2>
 <section id="common-parameters">
-<h3>Common Parameters<a class="headerlink" href="#common-parameters" title="Link to this heading"></a></h3>
+<h3>Common Parameters<a class="headerlink" href="#common-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>method</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;leiden&quot;</span></code>): Clustering method
 - Options: <code class="docutils literal notranslate"><span class="pre">&quot;leiden&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;louvain&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hierarchical&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;kmeans&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hdbscan&quot;</span></code></p></li>
@@ -178,7 +72,7 @@
 </ul>
 </section>
 <section id="leiden-louvain-parameters">
-<h3>Leiden/Louvain Parameters<a class="headerlink" href="#leiden-louvain-parameters" title="Link to this heading"></a></h3>
+<h3>Leiden/Louvain Parameters<a class="headerlink" href="#leiden-louvain-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>resolution</strong> (default: <code class="docutils literal notranslate"><span class="pre">1.0</span></code>): Resolution parameter controlling cluster granularity
 - Higher values (1.5-3.0) create more, smaller clusters
@@ -196,7 +90,7 @@
 </ul>
 </section>
 <section id="hierarchical-parameters">
-<h3>Hierarchical Parameters<a class="headerlink" href="#hierarchical-parameters" title="Link to this heading"></a></h3>
+<h3>Hierarchical Parameters<a class="headerlink" href="#hierarchical-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>n_clusters</strong> (required): Number of clusters to identify
 - Must be specified for hierarchical clustering
@@ -208,7 +102,7 @@
 </ul>
 </section>
 <section id="k-means-parameters">
-<h3>K-means Parameters<a class="headerlink" href="#k-means-parameters" title="Link to this heading"></a></h3>
+<h3>K-means Parameters<a class="headerlink" href="#k-means-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>n_clusters</strong> (required): Number of clusters to identify
 - Must be specified for K-means
@@ -220,7 +114,7 @@
 </ul>
 </section>
 <section id="hdbscan-parameters">
-<h3>HDBSCAN Parameters<a class="headerlink" href="#hdbscan-parameters" title="Link to this heading"></a></h3>
+<h3>HDBSCAN Parameters<a class="headerlink" href="#hdbscan-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>min_cluster_size</strong> (default: <code class="docutils literal notranslate"><span class="pre">10</span></code>): Minimum number of cells in a cluster
 - Smaller values (5-10) identify more, smaller clusters
@@ -240,7 +134,7 @@
 </section>
 </section>
 <section id="using-clustering-in-the-gui">
-<h2>Using Clustering in the GUI<a class="headerlink" href="#using-clustering-in-the-gui" title="Link to this heading"></a></h2>
+<h2>Using Clustering in the GUI<a class="headerlink" href="#using-clustering-in-the-gui" title="Link to this heading">¶</a></h2>
 <ol class="arabic">
 <li><p>Ensure feature extraction (and optionally batch correction) has been completed</p></li>
 <li><p>Navigate to <strong>Analysis → Clustering</strong> or click the clustering button</p></li>
@@ -266,9 +160,9 @@
 </ol>
 </section>
 <section id="using-clustering-in-the-cli">
-<h2>Using Clustering in the CLI<a class="headerlink" href="#using-clustering-in-the-cli" title="Link to this heading"></a></h2>
+<h2>Using Clustering in the CLI<a class="headerlink" href="#using-clustering-in-the-cli" title="Link to this heading">¶</a></h2>
 <section id="basic-leiden-command">
-<h3>Basic Leiden Command<a class="headerlink" href="#basic-leiden-command" title="Link to this heading"></a></h3>
+<h3>Basic Leiden Command<a class="headerlink" href="#basic-leiden-command" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>leiden<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--resolution<span class="w"> </span><span class="m">1</span>.0
@@ -276,7 +170,7 @@
 </div>
 </section>
 <section id="with-custom-parameters">
-<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading"></a></h3>
+<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>leiden<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--resolution<span class="w"> </span><span class="m">1</span>.5<span class="w"> </span><span class="se">\\</span>
@@ -287,7 +181,7 @@
 </div>
 </section>
 <section id="hierarchical-command">
-<h3>Hierarchical Command<a class="headerlink" href="#hierarchical-command" title="Link to this heading"></a></h3>
+<h3>Hierarchical Command<a class="headerlink" href="#hierarchical-command" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>hierarchical<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--n-clusters<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
@@ -296,7 +190,7 @@
 </div>
 </section>
 <section id="k-means-command">
-<h3>K-means Command<a class="headerlink" href="#k-means-command" title="Link to this heading"></a></h3>
+<h3>K-means Command<a class="headerlink" href="#k-means-command" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>kmeans<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--n-clusters<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
@@ -305,7 +199,7 @@
 </div>
 </section>
 <section id="hdbscan-command">
-<h3>HDBSCAN Command<a class="headerlink" href="#hdbscan-command" title="Link to this heading"></a></h3>
+<h3>HDBSCAN Command<a class="headerlink" href="#hdbscan-command" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>cluster<span class="w"> </span>features.csv<span class="w"> </span>clustered_features.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>hdbscan<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--min-cluster-size<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\\</span>
@@ -314,7 +208,7 @@
 </div>
 </section>
 <section id="workflow-yaml-example">
-<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading"></a></h3>
+<h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading">¶</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">clustering</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;leiden&quot;</span>
@@ -329,9 +223,9 @@
 </section>
 </section>
 <section id="method-details">
-<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading">¶</a></h2>
 <section id="leiden-algorithm">
-<h3>Leiden Algorithm<a class="headerlink" href="#leiden-algorithm" title="Link to this heading"></a></h3>
+<h3>Leiden Algorithm<a class="headerlink" href="#leiden-algorithm" title="Link to this heading">¶</a></h3>
 <p>The Leiden algorithm is a graph-based clustering method that optimizes modularity, a measure of cluster quality.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -356,7 +250,7 @@
 - <a class="reference external" href="https://github.com/vtraag/leidenalg">leidenalg Python Package</a></p>
 </section>
 <section id="louvain-algorithm">
-<h3>Louvain Algorithm<a class="headerlink" href="#louvain-algorithm" title="Link to this heading"></a></h3>
+<h3>Louvain Algorithm<a class="headerlink" href="#louvain-algorithm" title="Link to this heading">¶</a></h3>
 <p>The Louvain algorithm is similar to Leiden but uses a different optimization strategy.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -375,7 +269,7 @@
 - Blondel, V. D., et al. (2008). “Fast unfolding of communities in large networks.” Journal of Statistical Mechanics: Theory and Experiment, 2008(10), P10008. <a class="reference external" href="https://doi.org/10.1088/1742-5468/2008/10/P10008">DOI: 10.1088/1742-5468/2008/10/P10008</a></p>
 </section>
 <section id="hierarchical-clustering">
-<h3>Hierarchical Clustering<a class="headerlink" href="#hierarchical-clustering" title="Link to this heading"></a></h3>
+<h3>Hierarchical Clustering<a class="headerlink" href="#hierarchical-clustering" title="Link to this heading">¶</a></h3>
 <p>Hierarchical clustering builds a tree (dendrogram) of clusters by iteratively merging the closest clusters.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -398,7 +292,7 @@
 - Implementation: <a class="reference external" href="https://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html">scipy.cluster.hierarchy</a></p>
 </section>
 <section id="k-means-clustering">
-<h3>K-means Clustering<a class="headerlink" href="#k-means-clustering" title="Link to this heading"></a></h3>
+<h3>K-means Clustering<a class="headerlink" href="#k-means-clustering" title="Link to this heading">¶</a></h3>
 <p>K-means partitions cells into k clusters by minimizing within-cluster variance.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -421,7 +315,7 @@
 - Implementation: <a class="reference external" href="https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html">scikit-learn KMeans</a></p>
 </section>
 <section id="hdbscan">
-<h3>HDBSCAN<a class="headerlink" href="#hdbscan" title="Link to this heading"></a></h3>
+<h3>HDBSCAN<a class="headerlink" href="#hdbscan" title="Link to this heading">¶</a></h3>
 <p>HDBSCAN (Hierarchical Density-Based Spatial Clustering of Applications with Noise) identifies clusters of varying density and handles noise.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -449,8 +343,8 @@
 </section>
 </section>
 <section id="tips-and-best-practices">
-<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
-<ol class="arabic">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
 <li><p><strong>Method Selection</strong>:
 - Use <strong>Leiden</strong> for most cases (fast, scalable, good results)
 - Use <strong>Hierarchical</strong> for small datasets or when you need hierarchical structure
@@ -475,25 +369,26 @@
 - Lower resolution → fewer, larger clusters
 - Higher resolution → more, smaller clusters
 - Adjust iteratively to find optimal granularity</p></li>
-<li><p><strong>Downstream Analysis</strong>:
-- Use cluster assignments for:</p>
-<blockquote>
-<div><ul class="simple">
+<li><p><strong>Downstream Analysis</strong>:</p>
+<ul class="simple">
+<li><p>Use cluster assignments for:</p>
+<ul>
 <li><p>Cell type annotation</p></li>
 <li><p>Differential expression analysis</p></li>
 <li><p>Spatial analysis</p></li>
 <li><p>Population comparisons</p></li>
 </ul>
-</div></blockquote>
+</li>
+</ul>
 </li>
 </ol>
 </section>
 </section>
 <section id="clustering-visualizations">
-<h1>Clustering Visualizations<a class="headerlink" href="#clustering-visualizations" title="Link to this heading"></a></h1>
+<h1>Clustering Visualizations<a class="headerlink" href="#clustering-visualizations" title="Link to this heading">¶</a></h1>
 <p>After clustering, OpenIMC provides multiple visualization options to explore and interpret cluster results. All visualizations are accessible from the clustering dialog after running clustering.</p>
 <section id="available-visualizations">
-<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading"></a></h2>
+<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Heatmap</strong>: Shows feature expression patterns across clusters</p></li>
 <li><p><strong>UMAP</strong>: 2D embedding colored by various attributes</p></li>
@@ -504,7 +399,7 @@
 </ol>
 </section>
 <section id="heatmap-visualization">
-<h2>Heatmap Visualization<a class="headerlink" href="#heatmap-visualization" title="Link to this heading"></a></h2>
+<h2>Heatmap Visualization<a class="headerlink" href="#heatmap-visualization" title="Link to this heading">¶</a></h2>
 <p>The heatmap is the default visualization after clustering. It displays feature expression patterns across all cells, with cells grouped by cluster.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -543,7 +438,7 @@
 </ul>
 </section>
 <section id="umap-visualization">
-<h2>UMAP Visualization<a class="headerlink" href="#umap-visualization" title="Link to this heading"></a></h2>
+<h2>UMAP Visualization<a class="headerlink" href="#umap-visualization" title="Link to this heading">¶</a></h2>
 <p>UMAP (Uniform Manifold Approximation and Projection) provides a 2D embedding of the high-dimensional feature space, useful for visualizing cluster structure.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -574,7 +469,7 @@
 </ul>
 </section>
 <section id="t-sne-visualization">
-<h2>t-SNE Visualization<a class="headerlink" href="#t-sne-visualization" title="Link to this heading"></a></h2>
+<h2>t-SNE Visualization<a class="headerlink" href="#t-sne-visualization" title="Link to this heading">¶</a></h2>
 <p>t-SNE (t-Distributed Stochastic Neighbor Embedding) provides an alternative 2D embedding method. Requires scikit-learn to be installed.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -590,7 +485,7 @@
 </ul>
 </section>
 <section id="differential-expression-visualization">
-<h2>Differential Expression Visualization<a class="headerlink" href="#differential-expression-visualization" title="Link to this heading"></a></h2>
+<h2>Differential Expression Visualization<a class="headerlink" href="#differential-expression-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows a heatmap of the top N markers per cluster, highlighting which features are most characteristic of each cluster.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -620,7 +515,7 @@
 </ul>
 </section>
 <section id="stacked-bars-visualization">
-<h2>Stacked Bars Visualization<a class="headerlink" href="#stacked-bars-visualization" title="Link to this heading"></a></h2>
+<h2>Stacked Bars Visualization<a class="headerlink" href="#stacked-bars-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows the composition of clusters across different groups (e.g., ROIs, conditions, patients).</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -652,25 +547,24 @@
 </ul>
 </section>
 <section id="boxplot-violin-plot-visualization">
-<h2>Boxplot/Violin Plot Visualization<a class="headerlink" href="#boxplot-violin-plot-visualization" title="Link to this heading"></a></h2>
+<h2>Boxplot/Violin Plot Visualization<a class="headerlink" href="#boxplot-violin-plot-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows the distribution of marker expression values across clusters, useful for identifying marker-specific differences.</p>
 <p><strong>Parameters:</strong></p>
-<ul>
+<ul class="simple">
 <li><p><strong>Markers</strong>: Select markers to visualize (click “Select Markers…” button)
 - Multi-select dialog with all available markers
 - Can select multiple markers for faceted plots</p></li>
 <li><p><strong>Plot type</strong>: Choose between “Violin Plot” (default) or “Boxplot”
 - <strong>Violin Plot</strong>: Shows full distribution shape (KDE)
 - <strong>Boxplot</strong>: Shows quartiles, median, and outliers</p></li>
-<li><p><strong>Statistical testing</strong>: Enable to perform pairwise comparisons
-- <strong>Test mode</strong>:</p>
-<blockquote>
-<div><ul class="simple">
+<li><p><strong>Statistical testing</strong>: Enable to perform pairwise comparisons</p>
+<ul>
+<li><p><strong>Test mode</strong>:</p>
+<ul>
 <li><p><code class="docutils literal notranslate"><span class="pre">&quot;Pairwise</span> <span class="pre">(all</span> <span class="pre">pairs)&quot;</span></code>: Compare all cluster pairs</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">&quot;One</span> <span class="pre">vs</span> <span class="pre">Others&quot;</span></code>: Compare one cluster against all others</p></li>
 </ul>
-</div></blockquote>
-<ul class="simple">
+</li>
 <li><p><strong>Reference cluster</strong>: Select cluster for “One vs Others” mode</p></li>
 <li><p><strong>Export Statistical Results</strong>: Export p-values to CSV</p></li>
 </ul>
@@ -701,7 +595,7 @@
 </ul>
 </section>
 <section id="exporting-plots">
-<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading"></a></h2>
+<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading">¶</a></h2>
 <p>All visualizations can be exported using the <strong>“Save Plot”</strong> button.</p>
 <p><strong>Export Options:</strong></p>
 <ol class="arabic simple">
@@ -745,7 +639,7 @@
 </ul>
 </section>
 <section id="customizing-font-sizes">
-<h2>Customizing Font Sizes<a class="headerlink" href="#customizing-font-sizes" title="Link to this heading"></a></h2>
+<h2>Customizing Font Sizes<a class="headerlink" href="#customizing-font-sizes" title="Link to this heading">¶</a></h2>
 <p>Font sizes can be customized in several ways:</p>
 <p><strong>1. Heatmap Feature Labels:</strong></p>
 <ul class="simple">
@@ -771,7 +665,7 @@
 <p><strong>Note:</strong> Font size customization is most important for heatmaps (many feature labels) and publication figures.</p>
 </section>
 <section id="customizing-feature-labels">
-<h2>Customizing Feature Labels<a class="headerlink" href="#customizing-feature-labels" title="Link to this heading"></a></h2>
+<h2>Customizing Feature Labels<a class="headerlink" href="#customizing-feature-labels" title="Link to this heading">¶</a></h2>
 <p>All visualizations support custom feature labels for better readability.</p>
 <p><strong>How to Customize:</strong></p>
 <ol class="arabic simple">
@@ -791,7 +685,7 @@
 </ul>
 </section>
 <section id="accessing-visualizations-in-the-gui">
-<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading"></a></h2>
+<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Run Clustering</strong>: Complete clustering analysis first</p></li>
 <li><p><strong>Open Clustering Dialog</strong>: Navigate to <strong>Analysis → Cell Clustering…</strong></p></li>
@@ -812,7 +706,7 @@
 </ul>
 </section>
 <section id="tips-and-best-practices-for-visualizations">
-<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading"></a></h2>
+<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Heatmap:</strong>
 - Use Z-score scaling for comparing across features
@@ -846,34 +740,117 @@
 </section>
 
 
-           </div>
           </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="batch_correction.html" class="btn btn-neutral float-left" title="Batch Correction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="llm_phenotyping.html" class="btn btn-neutral float-right" title="LLM-Based Phenotyping" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
-
-  <hr/>
-
-  <div role="contentinfo">
-    <p>&#169; Copyright 2025, Dean Tessone.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
+          
         </div>
       </div>
-    </section>
-  </div>
-  <script>
-      jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
-      });
-  </script> 
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">OpenIMC</a></h1>
 
-</body>
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Clustering</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-clustering-in-the-gui">Using Clustering in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-clustering-in-the-cli">Using Clustering in the CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#clustering-visualizations">Clustering Visualizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#heatmap-visualization">Heatmap Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#umap-visualization">UMAP Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#t-sne-visualization">t-SNE Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#differential-expression-visualization">Differential Expression Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stacked-bars-visualization">Stacked Bars Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#boxplot-violin-plot-visualization">Boxplot/Violin Plot Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#customizing-font-sizes">Customizing Font Sizes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#customizing-feature-labels">Customizing Feature Labels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="batch_correction.html" title="previous chapter">Batch Correction</a></li>
+      <li>Next: <a href="llm_phenotyping.html" title="next chapter">LLM-Based Phenotyping</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Dean Tessone.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/clustering.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
 </html>

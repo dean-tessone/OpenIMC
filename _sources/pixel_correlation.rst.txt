@@ -116,6 +116,7 @@ Pixel correlation analysis uses **Spearman rank correlation** to measure the rel
 - Ranks pixel intensities rather than using raw values
 - Robust to outliers and non-linear relationships
 - Range: -1 to +1
+  
   - +1: Perfect positive correlation
   - 0: No correlation
   - -1: Perfect negative correlation
@@ -160,11 +161,14 @@ Tips and Best Practices
    - Always use correction when analyzing many channel pairs
    - FDR (Benjamini-Hochberg) is less conservative than Bonferroni
 
-4. **Interpretation**: 
+4. **Interpretation**:
+   
    - High correlations may indicate:
+   
      - True co-expression (biological relationship)
      - Spillover (spectral overlap - check spillover matrix)
      - Spatial proximity (markers in same cell types)
+   
    - Validate findings with biological knowledge
 
 5. **Validation**: 

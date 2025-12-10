@@ -179,8 +179,7 @@ Python package):
 2. **Verify Installation**
    - Ensure the ``ilastik`` command is available in your PATH
    - Test by running: ``ilastik --version`` in your terminal
-   - The integration uses Ilastik's headless mode, so the full installation is
-     required
+   - The integration uses Ilastik's headless mode, so the full installation is required
 
 3. **Using Ilastik Models**
    - Train your segmentation model in Ilastik's GUI

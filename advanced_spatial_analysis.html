@@ -1,145 +1,43 @@
-
-
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" data-content_root="./">
-<head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Advanced Spatial Analysis &mdash; OpenIMC 0.1.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  
-      <script src="_static/jquery.js?v=5d32c60e"></script>
-      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=01f34227"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script src="_static/js/theme.js"></script>
+    <title>Advanced Spatial Analysis &#8212; OpenIMC 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Custom Algorithms" href="custom_algorithms.html" />
-    <link rel="prev" title="Simple Spatial Analysis" href="simple_spatial_analysis.html" /> 
-</head>
+    <link rel="prev" title="Simple Spatial Analysis" href="simple_spatial_analysis.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search" >
+  
+  
 
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
           
-          
-          <a href="index.html" class="icon icon-home">
-            OpenIMC
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
-</div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
-<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Advanced Spatial Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#graph-construction">Graph Construction</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#neighborhood-enrichment">Neighborhood Enrichment</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#co-occurrence-analysis">Co-occurrence Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#spatial-autocorrelation">Spatial Autocorrelation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#ripley-functions">Ripley Functions</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#using-advanced-spatial-analysis-in-the-gui">Using Advanced Spatial Analysis in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#using-advanced-spatial-analysis-in-the-cli">Using Advanced Spatial Analysis in the CLI</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id1">Neighborhood Enrichment</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id2">Co-occurrence Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id3">Spatial Autocorrelation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id4">Ripley Functions</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#build-spatial-graph-and-export-anndata">Build Spatial Graph and Export AnnData</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#export-anndata-objects">Export AnnData Objects</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#id5">Neighborhood Enrichment</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id6">Co-occurrence Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id7">Spatial Autocorrelation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#id8">Ripley Functions</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#squidpy-and-anndata-integration">Squidpy and AnnData Integration</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#neighborhood-enrichment-visualization">Neighborhood Enrichment Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#co-occurrence-analysis-visualization">Co-occurrence Analysis Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#spatial-autocorrelation-visualization">Spatial Autocorrelation Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#ripley-functions-visualization">Ripley Functions Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
-</ul>
 
-        </div>
-      </div>
-    </nav>
-
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">OpenIMC</a>
-      </nav>
-
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Advanced Spatial Analysis</li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="_sources/advanced_spatial_analysis.rst.txt" rel="nofollow"> View page source</a>
-      </li>
-  </ul>
-  <hr/>
-</div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
+          <div class="body" role="main">
+            
   <section id="advanced-spatial-analysis">
-<h1>Advanced Spatial Analysis<a class="headerlink" href="#advanced-spatial-analysis" title="Link to this heading"></a></h1>
+<h1>Advanced Spatial Analysis<a class="headerlink" href="#advanced-spatial-analysis" title="Link to this heading">¶</a></h1>
 <p>Advanced Spatial Analysis provides sophisticated spatial analysis methods using squidpy, including neighborhood enrichment, co-occurrence analysis, spatial autocorrelation, and Ripley functions.</p>
 <section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>Advanced Spatial Analysis extends Simple Spatial Analysis with additional methods from the squidpy package, enabling more sophisticated spatial pattern analysis, statistical testing, and spatial statistics.</p>
 <p><strong>Key Features:</strong>
 - <strong>Squidpy Integration</strong>: All analyses are implemented using the squidpy package
@@ -151,7 +49,7 @@
 </div>
 </section>
 <section id="options">
-<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading">¶</a></h2>
 <p>Advanced Spatial Analysis includes:</p>
 <ol class="arabic simple">
 <li><p><strong>Neighborhood Enrichment</strong>: Analyze enrichment of cell types in neighborhoods</p></li>
@@ -162,9 +60,9 @@
 </ol>
 </section>
 <section id="parameters">
-<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h2>
 <section id="graph-construction">
-<h3>Graph Construction<a class="headerlink" href="#graph-construction" title="Link to this heading"></a></h3>
+<h3>Graph Construction<a class="headerlink" href="#graph-construction" title="Link to this heading">¶</a></h3>
 <p>Same as Simple Spatial Analysis:
 - <strong>method</strong>: kNN, Radius, or Delaunay
 - <strong>k_neighbors</strong>: Number of neighbors for kNN
@@ -172,7 +70,7 @@
 - <strong>pixel_size_um</strong>: Pixel size in micrometers</p>
 </section>
 <section id="neighborhood-enrichment">
-<h3>Neighborhood Enrichment<a class="headerlink" href="#neighborhood-enrichment" title="Link to this heading"></a></h3>
+<h3>Neighborhood Enrichment<a class="headerlink" href="#neighborhood-enrichment" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>n_permutations</strong> (default: <code class="docutils literal notranslate"><span class="pre">100</span></code>): Number of permutations for statistical testing
 - More permutations provide more accurate p-values
@@ -183,7 +81,7 @@
 </ul>
 </section>
 <section id="co-occurrence-analysis">
-<h3>Co-occurrence Analysis<a class="headerlink" href="#co-occurrence-analysis" title="Link to this heading"></a></h3>
+<h3>Co-occurrence Analysis<a class="headerlink" href="#co-occurrence-analysis" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>reference_cluster</strong> (optional): Reference cluster for one-vs-others analysis
 - If specified, compares reference cluster against all others
@@ -194,7 +92,7 @@
 </ul>
 </section>
 <section id="spatial-autocorrelation">
-<h3>Spatial Autocorrelation<a class="headerlink" href="#spatial-autocorrelation" title="Link to this heading"></a></h3>
+<h3>Spatial Autocorrelation<a class="headerlink" href="#spatial-autocorrelation" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>feature</strong> (required): Feature column to analyze
 - Can be a marker expression or other numeric feature</p></li>
@@ -205,7 +103,7 @@
 </ul>
 </section>
 <section id="ripley-functions">
-<h3>Ripley Functions<a class="headerlink" href="#ripley-functions" title="Link to this heading"></a></h3>
+<h3>Ripley Functions<a class="headerlink" href="#ripley-functions" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>cluster_column</strong> (required): Column name containing cluster assignments
 - Typically <code class="docutils literal notranslate"><span class="pre">&quot;cluster&quot;</span></code></p></li>
@@ -220,55 +118,65 @@
 </section>
 </section>
 <section id="using-advanced-spatial-analysis-in-the-gui">
-<h2>Using Advanced Spatial Analysis in the GUI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-gui" title="Link to this heading"></a></h2>
-<ol class="arabic">
+<h2>Using Advanced Spatial Analysis in the GUI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-gui" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
 <li><p>Ensure clustering has been completed</p></li>
 <li><p>Navigate to <strong>Analysis → Spatial Analysis → Advanced Spatial Analysis</strong> in the menu bar</p></li>
-<li><p>In the advanced spatial analysis dialog:
-- <strong>Build Spatial Graph</strong>:</p>
-<blockquote>
-<div><ul class="simple">
+<li><p>In the advanced spatial analysis dialog:</p>
+<ul class="simple">
+<li><p><strong>Build Spatial Graph</strong>:</p>
+<ul>
 <li><p>Select graph construction method (kNN, Radius, or Delaunay)</p></li>
 <li><p>Set parameters (k_neighbors, radius, pixel_size_um)</p></li>
 <li><p>Click “Build Graph”</p></li>
 <li><p>This converts your data to AnnData format and builds spatial graphs using squidpy</p></li>
 </ul>
-</div></blockquote>
-<ul class="simple">
-<li><p><strong>Neighborhood Enrichment Tab</strong>:
-- Set number of permutations
-- Click “Run Neighborhood Enrichment”
-- Results show enrichment scores and p-values
-- Results are stored in AnnData objects</p></li>
-<li><p><strong>Co-occurrence Analysis Tab</strong>:
-- Select analysis method (pairwise or one-vs-others)
-- Optionally specify reference cluster
-- Click “Run Co-occurrence Analysis”
-- Results are stored in AnnData objects</p></li>
-<li><p><strong>Spatial Autocorrelation Tab</strong>:
-- Select feature to analyze
-- Choose autocorrelation method (Moran’s I or Geary’s C)
-- Set number of permutations
-- Click “Run Autocorrelation Analysis”
-- Results are stored in AnnData objects</p></li>
-<li><p><strong>Ripley Functions Tab</strong>:
-- Select cluster column
-- Choose function type (K or L)
-- Set maximum distance
-- Click “Run Ripley Analysis”
-- Results are stored in AnnData objects</p></li>
+</li>
+<li><p><strong>Neighborhood Enrichment Tab</strong>:</p>
+<ul>
+<li><p>Set number of permutations</p></li>
+<li><p>Click “Run Neighborhood Enrichment”</p></li>
+<li><p>Results show enrichment scores and p-values</p></li>
+<li><p>Results are stored in AnnData objects</p></li>
 </ul>
 </li>
-<li><p><strong>Export AnnData</strong>:
-- Click “Export AnnData” button to save AnnData objects
-- Choose to export as:</p>
-<blockquote>
-<div><ul class="simple">
+<li><p><strong>Co-occurrence Analysis Tab</strong>:</p>
+<ul>
+<li><p>Select analysis method (pairwise or one-vs-others)</p></li>
+<li><p>Optionally specify reference cluster</p></li>
+<li><p>Click “Run Co-occurrence Analysis”</p></li>
+<li><p>Results are stored in AnnData objects</p></li>
+</ul>
+</li>
+<li><p><strong>Spatial Autocorrelation Tab</strong>:</p>
+<ul>
+<li><p>Select feature to analyze</p></li>
+<li><p>Choose autocorrelation method (Moran’s I or Geary’s C)</p></li>
+<li><p>Set number of permutations</p></li>
+<li><p>Click “Run Autocorrelation Analysis”</p></li>
+<li><p>Results are stored in AnnData objects</p></li>
+</ul>
+</li>
+<li><p><strong>Ripley Functions Tab</strong>:</p>
+<ul>
+<li><p>Select cluster column</p></li>
+<li><p>Choose function type (K or L)</p></li>
+<li><p>Set maximum distance</p></li>
+<li><p>Click “Run Ripley Analysis”</p></li>
+<li><p>Results are stored in AnnData objects</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>Export AnnData</strong>:</p>
+<ul class="simple">
+<li><p>Click “Export AnnData” button to save AnnData objects</p></li>
+<li><p>Choose to export as:</p>
+<ul>
 <li><p><strong>Combined file</strong>: Single H5AD file with all ROIs</p></li>
 <li><p><strong>Separate files</strong>: One H5AD file per ROI</p></li>
 </ul>
-</div></blockquote>
-<ul class="simple">
+</li>
 <li><p>Exported H5AD files can be used in other tools (scanpy, squidpy, etc.)</p></li>
 </ul>
 </li>
@@ -276,9 +184,9 @@
 </ol>
 </section>
 <section id="using-advanced-spatial-analysis-in-the-cli">
-<h2>Using Advanced Spatial Analysis in the CLI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-cli" title="Link to this heading"></a></h2>
+<h2>Using Advanced Spatial Analysis in the CLI<a class="headerlink" href="#using-advanced-spatial-analysis-in-the-cli" title="Link to this heading">¶</a></h2>
 <section id="id1">
-<h3>Neighborhood Enrichment<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<h3>Neighborhood Enrichment<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-enrichment<span class="w"> </span>features.csv<span class="w"> </span>enrichment_results.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>kNN<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--k-neighbors<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
@@ -287,7 +195,7 @@
 </div>
 </section>
 <section id="id2">
-<h3>Co-occurrence Analysis<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<h3>Co-occurrence Analysis<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-cooccurrence<span class="w"> </span>features.csv<span class="w"> </span>cooccurrence_results.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>pairwise<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--reference-cluster<span class="w"> </span><span class="s2">&quot;Cluster_1&quot;</span>
@@ -295,7 +203,7 @@
 </div>
 </section>
 <section id="id3">
-<h3>Spatial Autocorrelation<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<h3>Spatial Autocorrelation<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-autocorr<span class="w"> </span>features.csv<span class="w"> </span>autocorr_results.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--feature<span class="w"> </span>CD3_1841_mean<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>moran<span class="w"> </span><span class="se">\\</span>
@@ -304,7 +212,7 @@
 </div>
 </section>
 <section id="id4">
-<h3>Ripley Functions<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<h3>Ripley Functions<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-ripley<span class="w"> </span>features.csv<span class="w"> </span>ripley_results.h5ad<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--cluster-column<span class="w"> </span>cluster<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--mode<span class="w"> </span>K<span class="w"> </span><span class="se">\\</span>
@@ -314,7 +222,7 @@
 </div>
 </section>
 <section id="build-spatial-graph-and-export-anndata">
-<h3>Build Spatial Graph and Export AnnData<a class="headerlink" href="#build-spatial-graph-and-export-anndata" title="Link to this heading"></a></h3>
+<h3>Build Spatial Graph and Export AnnData<a class="headerlink" href="#build-spatial-graph-and-export-anndata" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>spatial-anndata<span class="w"> </span>features.csv<span class="w"> </span>--output<span class="w"> </span>spatial_graph.h5ad<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--method<span class="w"> </span>kNN<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--k-neighbors<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\\</span>
@@ -324,7 +232,7 @@
 </div>
 </section>
 <section id="export-anndata-objects">
-<h3>Export AnnData Objects<a class="headerlink" href="#export-anndata-objects" title="Link to this heading"></a></h3>
+<h3>Export AnnData Objects<a class="headerlink" href="#export-anndata-objects" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>export-anndata<span class="w"> </span>input.h5ad<span class="w"> </span>output.h5ad<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--combined
 </pre></div>
@@ -332,9 +240,9 @@
 </section>
 </section>
 <section id="method-details">
-<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading">¶</a></h2>
 <section id="id5">
-<h3>Neighborhood Enrichment<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
+<h3>Neighborhood Enrichment<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h3>
 <p>Neighborhood enrichment analyzes whether cell types are enriched or depleted in the neighborhoods of other cell types.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -354,7 +262,7 @@
 - Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.nhood_enrichment.html">squidpy.gr.nhood_enrichment</a></p>
 </section>
 <section id="id6">
-<h3>Co-occurrence Analysis<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<h3>Co-occurrence Analysis<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h3>
 <p>Co-occurrence analysis tests whether cell types tend to appear together in spatial proximity.</p>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
@@ -369,7 +277,7 @@
 - Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.co_occurrence.html">squidpy.gr.co_occurrence</a></p>
 </section>
 <section id="id7">
-<h3>Spatial Autocorrelation<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
+<h3>Spatial Autocorrelation<a class="headerlink" href="#id7" title="Link to this heading">¶</a></h3>
 <p>Spatial autocorrelation measures how similar feature values are for spatially nearby cells.</p>
 <p><strong>Moran’s I</strong>:
 - Range: -1 to 1
@@ -397,7 +305,7 @@
 - Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.spatial_autocorr.html">squidpy.gr.spatial_autocorr</a></p>
 </section>
 <section id="id8">
-<h3>Ripley Functions<a class="headerlink" href="#id8" title="Link to this heading"></a></h3>
+<h3>Ripley Functions<a class="headerlink" href="#id8" title="Link to this heading">¶</a></h3>
 <p>Ripley functions analyze spatial point patterns to test for clustering or dispersion.</p>
 <p><strong>Ripley’s K Function</strong>:
 - Measures the expected number of points within distance r of a randomly chosen point
@@ -426,7 +334,7 @@
 - Implementation: <a class="reference external" href="https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.ripley.html">squidpy.gr.ripley</a></p>
 </section>
 <section id="squidpy-and-anndata-integration">
-<h3>Squidpy and AnnData Integration<a class="headerlink" href="#squidpy-and-anndata-integration" title="Link to this heading"></a></h3>
+<h3>Squidpy and AnnData Integration<a class="headerlink" href="#squidpy-and-anndata-integration" title="Link to this heading">¶</a></h3>
 <p>Advanced Spatial Analysis uses the squidpy package, which provides a comprehensive toolkit for spatial omics analysis. All analyses are performed using AnnData objects, which provide a standardized format for single-cell and spatial omics data.</p>
 <p><strong>Data Flow:</strong></p>
 <ol class="arabic simple">
@@ -468,7 +376,7 @@
 </section>
 </section>
 <section id="tips-and-best-practices">
-<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Installation</strong>: Ensure squidpy is installed: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">squidpy</span></code></p></li>
 <li><p><strong>Method Selection</strong>:
@@ -509,10 +417,10 @@
 </section>
 </section>
 <section id="advanced-spatial-analysis-visualizations">
-<h1>Advanced Spatial Analysis Visualizations<a class="headerlink" href="#advanced-spatial-analysis-visualizations" title="Link to this heading"></a></h1>
+<h1>Advanced Spatial Analysis Visualizations<a class="headerlink" href="#advanced-spatial-analysis-visualizations" title="Link to this heading">¶</a></h1>
 <p>Advanced Spatial Analysis provides sophisticated visualization options for exploring spatial patterns using squidpy methods. All visualizations are accessible from the advanced spatial analysis dialog after building the spatial graph.</p>
 <section id="available-visualizations">
-<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading"></a></h2>
+<h2>Available Visualizations<a class="headerlink" href="#available-visualizations" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Neighborhood Enrichment</strong>: Heatmap showing enrichment/depletion of cell types in neighborhoods</p></li>
 <li><p><strong>Co-occurrence Analysis</strong>: Heatmap showing spatial co-occurrence patterns</p></li>
@@ -521,7 +429,7 @@
 </ol>
 </section>
 <section id="neighborhood-enrichment-visualization">
-<h2>Neighborhood Enrichment Visualization<a class="headerlink" href="#neighborhood-enrichment-visualization" title="Link to this heading"></a></h2>
+<h2>Neighborhood Enrichment Visualization<a class="headerlink" href="#neighborhood-enrichment-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows a heatmap of enrichment scores indicating whether cell types are enriched or depleted in the neighborhoods of other cell types.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -555,7 +463,7 @@
 </ul>
 </section>
 <section id="co-occurrence-analysis-visualization">
-<h2>Co-occurrence Analysis Visualization<a class="headerlink" href="#co-occurrence-analysis-visualization" title="Link to this heading"></a></h2>
+<h2>Co-occurrence Analysis Visualization<a class="headerlink" href="#co-occurrence-analysis-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows a heatmap of co-occurrence scores indicating whether cell types tend to appear together in spatial proximity.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -587,7 +495,7 @@
 </ul>
 </section>
 <section id="spatial-autocorrelation-visualization">
-<h2>Spatial Autocorrelation Visualization<a class="headerlink" href="#spatial-autocorrelation-visualization" title="Link to this heading"></a></h2>
+<h2>Spatial Autocorrelation Visualization<a class="headerlink" href="#spatial-autocorrelation-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows spatial autocorrelation statistics (Moran’s I or Geary’s C) for selected features, indicating spatial clustering or dispersion.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -631,7 +539,7 @@
 </ul>
 </section>
 <section id="ripley-functions-visualization">
-<h2>Ripley Functions Visualization<a class="headerlink" href="#ripley-functions-visualization" title="Link to this heading"></a></h2>
+<h2>Ripley Functions Visualization<a class="headerlink" href="#ripley-functions-visualization" title="Link to this heading">¶</a></h2>
 <p>Shows Ripley’s K or L functions for analyzing spatial point patterns, testing for clustering or dispersion.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
@@ -676,7 +584,7 @@
 </ul>
 </section>
 <section id="exporting-plots">
-<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading"></a></h2>
+<h2>Exporting Plots<a class="headerlink" href="#exporting-plots" title="Link to this heading">¶</a></h2>
 <p>All visualizations can be exported using the <strong>“Save Plot”</strong> button in each tab.</p>
 <p><strong>Export Options:</strong></p>
 <ol class="arabic simple">
@@ -721,7 +629,7 @@
 </ul>
 </section>
 <section id="accessing-visualizations-in-the-gui">
-<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading"></a></h2>
+<h2>Accessing Visualizations in the GUI<a class="headerlink" href="#accessing-visualizations-in-the-gui" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Build Spatial Graph</strong>: First, build the spatial graph using the controls at the top
 - Select graph construction method (kNN, Radius, or Delaunay)
@@ -748,7 +656,7 @@
 </ul>
 </section>
 <section id="tips-and-best-practices-for-visualizations">
-<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading"></a></h2>
+<h2>Tips and Best Practices for Visualizations<a class="headerlink" href="#tips-and-best-practices-for-visualizations" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Neighborhood Enrichment:</strong>
 - Use at least 100 permutations, preferably 500-1000 for publication
@@ -781,34 +689,113 @@
 </section>
 
 
-           </div>
           </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="simple_spatial_analysis.html" class="btn btn-neutral float-left" title="Simple Spatial Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="custom_algorithms.html" class="btn btn-neutral float-right" title="Custom Algorithms" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
-
-  <hr/>
-
-  <div role="contentinfo">
-    <p>&#169; Copyright 2025, Dean Tessone.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
+          
         </div>
       </div>
-    </section>
-  </div>
-  <script>
-      jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
-      });
-  </script> 
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">OpenIMC</a></h1>
 
-</body>
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Advanced Spatial Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-advanced-spatial-analysis-in-the-gui">Using Advanced Spatial Analysis in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-advanced-spatial-analysis-in-the-cli">Using Advanced Spatial Analysis in the CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#available-visualizations">Available Visualizations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#neighborhood-enrichment-visualization">Neighborhood Enrichment Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#co-occurrence-analysis-visualization">Co-occurrence Analysis Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#spatial-autocorrelation-visualization">Spatial Autocorrelation Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ripley-functions-visualization">Ripley Functions Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#exporting-plots">Exporting Plots</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="simple_spatial_analysis.html" title="previous chapter">Simple Spatial Analysis</a></li>
+      <li>Next: <a href="custom_algorithms.html" title="next chapter">Custom Algorithms</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Dean Tessone.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/advanced_spatial_analysis.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
 </html>

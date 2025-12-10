@@ -68,7 +68,7 @@ Distance Distributions
   - More workers speed up computation for large datasets
 
 Spatial Communities
-~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~
 
 - **min_cells** (default: ``5``): Minimum number of cells in a community
   - Filters out very small communities
@@ -83,6 +83,7 @@ Using Simple Spatial Analysis in the GUI
 
 3. In the spatial analysis dialog:
    - **Build Spatial Graph**:
+   
      - Select graph construction method (kNN, Radius, or Delaunay)
      - Set k_neighbors (for kNN) or radius (for Radius)
      - Set pixel size if known
@@ -256,7 +257,7 @@ Spatial visualization displays cells in their spatial coordinates, colored by cl
 - Exploring feature spatial distributions
 
 Spatial Communities
-~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 
 Spatial community detection identifies spatially coherent groups of cells using graph-based clustering.
 

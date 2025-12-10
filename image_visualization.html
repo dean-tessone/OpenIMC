@@ -1,48 +1,418 @@
-
-
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" data-content_root="./">
-<head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Image Visualization &mdash; OpenIMC 0.1.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  
-      <script src="_static/jquery.js?v=5d32c60e"></script>
-      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=01f34227"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script src="_static/js/theme.js"></script>
+    <title>Image Visualization &#8212; OpenIMC 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Segmentation" href="segmentation.html" />
-    <link rel="prev" title="Quick Start" href="quickstart.html" /> 
-</head>
+    <link rel="prev" title="Quick Start" href="quickstart.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search" >
+  
+  
 
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
           
-          
-          <a href="index.html" class="icon icon-home">
-            OpenIMC
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
+
+          <div class="body" role="main">
+            
+  <section id="image-visualization">
+<h1>Image Visualization<a class="headerlink" href="#image-visualization" title="Link to this heading">¶</a></h1>
+<p>OpenIMC provides comprehensive image visualization capabilities for exploring IMC data, including multiple viewing modes, segmentation overlays, scaling options, and comparison tools.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
+<p>The image visualization system in OpenIMC allows you to:</p>
+<ul class="simple">
+<li><p>Load and display IMC images with efficient caching</p></li>
+<li><p>Select and view multiple channels simultaneously</p></li>
+<li><p>Switch between different viewing modes (Grid, RGB, Grayscale)</p></li>
+<li><p>Overlay segmentation masks with multiple display options</p></li>
+<li><p>Apply custom scaling, denoising, and spillover correction</p></li>
+<li><p>Zoom and navigate images</p></li>
+<li><p>Compare multiple acquisitions side-by-side</p></li>
+</ul>
+</section>
+<section id="image-loading-and-caching">
+<h2>Image Loading and Caching<a class="headerlink" href="#image-loading-and-caching" title="Link to this heading">¶</a></h2>
+<p><strong>Image Cache:</strong></p>
+<p>OpenIMC uses an in-memory cache to store loaded images, improving performance when switching between channels or acquisitions.</p>
+<ul class="simple">
+<li><p><strong>Cache Key</strong>: Images are cached by acquisition ID and channel name</p></li>
+<li><p><strong>Automatic Prefetching</strong>: When an acquisition is selected, all channels are prefetched in the background</p></li>
+<li><p><strong>Cache Management</strong>: Cache is automatically cleared when switching files or acquisitions</p></li>
+<li><p><strong>Thread-Safe</strong>: Cache operations are thread-safe to support background loading</p></li>
+</ul>
+<p><strong>Loading Process:</strong></p>
+<ol class="arabic simple">
+<li><p>Check cache for existing image</p></li>
+<li><p>If not cached, load from MCD/OME-TIFF file</p></li>
+<li><p>Apply denoising (if enabled)</p></li>
+<li><p>Apply normalization (if configured)</p></li>
+<li><p>Store in cache for future use</p></li>
+</ol>
+</section>
+<section id="channel-selection">
+<h2>Channel Selection<a class="headerlink" href="#channel-selection" title="Link to this heading">¶</a></h2>
+<p><strong>Selecting Channels:</strong></p>
+<ul class="simple">
+<li><p><strong>Channel List</strong>: Use the checkbox list to select one or more channels</p></li>
+<li><p><strong>Search</strong>: Use the search box to filter channels by name</p></li>
+<li><p><strong>Select All</strong>: Use “Select All” button to select all visible channels</p></li>
+<li><p><strong>Deselect All</strong>: Use “Deselect All” button to clear selection</p></li>
+</ul>
+<p><strong>Auto-Selection:</strong></p>
+<ul class="simple">
+<li><p>When switching acquisitions, previously selected channels are automatically re-selected if they exist in the new acquisition</p></li>
+<li><p>DNA channels (DNA1, DNA2) are auto-selected on initial file load if available</p></li>
+</ul>
+</section>
+<section id="viewing-modes">
+<h2>Viewing Modes<a class="headerlink" href="#viewing-modes" title="Link to this heading">¶</a></h2>
+<p>OpenIMC supports three viewing modes:</p>
+<p><strong>1. Grid Mode</strong> (default for multiple channels)</p>
+<ul class="simple">
+<li><p>Displays each selected channel in a separate subplot</p></li>
+<li><p>Useful for comparing multiple channels side-by-side</p></li>
+<li><p>Each channel can have independent scaling</p></li>
+<li><p>Enable with “Grid view for multiple channels” checkbox</p></li>
+</ul>
+<p><strong>2. RGB Composite Mode</strong></p>
+<ul class="simple">
+<li><p>Combines selected channels into a single RGB image</p></li>
+<li><p>Assign channels to Red, Green, and Blue color components</p></li>
+<li><p>Supports multiple channels per color (averaged or combined)</p></li>
+<li><p>Useful for visualizing co-expression patterns</p></li>
+<li><p>Enable by unchecking “Grid view for multiple channels”</p></li>
+</ul>
+<p><strong>3. Grayscale Mode</strong></p>
+<ul class="simple">
+<li><p>Converts RGB composite to grayscale (mean across channels)</p></li>
+<li><p>Or displays individual channels in grayscale colormap</p></li>
+<li><p>Useful for printing or when color is not needed</p></li>
+<li><p>Enable with “Grayscale mode” checkbox</p></li>
+</ul>
+<p><strong>Switching Modes:</strong></p>
+<ul class="simple">
+<li><p>Toggle “Grid view” checkbox to switch between Grid and RGB modes</p></li>
+<li><p>Toggle “Grayscale mode” checkbox to enable/disable grayscale</p></li>
+<li><p>View automatically refreshes when mode changes</p></li>
+</ul>
+</section>
+<section id="segmentation-overlays">
+<h2>Segmentation Overlays<a class="headerlink" href="#segmentation-overlays" title="Link to this heading">¶</a></h2>
+<p><strong>Enabling Overlays:</strong></p>
+<ul class="simple">
+<li><p>Check “Show segmentation overlay” to display segmentation masks</p></li>
+<li><p>Overlays are applied to all displayed channels</p></li>
+<li><p>Requires loaded segmentation masks (from segmentation or loaded from file)</p></li>
+</ul>
+<p><strong>Overlay Modes:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Mask Mode</strong> (default):
+- Displays segmentation masks as semi-transparent colored overlays
+- Each cell is colored based on its mask value
+- Useful for visualizing cell boundaries and spatial distribution</p></li>
+<li><p><strong>Outline Mode</strong>:
+- Displays only the cell outlines (contours)
+- Red outlines overlaid on the image
+- Useful for precise cell boundary visualization without obscuring image details</p></li>
+<li><p><strong>Cluster Mode</strong>:
+- Colors cells by their cluster assignment (if clustering has been performed)
+- Shows cluster colors with legend
+- Can display cluster mask only (without channel overlay) when no channels are selected
+- Useful for visualizing spatial distribution of cell types</p></li>
+</ol>
+<p><strong>Switching Overlay Modes:</strong></p>
+<ul class="simple">
+<li><p>Use the “Mode” dropdown in the overlay controls</p></li>
+<li><p>Mode is applied immediately to all displayed images</p></li>
+<li><p>Cluster mode is only available if clustering has been performed</p></li>
+</ul>
+</section>
+<section id="scale-bar">
+<h2>Scale Bar<a class="headerlink" href="#scale-bar" title="Link to this heading">¶</a></h2>
+<p><strong>Adding Scale Bar:</strong></p>
+<ul class="simple">
+<li><p>Check “Show scale bar” to display a scale bar on images</p></li>
+<li><p>Configure length in micrometers (default: 10 μm)</p></li>
+<li><p>Scale bar is automatically positioned in the bottom-right corner</p></li>
+</ul>
+<p><strong>Parameters:</strong></p>
+<ul class="simple">
+<li><p><strong>Length (μm)</strong>: Physical length of the scale bar in micrometers</p></li>
+<li><p><strong>Pixel Size</strong>: Automatically detected from image metadata or can be manually set</p></li>
+<li><p><strong>Position</strong>: Automatically positioned to avoid overlap with image content</p></li>
+</ul>
+<p><strong>Usage:</strong></p>
+<ul class="simple">
+<li><p>Essential for publication-quality figures</p></li>
+<li><p>Helps readers understand spatial scale</p></li>
+<li><p>Works in both Grid and RGB modes</p></li>
+</ul>
+</section>
+<section id="custom-scaling">
+<h2>Custom Scaling<a class="headerlink" href="#custom-scaling" title="Link to this heading">¶</a></h2>
+<p><strong>What is Custom Scaling?</strong></p>
+<p>Custom scaling allows you to adjust the intensity range (min/max values) used for displaying each channel. This controls how pixel intensities are mapped to display colors.</p>
+<p><strong>How it Works:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Default Range</strong>: Uses the full intensity range of the image (min to max)</p></li>
+<li><p><strong>Manual Scaling</strong>: Set custom min/max values to focus on specific intensity ranges</p></li>
+<li><p><strong>Per-Channel Scaling</strong>: Each channel can have independent scaling values</p></li>
+<li><p><strong>RGB Color Scaling</strong>: In RGB mode, each color component (Red, Green, Blue) can be scaled independently</p></li>
+</ol>
+<p><strong>Scaling Methods:</strong></p>
+<ul class="simple">
+<li><p><strong>Default</strong>: Full image range (min to max)</p></li>
+<li><p><strong>Manual</strong>: Set custom min/max values</p></li>
+<li><p><strong>Arcsinh</strong>: Apply arcsinh transformation with configurable cofactor (useful for high dynamic range data)</p></li>
+</ul>
+<p><strong>Using Custom Scaling:</strong></p>
+<ol class="arabic simple">
+<li><p>Enable “Custom scaling” checkbox</p></li>
+<li><p>Select channel or RGB color from dropdown</p></li>
+<li><p>Adjust min/max spinboxes or use “Default range” button</p></li>
+<li><p>For arcsinh: check “Arcsinh” and set cofactor (default: 10.0)</p></li>
+<li><p>Scaling is applied immediately</p></li>
+</ol>
+<p><strong>Tips:</strong></p>
+<ul class="simple">
+<li><p>Lower min values increase brightness</p></li>
+<li><p>Higher max values increase contrast</p></li>
+<li><p>Arcsinh helps visualize data with very high dynamic range</p></li>
+<li><p>In RGB mode, scaling affects the intensity of each color component</p></li>
+</ul>
+</section>
+<section id="denoising">
+<h2>Denoising<a class="headerlink" href="#denoising" title="Link to this heading">¶</a></h2>
+<p><strong>What is Denoising?</strong></p>
+<p>Denoising removes noise and artifacts from images to improve visualization quality. Denoising is applied per-channel and operates on raw pixel intensities before normalization.</p>
+<p><strong>Denoising Methods:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Hot Pixel Removal</strong>:
+- <strong>Median 3x3</strong>: Replace hot pixels with median of 3x3 neighborhood
+- <strong>&gt;N SD above local median</strong>: Remove pixels more than N standard deviations above local median</p></li>
+<li><p><strong>Speckle Smoothing</strong>:
+- <strong>Gaussian</strong>: Apply Gaussian blur (configurable sigma)
+- <strong>Non-local means</strong>: Advanced denoising (slower but better quality)</p></li>
+<li><p><strong>Background Subtraction</strong>:
+- <strong>White top-hat</strong>: Remove bright background structures
+- <strong>Black top-hat</strong>: Remove dark background structures
+- <strong>Rolling ball</strong>: Approximate rolling ball background subtraction</p></li>
+</ol>
+<p><strong>Using Denoising:</strong></p>
+<ol class="arabic simple">
+<li><p>Enable “Enable denoising” checkbox</p></li>
+<li><p>Select channel from dropdown</p></li>
+<li><p>Configure each denoising method (hot pixel, speckle, background)</p></li>
+<li><p>Set processing order (Hot → Speckle → Background recommended)</p></li>
+<li><p>Click “Apply to all channels” to use same settings for all channels</p></li>
+<li><p>Denoising is applied automatically when viewing images</p></li>
+</ol>
+<p><strong>Important Notes:</strong></p>
+<ul class="simple">
+<li><p>Denoising is <strong>visualization-only</strong> and does not affect feature extraction</p></li>
+<li><p>Settings are saved per-channel</p></li>
+<li><p>Requires scikit-image package</p></li>
+<li><p>Processing order matters: hot pixels first, then speckle, then background</p></li>
+</ul>
+</section>
+<section id="spillover-correction-visualization">
+<h2>Spillover Correction (Visualization)<a class="headerlink" href="#spillover-correction-visualization" title="Link to this heading">¶</a></h2>
+<p><strong>What is Spillover Correction?</strong></p>
+<p>Spillover correction compensates for signal leakage between channels due to spectral overlap. In visualization mode, this is applied on-the-fly to show how images would look after correction.</p>
+<p><strong>Important Warning:</strong></p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>Spillover correction in visualization is for preview only.</strong> To actually correct your data, you must apply spillover correction during feature extraction. Visualization correction does not modify the underlying data.</p>
 </div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<p><strong>Using Spillover Correction:</strong></p>
+<ol class="arabic simple">
+<li><p>Load a spillover matrix CSV file (via File → Load Spillover Matrix or Analysis → Generate Spillover Matrix)</p></li>
+<li><p>Enable “Spillover correction” checkbox</p></li>
+<li><p>Select correction method:
+- <strong>NNLS</strong> (Non-Negative Least Squares): Recommended, ensures non-negative results
+- <strong>PGD</strong> (Projected Gradient Descent): Alternative method</p></li>
+<li><p>Correction is applied automatically when viewing images</p></li>
+</ol>
+<p><strong>How it Works:</strong></p>
+<ol class="arabic simple">
+<li><p>Loads all selected channels with denoising only</p></li>
+<li><p>Applies spillover correction using the loaded matrix</p></li>
+<li><p>Applies normalization/scaling to corrected images</p></li>
+<li><p>Displays corrected images</p></li>
+</ol>
+<p><strong>Limitations:</strong></p>
+<ul class="simple">
+<li><p>Only affects visualization, not actual data</p></li>
+<li><p>Requires loaded spillover matrix</p></li>
+<li><p>Matrix channels must match image channels</p></li>
+<li><p>Correction is computationally intensive for many channels</p></li>
+</ul>
+</section>
+<section id="zoom-functionality">
+<h2>Zoom Functionality<a class="headerlink" href="#zoom-functionality" title="Link to this heading">¶</a></h2>
+<p><strong>Zooming:</strong></p>
+<ul class="simple">
+<li><p><strong>Mouse Wheel</strong>: Scroll to zoom in/out</p></li>
+<li><p><strong>Navigation Toolbar</strong>: Use zoom tools in matplotlib toolbar</p></li>
+<li><p><strong>Zoom to Rectangle</strong>: Click and drag to zoom to selected region</p></li>
+<li><p><strong>Pan</strong>: Click and drag to pan when zoomed in</p></li>
+</ul>
+<p><strong>Zoom Preservation:</strong></p>
+<ul class="simple">
+<li><p>Zoom level is automatically preserved when:
+- Switching between channels (if same acquisition)
+- Toggling viewing modes
+- Changing overlay settings
+- Applying scaling or denoising</p></li>
+</ul>
+<p><strong>Reset Zoom:</strong></p>
+<ul class="simple">
+<li><p>Click “Reset Zoom” button to return to full image view</p></li>
+<li><p>Or use navigation toolbar “Home” button</p></li>
+</ul>
+<p><strong>Synchronized Zoom (Grid Mode):</strong></p>
+<ul class="simple">
+<li><p>In grid mode, zooming one channel zooms all channels to the same region</p></li>
+<li><p>Useful for comparing channels at the same spatial location</p></li>
+</ul>
+</section>
+<section id="comparison-mode">
+<h2>Comparison Mode<a class="headerlink" href="#comparison-mode" title="Link to this heading">¶</a></h2>
+<p><strong>Opening Comparison Mode:</strong></p>
+<ul class="simple">
+<li><p>Click “Comparison mode” button in the main window</p></li>
+<li><p>Opens a dialog for side-by-side comparison of multiple acquisitions</p></li>
+</ul>
+<p><strong>Features:</strong></p>
+<ul class="simple">
+<li><p><strong>Multi-Acquisition Selection</strong>: Select multiple acquisitions to compare</p></li>
+<li><p><strong>Channel Selection</strong>: Choose channel to display across all acquisitions</p></li>
+<li><p><strong>Synchronized Viewing</strong>: All acquisitions display the same channel</p></li>
+<li><p><strong>Individual Scaling</strong>: Each acquisition can have independent scaling</p></li>
+<li><p><strong>Overlay Support</strong>: Segmentation overlays can be enabled</p></li>
+<li><p><strong>Grayscale Mode</strong>: Optional grayscale display</p></li>
+</ul>
+<p><strong>Use Cases:</strong></p>
+<ul class="simple">
+<li><p>Compare the same ROI across different conditions</p></li>
+<li><p>Compare different ROIs from the same sample</p></li>
+<li><p>Quality control across acquisitions</p></li>
+<li><p>Batch visualization</p></li>
+</ul>
+<p><strong>Controls:</strong></p>
+<ul class="simple">
+<li><p>Select acquisitions from list (multi-select)</p></li>
+<li><p>Choose channel from dropdown</p></li>
+<li><p>Adjust scaling per acquisition</p></li>
+<li><p>Toggle overlay and grayscale options</p></li>
+<li><p>Export individual or all images</p></li>
+</ul>
+</section>
+<section id="exporting-images">
+<h2>Exporting Images<a class="headerlink" href="#exporting-images" title="Link to this heading">¶</a></h2>
+<p><strong>Saving Figures:</strong></p>
+<ul class="simple">
+<li><p>Use File → Save Figure or right-click on image</p></li>
+<li><p>Opens save dialog with options:
+- <strong>Format</strong>: PNG, PDF, SVG, EPS, TIFF
+- <strong>DPI</strong>: Resolution (default: 300 for publication quality)
+- <strong>Transparent Background</strong>: Optional
+- <strong>Font Size</strong>: Adjust text size in saved figure</p></li>
+</ul>
+<p><strong>Suggested Filenames:</strong></p>
+<ul class="simple">
+<li><p>Automatically generates filename based on:
+- File/slide name
+- Acquisition/ROI name
+- Selected channels
+- Viewing mode (RGB or Grid)</p></li>
+</ul>
+<p><strong>Export Options:</strong></p>
+<ul class="simple">
+<li><p><strong>Single Image</strong>: Current view</p></li>
+<li><p><strong>All Channels</strong>: Export all channels in grid (via “Show all channels” button)</p></li>
+<li><p><strong>Comparison Mode</strong>: Export individual or all comparison images</p></li>
+</ul>
+</section>
+<section id="tips-and-best-practices">
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Performance</strong>:
+- Use grid mode for comparing many channels
+- Use RGB mode for visualizing co-expression
+- Cache improves performance when switching channels</p></li>
+<li><p><strong>Visualization Quality</strong>:
+- Adjust scaling to highlight features of interest
+- Use denoising for noisy images
+- Apply arcsinh for high dynamic range data</p></li>
+<li><p><strong>Segmentation Overlays</strong>:
+- Use Outline mode for precise boundary visualization
+- Use Cluster mode to visualize cell type distribution
+- Use Mask mode for general cell visualization</p></li>
+<li><p><strong>Scale Bar</strong>:
+- Always include scale bar in publication figures
+- Verify pixel size is correct for your data</p></li>
+<li><p><strong>Spillover Correction</strong>:
+- Remember: visualization correction is preview only
+- Apply correction during feature extraction for actual data correction</p></li>
+<li><p><strong>Comparison Mode</strong>:
+- Use for quality control across acquisitions
+- Adjust scaling individually for each acquisition
+- Export side-by-side comparisons for presentations</p></li>
+<li><p><strong>Export</strong>:
+- Use high DPI (300+) for publication figures
+- PNG for general use, PDF/SVG for vector graphics
+- Adjust font sizes for readability in saved figures</p></li>
+</ol>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">OpenIMC</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
@@ -85,412 +455,41 @@
 <li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
 </ul>
 
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="quickstart.html" title="previous chapter">Quick Start</a></li>
+      <li>Next: <a href="segmentation.html" title="next chapter">Segmentation</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
         </div>
       </div>
-    </nav>
-
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">OpenIMC</a>
-      </nav>
-
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Image Visualization</li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="_sources/image_visualization.rst.txt" rel="nofollow"> View page source</a>
-      </li>
-  </ul>
-  <hr/>
-</div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
-  <section id="image-visualization">
-<h1>Image Visualization<a class="headerlink" href="#image-visualization" title="Link to this heading"></a></h1>
-<p>OpenIMC provides comprehensive image visualization capabilities for exploring IMC data, including multiple viewing modes, segmentation overlays, scaling options, and comparison tools.</p>
-<section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
-<p>The image visualization system in OpenIMC allows you to:</p>
-<ul class="simple">
-<li><p>Load and display IMC images with efficient caching</p></li>
-<li><p>Select and view multiple channels simultaneously</p></li>
-<li><p>Switch between different viewing modes (Grid, RGB, Grayscale)</p></li>
-<li><p>Overlay segmentation masks with multiple display options</p></li>
-<li><p>Apply custom scaling, denoising, and spillover correction</p></li>
-<li><p>Zoom and navigate images</p></li>
-<li><p>Compare multiple acquisitions side-by-side</p></li>
-</ul>
-</section>
-<section id="image-loading-and-caching">
-<h2>Image Loading and Caching<a class="headerlink" href="#image-loading-and-caching" title="Link to this heading"></a></h2>
-<p><strong>Image Cache:</strong></p>
-<p>OpenIMC uses an in-memory cache to store loaded images, improving performance when switching between channels or acquisitions.</p>
-<ul class="simple">
-<li><p><strong>Cache Key</strong>: Images are cached by acquisition ID and channel name</p></li>
-<li><p><strong>Automatic Prefetching</strong>: When an acquisition is selected, all channels are prefetched in the background</p></li>
-<li><p><strong>Cache Management</strong>: Cache is automatically cleared when switching files or acquisitions</p></li>
-<li><p><strong>Thread-Safe</strong>: Cache operations are thread-safe to support background loading</p></li>
-</ul>
-<p><strong>Loading Process:</strong></p>
-<ol class="arabic simple">
-<li><p>Check cache for existing image</p></li>
-<li><p>If not cached, load from MCD/OME-TIFF file</p></li>
-<li><p>Apply denoising (if enabled)</p></li>
-<li><p>Apply normalization (if configured)</p></li>
-<li><p>Store in cache for future use</p></li>
-</ol>
-</section>
-<section id="channel-selection">
-<h2>Channel Selection<a class="headerlink" href="#channel-selection" title="Link to this heading"></a></h2>
-<p><strong>Selecting Channels:</strong></p>
-<ul class="simple">
-<li><p><strong>Channel List</strong>: Use the checkbox list to select one or more channels</p></li>
-<li><p><strong>Search</strong>: Use the search box to filter channels by name</p></li>
-<li><p><strong>Select All</strong>: Use “Select All” button to select all visible channels</p></li>
-<li><p><strong>Deselect All</strong>: Use “Deselect All” button to clear selection</p></li>
-</ul>
-<p><strong>Auto-Selection:</strong></p>
-<ul class="simple">
-<li><p>When switching acquisitions, previously selected channels are automatically re-selected if they exist in the new acquisition</p></li>
-<li><p>DNA channels (DNA1, DNA2) are auto-selected on initial file load if available</p></li>
-</ul>
-</section>
-<section id="viewing-modes">
-<h2>Viewing Modes<a class="headerlink" href="#viewing-modes" title="Link to this heading"></a></h2>
-<p>OpenIMC supports three viewing modes:</p>
-<p><strong>1. Grid Mode</strong> (default for multiple channels)</p>
-<ul class="simple">
-<li><p>Displays each selected channel in a separate subplot</p></li>
-<li><p>Useful for comparing multiple channels side-by-side</p></li>
-<li><p>Each channel can have independent scaling</p></li>
-<li><p>Enable with “Grid view for multiple channels” checkbox</p></li>
-</ul>
-<p><strong>2. RGB Composite Mode</strong></p>
-<ul class="simple">
-<li><p>Combines selected channels into a single RGB image</p></li>
-<li><p>Assign channels to Red, Green, and Blue color components</p></li>
-<li><p>Supports multiple channels per color (averaged or combined)</p></li>
-<li><p>Useful for visualizing co-expression patterns</p></li>
-<li><p>Enable by unchecking “Grid view for multiple channels”</p></li>
-</ul>
-<p><strong>3. Grayscale Mode</strong></p>
-<ul class="simple">
-<li><p>Converts RGB composite to grayscale (mean across channels)</p></li>
-<li><p>Or displays individual channels in grayscale colormap</p></li>
-<li><p>Useful for printing or when color is not needed</p></li>
-<li><p>Enable with “Grayscale mode” checkbox</p></li>
-</ul>
-<p><strong>Switching Modes:</strong></p>
-<ul class="simple">
-<li><p>Toggle “Grid view” checkbox to switch between Grid and RGB modes</p></li>
-<li><p>Toggle “Grayscale mode” checkbox to enable/disable grayscale</p></li>
-<li><p>View automatically refreshes when mode changes</p></li>
-</ul>
-</section>
-<section id="segmentation-overlays">
-<h2>Segmentation Overlays<a class="headerlink" href="#segmentation-overlays" title="Link to this heading"></a></h2>
-<p><strong>Enabling Overlays:</strong></p>
-<ul class="simple">
-<li><p>Check “Show segmentation overlay” to display segmentation masks</p></li>
-<li><p>Overlays are applied to all displayed channels</p></li>
-<li><p>Requires loaded segmentation masks (from segmentation or loaded from file)</p></li>
-</ul>
-<p><strong>Overlay Modes:</strong></p>
-<ol class="arabic simple">
-<li><p><strong>Mask Mode</strong> (default):
-- Displays segmentation masks as semi-transparent colored overlays
-- Each cell is colored based on its mask value
-- Useful for visualizing cell boundaries and spatial distribution</p></li>
-<li><p><strong>Outline Mode</strong>:
-- Displays only the cell outlines (contours)
-- Red outlines overlaid on the image
-- Useful for precise cell boundary visualization without obscuring image details</p></li>
-<li><p><strong>Cluster Mode</strong>:
-- Colors cells by their cluster assignment (if clustering has been performed)
-- Shows cluster colors with legend
-- Can display cluster mask only (without channel overlay) when no channels are selected
-- Useful for visualizing spatial distribution of cell types</p></li>
-</ol>
-<p><strong>Switching Overlay Modes:</strong></p>
-<ul class="simple">
-<li><p>Use the “Mode” dropdown in the overlay controls</p></li>
-<li><p>Mode is applied immediately to all displayed images</p></li>
-<li><p>Cluster mode is only available if clustering has been performed</p></li>
-</ul>
-</section>
-<section id="scale-bar">
-<h2>Scale Bar<a class="headerlink" href="#scale-bar" title="Link to this heading"></a></h2>
-<p><strong>Adding Scale Bar:</strong></p>
-<ul class="simple">
-<li><p>Check “Show scale bar” to display a scale bar on images</p></li>
-<li><p>Configure length in micrometers (default: 10 μm)</p></li>
-<li><p>Scale bar is automatically positioned in the bottom-right corner</p></li>
-</ul>
-<p><strong>Parameters:</strong></p>
-<ul class="simple">
-<li><p><strong>Length (μm)</strong>: Physical length of the scale bar in micrometers</p></li>
-<li><p><strong>Pixel Size</strong>: Automatically detected from image metadata or can be manually set</p></li>
-<li><p><strong>Position</strong>: Automatically positioned to avoid overlap with image content</p></li>
-</ul>
-<p><strong>Usage:</strong></p>
-<ul class="simple">
-<li><p>Essential for publication-quality figures</p></li>
-<li><p>Helps readers understand spatial scale</p></li>
-<li><p>Works in both Grid and RGB modes</p></li>
-</ul>
-</section>
-<section id="custom-scaling">
-<h2>Custom Scaling<a class="headerlink" href="#custom-scaling" title="Link to this heading"></a></h2>
-<p><strong>What is Custom Scaling?</strong></p>
-<p>Custom scaling allows you to adjust the intensity range (min/max values) used for displaying each channel. This controls how pixel intensities are mapped to display colors.</p>
-<p><strong>How it Works:</strong></p>
-<ol class="arabic simple">
-<li><p><strong>Default Range</strong>: Uses the full intensity range of the image (min to max)</p></li>
-<li><p><strong>Manual Scaling</strong>: Set custom min/max values to focus on specific intensity ranges</p></li>
-<li><p><strong>Per-Channel Scaling</strong>: Each channel can have independent scaling values</p></li>
-<li><p><strong>RGB Color Scaling</strong>: In RGB mode, each color component (Red, Green, Blue) can be scaled independently</p></li>
-</ol>
-<p><strong>Scaling Methods:</strong></p>
-<ul class="simple">
-<li><p><strong>Default</strong>: Full image range (min to max)</p></li>
-<li><p><strong>Manual</strong>: Set custom min/max values</p></li>
-<li><p><strong>Arcsinh</strong>: Apply arcsinh transformation with configurable cofactor (useful for high dynamic range data)</p></li>
-</ul>
-<p><strong>Using Custom Scaling:</strong></p>
-<ol class="arabic simple">
-<li><p>Enable “Custom scaling” checkbox</p></li>
-<li><p>Select channel or RGB color from dropdown</p></li>
-<li><p>Adjust min/max spinboxes or use “Default range” button</p></li>
-<li><p>For arcsinh: check “Arcsinh” and set cofactor (default: 10.0)</p></li>
-<li><p>Scaling is applied immediately</p></li>
-</ol>
-<p><strong>Tips:</strong></p>
-<ul class="simple">
-<li><p>Lower min values increase brightness</p></li>
-<li><p>Higher max values increase contrast</p></li>
-<li><p>Arcsinh helps visualize data with very high dynamic range</p></li>
-<li><p>In RGB mode, scaling affects the intensity of each color component</p></li>
-</ul>
-</section>
-<section id="denoising">
-<h2>Denoising<a class="headerlink" href="#denoising" title="Link to this heading"></a></h2>
-<p><strong>What is Denoising?</strong></p>
-<p>Denoising removes noise and artifacts from images to improve visualization quality. Denoising is applied per-channel and operates on raw pixel intensities before normalization.</p>
-<p><strong>Denoising Methods:</strong></p>
-<ol class="arabic simple">
-<li><p><strong>Hot Pixel Removal</strong>:
-- <strong>Median 3x3</strong>: Replace hot pixels with median of 3x3 neighborhood
-- <strong>&gt;N SD above local median</strong>: Remove pixels more than N standard deviations above local median</p></li>
-<li><p><strong>Speckle Smoothing</strong>:
-- <strong>Gaussian</strong>: Apply Gaussian blur (configurable sigma)
-- <strong>Non-local means</strong>: Advanced denoising (slower but better quality)</p></li>
-<li><p><strong>Background Subtraction</strong>:
-- <strong>White top-hat</strong>: Remove bright background structures
-- <strong>Black top-hat</strong>: Remove dark background structures
-- <strong>Rolling ball</strong>: Approximate rolling ball background subtraction</p></li>
-</ol>
-<p><strong>Using Denoising:</strong></p>
-<ol class="arabic simple">
-<li><p>Enable “Enable denoising” checkbox</p></li>
-<li><p>Select channel from dropdown</p></li>
-<li><p>Configure each denoising method (hot pixel, speckle, background)</p></li>
-<li><p>Set processing order (Hot → Speckle → Background recommended)</p></li>
-<li><p>Click “Apply to all channels” to use same settings for all channels</p></li>
-<li><p>Denoising is applied automatically when viewing images</p></li>
-</ol>
-<p><strong>Important Notes:</strong></p>
-<ul class="simple">
-<li><p>Denoising is <strong>visualization-only</strong> and does not affect feature extraction</p></li>
-<li><p>Settings are saved per-channel</p></li>
-<li><p>Requires scikit-image package</p></li>
-<li><p>Processing order matters: hot pixels first, then speckle, then background</p></li>
-</ul>
-</section>
-<section id="spillover-correction-visualization">
-<h2>Spillover Correction (Visualization)<a class="headerlink" href="#spillover-correction-visualization" title="Link to this heading"></a></h2>
-<p><strong>What is Spillover Correction?</strong></p>
-<p>Spillover correction compensates for signal leakage between channels due to spectral overlap. In visualization mode, this is applied on-the-fly to show how images would look after correction.</p>
-<p><strong>Important Warning:</strong></p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p><strong>Spillover correction in visualization is for preview only.</strong> To actually correct your data, you must apply spillover correction during feature extraction. Visualization correction does not modify the underlying data.</p>
-</div>
-<p><strong>Using Spillover Correction:</strong></p>
-<ol class="arabic simple">
-<li><p>Load a spillover matrix CSV file (via File → Load Spillover Matrix or Analysis → Generate Spillover Matrix)</p></li>
-<li><p>Enable “Spillover correction” checkbox</p></li>
-<li><p>Select correction method:
-- <strong>NNLS</strong> (Non-Negative Least Squares): Recommended, ensures non-negative results
-- <strong>PGD</strong> (Projected Gradient Descent): Alternative method</p></li>
-<li><p>Correction is applied automatically when viewing images</p></li>
-</ol>
-<p><strong>How it Works:</strong></p>
-<ol class="arabic simple">
-<li><p>Loads all selected channels with denoising only</p></li>
-<li><p>Applies spillover correction using the loaded matrix</p></li>
-<li><p>Applies normalization/scaling to corrected images</p></li>
-<li><p>Displays corrected images</p></li>
-</ol>
-<p><strong>Limitations:</strong></p>
-<ul class="simple">
-<li><p>Only affects visualization, not actual data</p></li>
-<li><p>Requires loaded spillover matrix</p></li>
-<li><p>Matrix channels must match image channels</p></li>
-<li><p>Correction is computationally intensive for many channels</p></li>
-</ul>
-</section>
-<section id="zoom-functionality">
-<h2>Zoom Functionality<a class="headerlink" href="#zoom-functionality" title="Link to this heading"></a></h2>
-<p><strong>Zooming:</strong></p>
-<ul class="simple">
-<li><p><strong>Mouse Wheel</strong>: Scroll to zoom in/out</p></li>
-<li><p><strong>Navigation Toolbar</strong>: Use zoom tools in matplotlib toolbar</p></li>
-<li><p><strong>Zoom to Rectangle</strong>: Click and drag to zoom to selected region</p></li>
-<li><p><strong>Pan</strong>: Click and drag to pan when zoomed in</p></li>
-</ul>
-<p><strong>Zoom Preservation:</strong></p>
-<ul class="simple">
-<li><p>Zoom level is automatically preserved when:
-- Switching between channels (if same acquisition)
-- Toggling viewing modes
-- Changing overlay settings
-- Applying scaling or denoising</p></li>
-</ul>
-<p><strong>Reset Zoom:</strong></p>
-<ul class="simple">
-<li><p>Click “Reset Zoom” button to return to full image view</p></li>
-<li><p>Or use navigation toolbar “Home” button</p></li>
-</ul>
-<p><strong>Synchronized Zoom (Grid Mode):</strong></p>
-<ul class="simple">
-<li><p>In grid mode, zooming one channel zooms all channels to the same region</p></li>
-<li><p>Useful for comparing channels at the same spatial location</p></li>
-</ul>
-</section>
-<section id="comparison-mode">
-<h2>Comparison Mode<a class="headerlink" href="#comparison-mode" title="Link to this heading"></a></h2>
-<p><strong>Opening Comparison Mode:</strong></p>
-<ul class="simple">
-<li><p>Click “Comparison mode” button in the main window</p></li>
-<li><p>Opens a dialog for side-by-side comparison of multiple acquisitions</p></li>
-</ul>
-<p><strong>Features:</strong></p>
-<ul class="simple">
-<li><p><strong>Multi-Acquisition Selection</strong>: Select multiple acquisitions to compare</p></li>
-<li><p><strong>Channel Selection</strong>: Choose channel to display across all acquisitions</p></li>
-<li><p><strong>Synchronized Viewing</strong>: All acquisitions display the same channel</p></li>
-<li><p><strong>Individual Scaling</strong>: Each acquisition can have independent scaling</p></li>
-<li><p><strong>Overlay Support</strong>: Segmentation overlays can be enabled</p></li>
-<li><p><strong>Grayscale Mode</strong>: Optional grayscale display</p></li>
-</ul>
-<p><strong>Use Cases:</strong></p>
-<ul class="simple">
-<li><p>Compare the same ROI across different conditions</p></li>
-<li><p>Compare different ROIs from the same sample</p></li>
-<li><p>Quality control across acquisitions</p></li>
-<li><p>Batch visualization</p></li>
-</ul>
-<p><strong>Controls:</strong></p>
-<ul class="simple">
-<li><p>Select acquisitions from list (multi-select)</p></li>
-<li><p>Choose channel from dropdown</p></li>
-<li><p>Adjust scaling per acquisition</p></li>
-<li><p>Toggle overlay and grayscale options</p></li>
-<li><p>Export individual or all images</p></li>
-</ul>
-</section>
-<section id="exporting-images">
-<h2>Exporting Images<a class="headerlink" href="#exporting-images" title="Link to this heading"></a></h2>
-<p><strong>Saving Figures:</strong></p>
-<ul class="simple">
-<li><p>Use File → Save Figure or right-click on image</p></li>
-<li><p>Opens save dialog with options:
-- <strong>Format</strong>: PNG, PDF, SVG, EPS, TIFF
-- <strong>DPI</strong>: Resolution (default: 300 for publication quality)
-- <strong>Transparent Background</strong>: Optional
-- <strong>Font Size</strong>: Adjust text size in saved figure</p></li>
-</ul>
-<p><strong>Suggested Filenames:</strong></p>
-<ul class="simple">
-<li><p>Automatically generates filename based on:
-- File/slide name
-- Acquisition/ROI name
-- Selected channels
-- Viewing mode (RGB or Grid)</p></li>
-</ul>
-<p><strong>Export Options:</strong></p>
-<ul class="simple">
-<li><p><strong>Single Image</strong>: Current view</p></li>
-<li><p><strong>All Channels</strong>: Export all channels in grid (via “Show all channels” button)</p></li>
-<li><p><strong>Comparison Mode</strong>: Export individual or all comparison images</p></li>
-</ul>
-</section>
-<section id="tips-and-best-practices">
-<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
-<li><p><strong>Performance</strong>:
-- Use grid mode for comparing many channels
-- Use RGB mode for visualizing co-expression
-- Cache improves performance when switching channels</p></li>
-<li><p><strong>Visualization Quality</strong>:
-- Adjust scaling to highlight features of interest
-- Use denoising for noisy images
-- Apply arcsinh for high dynamic range data</p></li>
-<li><p><strong>Segmentation Overlays</strong>:
-- Use Outline mode for precise boundary visualization
-- Use Cluster mode to visualize cell type distribution
-- Use Mask mode for general cell visualization</p></li>
-<li><p><strong>Scale Bar</strong>:
-- Always include scale bar in publication figures
-- Verify pixel size is correct for your data</p></li>
-<li><p><strong>Spillover Correction</strong>:
-- Remember: visualization correction is preview only
-- Apply correction during feature extraction for actual data correction</p></li>
-<li><p><strong>Comparison Mode</strong>:
-- Use for quality control across acquisitions
-- Adjust scaling individually for each acquisition
-- Export side-by-side comparisons for presentations</p></li>
-<li><p><strong>Export</strong>:
-- Use high DPI (300+) for publication figures
-- PNG for general use, PDF/SVG for vector graphics
-- Adjust font sizes for readability in saved figures</p></li>
-</ol>
-</section>
-</section>
-
-
-           </div>
-          </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="quickstart.html" class="btn btn-neutral float-left" title="Quick Start" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="segmentation.html" class="btn btn-neutral float-right" title="Segmentation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Dean Tessone.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/image_visualization.rst.txt"
+          rel="nofollow">Page source</a>
     </div>
 
-  <hr/>
+    
 
-  <div role="contentinfo">
-    <p>&#169; Copyright 2025, Dean Tessone.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
-        </div>
-      </div>
-    </section>
-  </div>
-  <script>
-      jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
-      });
-  </script> 
-
-</body>
+    
+  </body>
 </html>

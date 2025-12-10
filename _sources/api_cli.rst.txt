@@ -364,7 +364,7 @@ Generate Spillover Matrix
 - ``--workers`` - Number of parallel workers (default: auto)
 
 Deconvolution
-~~~~~~~~~~~~
+~~~~~~~~~~~~~
 
 .. autofunction:: openimc.cli.deconvolution_command
 
@@ -544,7 +544,7 @@ Spatial Autocorrelation
 - ``--workers`` - Number of parallel workers (default: auto)
 
 Spatial Ripley
-~~~~~~~~~~~~~
+~~~~~~~~~~~~~~
 
 .. autofunction:: openimc.cli.spatial_ripley_command
 
@@ -708,7 +708,7 @@ Each step can specify:
 - Step-specific parameters (see individual command documentation)
 
 Additional Notes
----------------
+----------------
 
 **Parallel Processing:**
 Most commands support parallel processing via the ``--workers`` parameter. By default, the number of workers is set to ``max(1, cpu_count() - 2)`` to leave resources for the system.

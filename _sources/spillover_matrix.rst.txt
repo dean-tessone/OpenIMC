@@ -69,6 +69,7 @@ Using Spillover Matrix Generation in the GUI
 
 3. In the spillover matrix dialog:
    - **Configuration Tab**:
+   
      - Click **Browse…** to select your single-stain control MCD file
      - The tool will automatically detect acquisitions and attempt to map them to donor channels
      - Review the **Acquisition to Donor Channel Mapping** table

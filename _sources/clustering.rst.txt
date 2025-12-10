@@ -118,9 +118,11 @@ Using Clustering in the GUI
    - Choose feature columns to use (or use auto-detected)
    - Select scaling method
    - Adjust method-specific parameters:
+   
      - For Leiden/Louvain: Set resolution and n_neighbors
      - For Hierarchical/K-means: Set n_clusters and linkage (hierarchical)
      - For HDBSCAN: Set min_cluster_size and min_samples
+   
    - Optionally use "Find Optimal K" tool for hierarchical/K-means
 
 4. Click **Run Clustering** to start the process
@@ -202,7 +204,7 @@ Method Details
 --------------
 
 Leiden Algorithm
-~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
 
 The Leiden algorithm is a graph-based clustering method that optimizes modularity, a measure of cluster quality.
 
@@ -384,8 +386,10 @@ Tips and Best Practices
    - Higher resolution → more, smaller clusters
    - Adjust iteratively to find optimal granularity
 
-7. **Downstream Analysis**: 
+7. **Downstream Analysis**:
+   
    - Use cluster assignments for:
+   
      - Cell type annotation
      - Differential expression analysis
      - Spatial analysis
@@ -574,9 +578,12 @@ Shows the distribution of marker expression values across clusters, useful for i
   - **Violin Plot**: Shows full distribution shape (KDE)
   - **Boxplot**: Shows quartiles, median, and outliers
 - **Statistical testing**: Enable to perform pairwise comparisons
-  - **Test mode**: 
+  
+  - **Test mode**:
+  
     - ``"Pairwise (all pairs)"``: Compare all cluster pairs
     - ``"One vs Others"``: Compare one cluster against all others
+  
   - **Reference cluster**: Select cluster for "One vs Others" mode
   - **Export Statistical Results**: Export p-values to CSV
 

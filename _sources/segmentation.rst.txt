@@ -94,7 +94,7 @@ CellSAM Parameters
   - Can improve segmentation for variable cell sizes
 
 Cellpose Parameters
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
 
 - **model** (default: ``"cyto3"``): Cellpose model type
   - ``"cyto3"``: General cytoplasm segmentation (requires cytoplasm channels)
@@ -135,7 +135,7 @@ Watershed Parameters
   - Adjust based on expected cell morphology
 
 Ilastik Parameters
-~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~
 
 - **ilp_file** (required): Path to Ilastik project file (``.ilp``)
   - Must be a trained Ilastik project file

@@ -304,6 +304,7 @@ Using LLM-Based Phenotyping in the GUI
 
 4. **Configure LLM Settings**:
    - **OpenAI API Key**: Enter your OpenAI API key (required)
+   
      - Get an API key from https://openai.com/
      - Key is masked for security
    - **Cohort/tissue context**: Enter optional context (e.g., "human colorectal cancer")

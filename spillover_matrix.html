@@ -1,132 +1,48 @@
-
-
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" data-content_root="./">
-<head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spillover Matrix Generation &mdash; OpenIMC 0.1.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
-      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  
-      <script src="_static/jquery.js?v=5d32c60e"></script>
-      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="_static/documentation_options.js?v=01f34227"></script>
-      <script src="_static/doctools.js?v=9bcbadda"></script>
-      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script src="_static/js/theme.js"></script>
+    <title>Spillover Matrix Generation &#8212; OpenIMC 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="High Resolution Experimental Design" href="high_resolution_experimental_design.html" />
-    <link rel="prev" title="Quality Control Analysis" href="quality_control.html" /> 
-</head>
+    <link rel="prev" title="Quality Control Analysis" href="quality_control.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search" >
+  
+  
 
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
           
-          
-          <a href="index.html" class="icon icon-home">
-            OpenIMC
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
-</div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
-<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
-<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Spillover Matrix Generation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#input-parameters">Input Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#computation-parameters">Computation Parameters</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#using-spillover-matrix-generation-in-the-gui">Using Spillover Matrix Generation in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#using-spillover-matrix-generation-in-the-cli">Using Spillover Matrix Generation in the CLI</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#basic-command">Basic Command</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#with-custom-parameters">With Custom Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#with-manual-donor-mapping">With Manual Donor Mapping</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#spillover-coefficient-estimation">Spillover Coefficient Estimation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#matrix-structure">Matrix Structure</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#qc-metrics">QC Metrics</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
-</ul>
 
-        </div>
-      </div>
-    </nav>
-
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">OpenIMC</a>
-      </nav>
-
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">Spillover Matrix Generation</li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="_sources/spillover_matrix.rst.txt" rel="nofollow"> View page source</a>
-      </li>
-  </ul>
-  <hr/>
-</div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
+          <div class="body" role="main">
+            
   <section id="spillover-matrix-generation">
-<h1>Spillover Matrix Generation<a class="headerlink" href="#spillover-matrix-generation" title="Link to this heading"></a></h1>
+<h1>Spillover Matrix Generation<a class="headerlink" href="#spillover-matrix-generation" title="Link to this heading">¶</a></h1>
 <p>Spillover matrix generation estimates spectral overlap between channels from single-stain control data, enabling compensation for spillover effects in IMC data.</p>
 <section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>In IMC, spectral overlap occurs when the signal from one metal isotope is detected in other channels. Spillover matrices quantify these overlaps and are used to correct for them. OpenIMC generates spillover matrices from single-stain control MCD files, where each acquisition contains cells stained with a single metal isotope.</p>
 </section>
 <section id="options">
-<h2>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h2>
+<h2>Options<a class="headerlink" href="#options" title="Link to this heading">¶</a></h2>
 <p>Spillover matrix generation:
 - Analyzes pixel-level data from single-stain controls
 - Automatically detects donor channels from acquisition/well names
@@ -134,9 +50,9 @@
 - Provides QC metrics for matrix quality assessment</p>
 </section>
 <section id="parameters">
-<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h2>
 <section id="input-parameters">
-<h3>Input Parameters<a class="headerlink" href="#input-parameters" title="Link to this heading"></a></h3>
+<h3>Input Parameters<a class="headerlink" href="#input-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>mcd_path</strong> (required): Path to MCD file containing single-stain controls
 - Each acquisition should contain a single-stain control for one channel
@@ -148,7 +64,7 @@
 </ul>
 </section>
 <section id="computation-parameters">
-<h3>Computation Parameters<a class="headerlink" href="#computation-parameters" title="Link to this heading"></a></h3>
+<h3>Computation Parameters<a class="headerlink" href="#computation-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><strong>cap</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.3</span></code>): Maximum spillover coefficient
 - Spillover coefficients above this value are capped
@@ -172,7 +88,7 @@
 </section>
 </section>
 <section id="using-spillover-matrix-generation-in-the-gui">
-<h2>Using Spillover Matrix Generation in the GUI<a class="headerlink" href="#using-spillover-matrix-generation-in-the-gui" title="Link to this heading"></a></h2>
+<h2>Using Spillover Matrix Generation in the GUI<a class="headerlink" href="#using-spillover-matrix-generation-in-the-gui" title="Link to this heading">¶</a></h2>
 <ol class="arabic">
 <li><p>Prepare your single-stain control MCD file:
 - Each acquisition should contain cells stained with a single metal isotope
@@ -212,15 +128,15 @@
 </ol>
 </section>
 <section id="using-spillover-matrix-generation-in-the-cli">
-<h2>Using Spillover Matrix Generation in the CLI<a class="headerlink" href="#using-spillover-matrix-generation-in-the-cli" title="Link to this heading"></a></h2>
+<h2>Using Spillover Matrix Generation in the CLI<a class="headerlink" href="#using-spillover-matrix-generation-in-the-cli" title="Link to this heading">¶</a></h2>
 <section id="basic-command">
-<h3>Basic Command<a class="headerlink" href="#basic-command" title="Link to this heading"></a></h3>
+<h3>Basic Command<a class="headerlink" href="#basic-command" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv
 </pre></div>
 </div>
 </section>
 <section id="with-custom-parameters">
-<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading"></a></h3>
+<h3>With Custom Parameters<a class="headerlink" href="#with-custom-parameters" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--cap<span class="w"> </span><span class="m">0</span>.3<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--aggregate<span class="w"> </span>median<span class="w"> </span><span class="se">\\</span>
@@ -230,7 +146,7 @@
 </div>
 </section>
 <section id="with-manual-donor-mapping">
-<h3>With Manual Donor Mapping<a class="headerlink" href="#with-manual-donor-mapping" title="Link to this heading"></a></h3>
+<h3>With Manual Donor Mapping<a class="headerlink" href="#with-manual-donor-mapping" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--donor-mapping<span class="w"> </span><span class="s1">&#39;{&quot;acq_1&quot;: &quot;Yb176&quot;, &quot;acq_2&quot;: &quot;Er170&quot;}&#39;</span>
 </pre></div>
@@ -238,9 +154,9 @@
 </section>
 </section>
 <section id="method-details">
-<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading"></a></h2>
+<h2>Method Details<a class="headerlink" href="#method-details" title="Link to this heading">¶</a></h2>
 <section id="spillover-coefficient-estimation">
-<h3>Spillover Coefficient Estimation<a class="headerlink" href="#spillover-coefficient-estimation" title="Link to this heading"></a></h3>
+<h3>Spillover Coefficient Estimation<a class="headerlink" href="#spillover-coefficient-estimation" title="Link to this heading">¶</a></h3>
 <p>Spillover coefficients are estimated from pixel-level data using linear regression (slope estimation without intercept).</p>
 <p><strong>Pixel-Level Method:</strong></p>
 <p>For each donor channel <span class="math notranslate nohighlight">\(i\)</span> and receiver channel <span class="math notranslate nohighlight">\(j\)</span>, the spillover coefficient <span class="math notranslate nohighlight">\(S_{ij}\)</span> is computed as:</p>
@@ -293,7 +209,7 @@
 - Implementation based on CATALYST R package: <a class="reference external" href="https://github.com/HelenaLC/CATALYST">CATALYST</a></p>
 </section>
 <section id="matrix-structure">
-<h3>Matrix Structure<a class="headerlink" href="#matrix-structure" title="Link to this heading"></a></h3>
+<h3>Matrix Structure<a class="headerlink" href="#matrix-structure" title="Link to this heading">¶</a></h3>
 <p>The spillover matrix is a square matrix where:
 - <strong>Rows</strong>: Donor channels (emitting signal)
 - <strong>Columns</strong>: Receiver channels (receiving spillover)
@@ -309,7 +225,7 @@ Dy164    0.012  0.027  1.000  ...
 </div>
 </section>
 <section id="qc-metrics">
-<h3>QC Metrics<a class="headerlink" href="#qc-metrics" title="Link to this heading"></a></h3>
+<h3>QC Metrics<a class="headerlink" href="#qc-metrics" title="Link to this heading">¶</a></h3>
 <p>Quality control metrics are computed for each donor channel:</p>
 <ul class="simple">
 <li><p><strong>n_acqs</strong>: Number of acquisitions used per donor</p></li>
@@ -324,7 +240,7 @@ Dy164    0.012  0.027  1.000  ...
 </section>
 </section>
 <section id="tips-and-best-practices">
-<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading"></a></h2>
+<h2>Tips and Best Practices<a class="headerlink" href="#tips-and-best-practices" title="Link to this heading">¶</a></h2>
 <ol class="arabic simple">
 <li><p><strong>Single-Stain Controls</strong>:
 - Use high-quality single-stain controls
@@ -358,34 +274,103 @@ Dy164    0.012  0.027  1.000  ...
 </section>
 
 
-           </div>
           </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="quality_control.html" class="btn btn-neutral float-left" title="Quality Control Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="high_resolution_experimental_design.html" class="btn btn-neutral float-right" title="High Resolution Experimental Design" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
-
-  <hr/>
-
-  <div role="contentinfo">
-    <p>&#169; Copyright 2025, Dean Tessone.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
+          
         </div>
       </div>
-    </section>
-  </div>
-  <script>
-      jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
-      });
-  </script> 
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">OpenIMC</a></h1>
 
-</body>
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Spillover Matrix Generation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#parameters">Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-spillover-matrix-generation-in-the-gui">Using Spillover Matrix Generation in the GUI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-spillover-matrix-generation-in-the-cli">Using Spillover Matrix Generation in the CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#method-details">Method Details</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-and-best-practices">Tips and Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="quality_control.html" title="previous chapter">Quality Control Analysis</a></li>
+      <li>Next: <a href="high_resolution_experimental_design.html" title="next chapter">High Resolution Experimental Design</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Dean Tessone.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/spillover_matrix.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
 </html>

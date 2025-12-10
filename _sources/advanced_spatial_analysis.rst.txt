@@ -51,7 +51,7 @@ Neighborhood Enrichment
   - Default: based on statistical significance
 
 Co-occurrence Analysis
-~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
 
 - **reference_cluster** (optional): Reference cluster for one-vs-others analysis
   - If specified, compares reference cluster against all others
@@ -97,25 +97,30 @@ Using Advanced Spatial Analysis in the GUI
 2. Navigate to **Analysis → Spatial Analysis → Advanced Spatial Analysis** in the menu bar
 
 3. In the advanced spatial analysis dialog:
+
    - **Build Spatial Graph**:
+   
      - Select graph construction method (kNN, Radius, or Delaunay)
      - Set parameters (k_neighbors, radius, pixel_size_um)
      - Click "Build Graph"
      - This converts your data to AnnData format and builds spatial graphs using squidpy
    
    - **Neighborhood Enrichment Tab**:
+   
      - Set number of permutations
      - Click "Run Neighborhood Enrichment"
      - Results show enrichment scores and p-values
      - Results are stored in AnnData objects
    
    - **Co-occurrence Analysis Tab**:
+   
      - Select analysis method (pairwise or one-vs-others)
      - Optionally specify reference cluster
      - Click "Run Co-occurrence Analysis"
      - Results are stored in AnnData objects
    
    - **Spatial Autocorrelation Tab**:
+   
      - Select feature to analyze
      - Choose autocorrelation method (Moran's I or Geary's C)
      - Set number of permutations
@@ -123,17 +128,21 @@ Using Advanced Spatial Analysis in the GUI
      - Results are stored in AnnData objects
    
    - **Ripley Functions Tab**:
+   
      - Select cluster column
      - Choose function type (K or L)
      - Set maximum distance
      - Click "Run Ripley Analysis"
      - Results are stored in AnnData objects
 
-4. **Export AnnData**: 
+4. **Export AnnData**:
+   
    - Click "Export AnnData" button to save AnnData objects
    - Choose to export as:
+   
      - **Combined file**: Single H5AD file with all ROIs
      - **Separate files**: One H5AD file per ROI
+   
    - Exported H5AD files can be used in other tools (scanpy, squidpy, etc.)
 
 5. Export analysis results using the export buttons
@@ -152,7 +161,7 @@ Neighborhood Enrichment
        --n-permutations 500
 
 Co-occurrence Analysis
-~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
@@ -231,7 +240,7 @@ Neighborhood enrichment analyzes whether cell types are enriched or depleted in 
 - Implementation: `squidpy.gr.nhood_enrichment <https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.nhood_enrichment.html>`_
 
 Co-occurrence Analysis
-~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
 
 Co-occurrence analysis tests whether cell types tend to appear together in spatial proximity.
 

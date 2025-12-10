@@ -45,8 +45,10 @@ Using Quality Control Analysis in the GUI
 3. In the QC analysis dialog:
    - Select which acquisitions to analyze
    - Choose analysis mode:
+   
      - **Pixel-level**: Uses Otsu thresholding (no mask required)
      - **Cell-level**: Uses segmentation masks (requires masks to be loaded)
+   
    - Optionally select specific channels (or analyze all channels)
    - If using cell-level mode, ensure segmentation masks are available
    - Click **Run Analysis** to start the process
@@ -191,9 +193,11 @@ Tips and Best Practices
 
 3. **Coverage Interpretation**:
    - Low coverage may indicate:
+   
      - Sparse marker expression
      - Poor staining
      - Threshold issues (pixel mode)
+   
    - High coverage may indicate:
      - Ubiquitous marker expression
      - Background contamination

@@ -81,8 +81,7 @@ Abstract base class for clustering algorithms.
 - ``features_df``: ``pd.DataFrame``
   - Feature matrix with one row per cell and one column per feature
   - Required columns: None (all numeric columns are used)
-  - Excluded columns: ``'cell_id'``, ``'acquisition_id'``, ``'acquisition_name'``,
-    ``'well'``, ``'cluster'``, ``'label'``, ``'source_file'``, etc.
+  - Excluded columns: ``'cell_id'``, ``'acquisition_id'``, ``'acquisition_name'``, ``'well'``, ``'cluster'``, ``'label'``, ``'source_file'``, etc.
 - ``columns``: ``List[str]``, optional
   - Specific feature columns to use for clustering
   - If ``None``, auto-detects all numeric columns
@@ -150,8 +149,10 @@ Abstract base class for feature extraction algorithms.
 - ``features_df``: ``pd.DataFrame``
   - Feature matrix with one row per cell
   - Required columns:
+  
     - ``'cell_id'``: ``int``, unique identifier for each cell (1-based)
     - ``'label'``: ``int``, cell label from mask (1-based)
+  
   - Additional feature columns (algorithm-specific)
 
 **Example Implementation**:

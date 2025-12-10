@@ -53,12 +53,14 @@ Preprocessing Parameters
   - Example: ``{"DAPI", "Background"}``
 
 Spillover Correction
-~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 
 - **spillover_correction** (optional): Configuration for spillover correction
   - **enabled** (default: ``false``): Enable spillover correction
   - **matrix_file** (required if enabled): Path to spillover matrix CSV file
+  
     - Matrix format: rows and columns are channel names, values are spillover coefficients
+  
   - **method** (default: ``"nnls"``): Correction method
     - ``"nnls"``: Non-negative least squares (recommended)
     - ``"pgd"``: Projected gradient descent
@@ -116,9 +118,11 @@ Using Feature Extraction in the GUI
    - Select which acquisitions to process
    - Choose feature types (morphological, intensity, or both)
    - Configure preprocessing options:
+   
      - Enable/disable arcsinh transformation
      - Set arcsinh cofactor
      - Configure denoising if needed
+   
    - Optionally configure spillover correction
    - Select channels to exclude if any
 
@@ -163,7 +167,7 @@ With Denoising
        --denoise-settings denoise_config.json
 
 With Spillover Correction
-~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
@@ -241,7 +245,7 @@ This transformation:
 - Bendall, S. C., et al. (2011). "Single-cell mass cytometry of differential immune and drug responses across a human hematopoietic continuum." Science, 332(6030), 687-696. `DOI: 10.1126/science.1198704 <https://doi.org/10.1126/science.1198704>`_
 
 Spillover Correction
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
 Spillover correction compensates for spectral overlap between channels in IMC data. OpenIMC supports two methods:
 

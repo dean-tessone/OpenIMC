@@ -85,7 +85,7 @@ OpenIMC supports three viewing modes:
 - View automatically refreshes when mode changes
 
 Segmentation Overlays
---------------------
+---------------------
 
 **Enabling Overlays:**
 
