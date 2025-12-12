@@ -300,6 +300,7 @@ This quickstart covers the essential workflow to get you started with OpenIMC. H
 
 **Additional Features:**
 
+- **State Management**: Save and load complete analysis sessions for reproducibility and collaboration. States can be uploaded to Zenodo for publication. See :doc:`state_management` for details.
 - **Quality Control (QC)**: Tools for assessing image quality, detecting artifacts, and verifying segmentation accuracy.
 - **Pixel Correlation Analysis**: Explore channel relationships and spatial co-localization at the pixel level.
 - **Advanced Spatial Analyses**: Beyond the basics, the software supports expanded spatial statistics, neighborhood enrichment, proximity scores, and custom graph-building options.

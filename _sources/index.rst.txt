@@ -6,26 +6,85 @@
 OpenIMC Documentation
 =====================
 
+Welcome to the OpenIMC documentation. This guide covers everything you need to know to use OpenIMC for IMC data analysis, from basic workflows to advanced spatial analysis and reproducibility features.
+
+**Quick Navigation:**
+
+* **Getting Started**: Overview, installation, and quick start guide
+* **Core Workflow**: Image visualization, segmentation, and feature extraction
+* **Data Analysis**: Clustering, phenotyping, batch correction, and quality control
+* **Spatial Analysis**: Simple and advanced spatial analysis methods
+* **Advanced Topics**: Pixel correlation, spillover correction, high-resolution analysis, and custom algorithms
+* **Reproducibility & Sharing**: State management and analysis step export for publication
+* **API Reference**: Core API and CLI reference documentation
+
+Getting Started
+---------------
+
 .. toctree::
-   :maxdepth: 2
-   :caption: User Guide
+   :maxdepth: 1
+   :caption: Getting Started
 
    overview
    installation
    quickstart
+
+Core Workflow
+-------------
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Core Workflow
+
    image_visualization
    segmentation
    feature_extraction
-   batch_correction
+
+Data Analysis
+-------------
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Data Analysis
+
    clustering
    llm_phenotyping
-   pixel_correlation
+   batch_correction
    quality_control
-   spillover_matrix
-   high_resolution_experimental_design
+
+Spatial Analysis
+----------------
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Spatial Analysis
+
    simple_spatial_analysis
    advanced_spatial_analysis
+
+Advanced Topics
+---------------
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Advanced Topics
+
+   pixel_correlation
+   spillover_matrix
+   high_resolution_experimental_design
    custom_algorithms
+
+Reproducibility & Sharing
+--------------------------
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Reproducibility & Sharing
+
+   state_management
+
+API Reference
+-------------
 
 .. toctree::
    :maxdepth: 2

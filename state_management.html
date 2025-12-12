@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>State Management and Reproducibility &#8212; OpenIMC 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Core pipeline API" href="api_core.html" />
+    <link rel="prev" title="Custom Algorithms" href="custom_algorithms.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="state-management-and-reproducibility">
+<h1>State Management and Reproducibility<a class="headerlink" href="#state-management-and-reproducibility" title="Link to this heading">¶</a></h1>
+<p>OpenIMC provides comprehensive state management features that allow you to save your complete analysis session and restore it later. This is essential for reproducibility, collaboration, and sharing your work for publication.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
+<p>The state management system saves:</p>
+<ul class="simple">
+<li><p><strong>Source Data Files</strong>: All .mcd files used in the analysis</p></li>
+<li><p><strong>Segmentation Masks</strong>: All cell segmentation masks</p></li>
+<li><p><strong>Feature Data</strong>: Original and batch-corrected feature dataframes</p></li>
+<li><p><strong>Analysis States</strong>: Complete state from all analysis modules (QC, clustering, spatial analysis, etc.)</p></li>
+<li><p><strong>Analysis Parameters</strong>: All parameters used for each analysis step</p></li>
+</ul>
+<p>Saved states are self-contained and can be:</p>
+<ul class="simple">
+<li><p>Loaded by anyone with OpenIMC to reproduce your analysis</p></li>
+<li><p>Uploaded to Zenodo or other data repositories as supplementary material</p></li>
+<li><p>Shared with collaborators for review or continuation of work</p></li>
+</ul>
+</section>
+<section id="saving-state">
+<h2>Saving State<a class="headerlink" href="#saving-state" title="Link to this heading">¶</a></h2>
+<p>To save your current analysis state:</p>
+<ol class="arabic simple">
+<li><p>Go to <strong>File → Save State…</strong></p></li>
+<li><p>Select a directory where you want to save the state</p></li>
+<li><p>The application will create a folder containing all necessary files</p></li>
+</ol>
+<p><strong>State Folder Structure:</strong></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>state_folder/
+├── README.md              # Documentation for the saved state
+├── manifest.txt           # Complete file listing
+├── state.json             # Main state metadata and configuration
+├── images/                # Source .mcd files (if any)
+├── masks/                 # Segmentation masks
+├── features/              # Feature dataframes
+└── analysis/              # Analysis module states
+</pre></div>
+</div>
+<p><strong>What Gets Saved:</strong></p>
+<ul class="simple">
+<li><p><strong>Images</strong>: All .mcd source files are copied to the <code class="docutils literal notranslate"><span class="pre">images/</span></code> folder</p></li>
+<li><p><strong>Masks</strong>: All segmentation masks with proper naming (<code class="docutils literal notranslate"><span class="pre">{source}_{well}_segmentation_masks.tif</span></code>)</p></li>
+<li><p><strong>Features</strong>: Original features (<code class="docutils literal notranslate"><span class="pre">features.csv</span></code>) and batch-corrected features (<code class="docutils literal notranslate"><span class="pre">features_batch_corrected.csv</span></code>)</p></li>
+<li><p><strong>Analysis States</strong>:
+* QC analysis results and parameters
+* Clustering results, cluster labels, and annotation maps
+* Spatial analysis results and graph states
+* Feature extraction parameters
+* All other analysis module configurations</p></li>
+</ul>
+</section>
+<section id="loading-state">
+<h2>Loading State<a class="headerlink" href="#loading-state" title="Link to this heading">¶</a></h2>
+<p>To load a previously saved state:</p>
+<ol class="arabic simple">
+<li><p>Go to <strong>File → Load State…</strong></p></li>
+<li><p>Select the folder containing the saved state</p></li>
+<li><p>The application will:
+* Automatically load all .mcd files from the <code class="docutils literal notranslate"><span class="pre">images/</span></code> folder
+* Restore all masks, features, and analysis states
+* Restore the UI to match the saved session</p></li>
+</ol>
+<p><strong>After Loading:</strong></p>
+<ul class="simple">
+<li><p>All acquisitions are available and images are displayed</p></li>
+<li><p>Masks are properly matched to acquisitions</p></li>
+<li><p>Features are loaded and available for analysis</p></li>
+<li><p>Analysis dialogs can be reopened with their saved state</p></li>
+<li><p>You can continue working exactly where you left off</p></li>
+</ul>
+</section>
+<section id="exporting-analysis-steps">
+<h2>Exporting Analysis Steps<a class="headerlink" href="#exporting-analysis-steps" title="Link to this heading">¶</a></h2>
+<p>For documentation and methods sections, you can export a human-readable description of all analysis steps:</p>
+<ol class="arabic simple">
+<li><p>Go to <strong>File → Export Analysis Steps…</strong></p></li>
+<li><p>Choose a location to save the text file</p></li>
+<li><p>The file will contain:
+* Dataset information (number of cells, features, etc.)
+* All segmentation steps (method, channels, parameters)
+* Feature extraction details (features extracted, normalization, corrections)
+* Clustering information (algorithm, parameters, features used)
+* Batch correction details
+* Spatial analysis methods
+* All other analysis operations with timestamps and parameters</p></li>
+</ol>
+<p><strong>Example Output:</strong></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">OpenIMC</span> <span class="n">Analysis</span> <span class="n">Steps</span>
+<span class="o">====================================================================</span>
+
+<span class="n">Generated</span><span class="p">:</span> <span class="mi">2025</span><span class="o">-</span><span class="mi">01</span><span class="o">-</span><span class="mi">15</span> <span class="mi">14</span><span class="p">:</span><span class="mi">30</span><span class="p">:</span><span class="mi">22</span>
+
+<span class="n">This</span> <span class="n">document</span> <span class="n">describes</span> <span class="nb">all</span> <span class="n">analysis</span> <span class="n">steps</span> <span class="n">performed</span> <span class="n">on</span> <span class="n">the</span> <span class="n">dataset</span><span class="o">.</span>
+
+<span class="n">Dataset</span> <span class="n">Information</span>
+<span class="o">--------------------------------------------------------------------</span>
+<span class="n">Source</span> <span class="n">file</span><span class="p">(</span><span class="n">s</span><span class="p">):</span> <span class="n">data</span><span class="o">.</span><span class="n">mcd</span>
+<span class="n">Number</span> <span class="n">of</span> <span class="n">acquisitions</span><span class="p">:</span> <span class="mi">12</span>
+<span class="n">Feature</span> <span class="n">data</span><span class="p">:</span> <span class="mi">45000</span> <span class="n">cells</span><span class="p">,</span> <span class="mi">156</span> <span class="n">features</span>
+<span class="n">Batch</span> <span class="n">correction</span><span class="p">:</span> <span class="n">Applied</span>
+<span class="n">Segmentation</span> <span class="n">masks</span><span class="p">:</span> <span class="mi">12</span> <span class="n">acquisition</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="n">Segmentation</span>
+<span class="o">--------------------------------------------------------------------</span>
+<span class="mf">1.</span> <span class="n">Watershed</span>
+   <span class="n">Date</span><span class="o">/</span><span class="n">Time</span><span class="p">:</span> <span class="mi">2025</span><span class="o">-</span><span class="mi">01</span><span class="o">-</span><span class="mi">15</span> <span class="mi">10</span><span class="p">:</span><span class="mi">15</span><span class="p">:</span><span class="mi">30</span>
+   <span class="n">Parameters</span><span class="p">:</span>
+      <span class="o">-</span> <span class="n">method</span><span class="p">:</span> <span class="n">watershed</span>
+      <span class="o">-</span> <span class="n">nuclear_channels</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;DNA1_Ir191&#39;</span><span class="p">,</span> <span class="s1">&#39;DNA2_Ir193&#39;</span><span class="p">]</span>
+      <span class="o">-</span> <span class="n">cyto_channels</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;CD3_1841&#39;</span><span class="p">,</span> <span class="s1">&#39;CD4_2293&#39;</span><span class="p">]</span>
+      <span class="o">-</span> <span class="n">n_cells</span><span class="p">:</span> <span class="mi">45000</span>
+   <span class="n">Acquisitions</span><span class="p">:</span> <span class="mi">12</span> <span class="n">acquisition</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="n">Feature</span> <span class="n">Extraction</span>
+<span class="o">--------------------------------------------------------------------</span>
+<span class="mf">1.</span> <span class="n">Extract</span> <span class="n">Features</span>
+   <span class="n">Date</span><span class="o">/</span><span class="n">Time</span><span class="p">:</span> <span class="mi">2025</span><span class="o">-</span><span class="mi">01</span><span class="o">-</span><span class="mi">15</span> <span class="mi">10</span><span class="p">:</span><span class="mi">45</span><span class="p">:</span><span class="mi">12</span>
+   <span class="n">Parameters</span><span class="p">:</span>
+      <span class="o">-</span> <span class="n">features_extracted</span><span class="p">:</span> <span class="mi">156</span> <span class="n">features</span>
+      <span class="o">-</span> <span class="n">morphological</span><span class="p">:</span> <span class="kc">True</span>
+      <span class="o">-</span> <span class="n">intensity</span><span class="p">:</span> <span class="kc">True</span>
+      <span class="o">-</span> <span class="n">arcsinh</span><span class="p">:</span> <span class="kc">True</span>
+      <span class="o">-</span> <span class="n">arcsinh_cofactor</span><span class="p">:</span> <span class="mf">1.0</span>
+   <span class="n">Acquisitions</span><span class="p">:</span> <span class="mi">12</span> <span class="n">acquisition</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="o">...</span>
+</pre></div>
+</div>
+</section>
+<section id="zenodo-submission">
+<h2>Zenodo Submission<a class="headerlink" href="#zenodo-submission" title="Link to this heading">¶</a></h2>
+<p>Saved states are designed to be uploaded to Zenodo or other data repositories as supplementary material for publications.</p>
+<p><strong>Recommended Submission Structure:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Source Data</strong>: Original .mcd files (if not already in a separate repository)</p></li>
+<li><p><strong>State Folder</strong>: Complete saved state folder containing:
+* All masks, features, and analysis states
+* README.md explaining the contents
+* manifest.txt listing all files</p></li>
+<li><p><strong>Analysis Steps</strong>: Exported analysis steps text file for methods section</p></li>
+</ol>
+<p><strong>Benefits:</strong></p>
+<ul class="simple">
+<li><p><strong>Reproducibility</strong>: Anyone can load the state and reproduce your analysis</p></li>
+<li><p><strong>Transparency</strong>: All parameters and steps are documented</p></li>
+<li><p><strong>Collaboration</strong>: Others can continue or modify your analysis</p></li>
+<li><p><strong>Publication</strong>: Meets requirements for data and code availability</p></li>
+</ul>
+<p><strong>README.md Contents:</strong></p>
+<p>Each saved state includes a README.md file that:</p>
+<ul class="simple">
+<li><p>Lists all contents of the state folder</p></li>
+<li><p>Explains how to load the state</p></li>
+<li><p>Documents the OpenIMC version used</p></li>
+<li><p>Provides notes for Zenodo submission</p></li>
+</ul>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Save State Regularly</strong>: Save your state at key milestones in your analysis</p></li>
+<li><p><strong>Descriptive Folder Names</strong>: Use descriptive names like <code class="docutils literal notranslate"><span class="pre">analysis_20250115_final</span></code></p></li>
+<li><p><strong>Include Analysis Steps</strong>: Export analysis steps alongside the state for documentation</p></li>
+<li><p><strong>Version Control</strong>: Consider versioning your states (e.g., <code class="docutils literal notranslate"><span class="pre">state_v1/</span></code>, <code class="docutils literal notranslate"><span class="pre">state_v2/</span></code>)</p></li>
+<li><p><strong>Document Changes</strong>: Note any manual changes or corrections in the README</p></li>
+</ol>
+</section>
+<section id="technical-details">
+<h2>Technical Details<a class="headerlink" href="#technical-details" title="Link to this heading">¶</a></h2>
+<p><strong>State Format Version</strong>: The state format is versioned to ensure compatibility. Current version: 1.0</p>
+<p><strong>File Formats</strong>:
+* Masks: TIFF files (uint16) with LZW compression
+* Features: CSV files (comma-separated)
+* Analysis States: JSON files with special handling for DataFrames and numpy arrays
+* Images: Original .mcd files (copied, not converted)</p>
+<p><strong>Mask Matching</strong>: When loading state, masks are matched to acquisitions using:
+1. Source file basename + well/name (most reliable for multiple MCD files)
+2. Acquisition ID matching
+3. Well/name matching as fallback</p>
+<p><strong>Multi-File Support</strong>: When multiple .mcd files are saved in state, they are loaded using the same logic as the base application, including:
+* Unique acquisition ID generation
+* Proper file-to-acquisition mapping
+* Channel mismatch detection
+* File names in acquisition dropdown</p>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">OpenIMC</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Core Workflow</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Data Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Spatial Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Advanced Topics</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reproducibility &amp; Sharing</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">State Management and Reproducibility</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_core.html">Core pipeline API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cli.html">CLI API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="custom_algorithms.html" title="previous chapter">Custom Algorithms</a></li>
+      <li>Next: <a href="api_core.html" title="next chapter">Core pipeline API</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Dean Tessone.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/state_management.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -34,212 +34,87 @@
             
   <section id="openimc-documentation">
 <h1>OpenIMC Documentation<a class="headerlink" href="#openimc-documentation" title="Link to this heading">¶</a></h1>
+<p>Welcome to the OpenIMC documentation. This guide covers everything you need to know to use OpenIMC for IMC data analysis, from basic workflows to advanced spatial analysis and reproducibility features.</p>
+<p><strong>Quick Navigation:</strong></p>
+<ul class="simple">
+<li><p><strong>Getting Started</strong>: Overview, installation, and quick start guide</p></li>
+<li><p><strong>Core Workflow</strong>: Image visualization, segmentation, and feature extraction</p></li>
+<li><p><strong>Data Analysis</strong>: Clustering, phenotyping, batch correction, and quality control</p></li>
+<li><p><strong>Spatial Analysis</strong>: Simple and advanced spatial analysis methods</p></li>
+<li><p><strong>Advanced Topics</strong>: Pixel correlation, spillover correction, high-resolution analysis, and custom algorithms</p></li>
+<li><p><strong>Reproducibility &amp; Sharing</strong>: State management and analysis step export for publication</p></li>
+<li><p><strong>API Reference</strong>: Core API and CLI reference documentation</p></li>
+</ul>
+<section id="getting-started">
+<h2>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">¶</a></h2>
 <div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="overview.html#additional-resources">Additional Resources</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="installation.html#prerequisites">Prerequisites</a></li>
-<li class="toctree-l2"><a class="reference internal" href="installation.html#full-installation">Full Installation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="installation.html#cli-installation">CLI Installation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="installation.html#optional-software-setup">Optional Software Setup</a></li>
-<li class="toctree-l2"><a class="reference internal" href="installation.html#verification">Verification</a></li>
-<li class="toctree-l2"><a class="reference internal" href="installation.html#troubleshooting">Troubleshooting</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="quickstart.html#launching-openimc">Launching OpenIMC</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quickstart.html#more-analyses-and-features-in-openimc">More Analyses and Features in OpenIMC</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#image-loading-and-caching">Image Loading and Caching</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#channel-selection">Channel Selection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#viewing-modes">Viewing Modes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#segmentation-overlays">Segmentation Overlays</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#scale-bar">Scale Bar</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#custom-scaling">Custom Scaling</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#denoising">Denoising</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#spillover-correction-visualization">Spillover Correction (Visualization)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#zoom-functionality">Zoom Functionality</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#comparison-mode">Comparison Mode</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#exporting-images">Exporting Images</a></li>
-<li class="toctree-l2"><a class="reference internal" href="image_visualization.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#using-segmentation-in-the-gui">Using Segmentation in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#using-segmentation-in-the-cli">Using Segmentation in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="segmentation.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#morphological-features">Morphological Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#intensity-features">Intensity Features</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#using-feature-extraction-in-the-gui">Using Feature Extraction in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#using-feature-extraction-in-the-cli">Using Feature Extraction in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="feature_extraction.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#using-batch-correction-in-the-gui">Using Batch Correction in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#using-batch-correction-in-the-cli">Using Batch Correction in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="batch_correction.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#using-clustering-in-the-gui">Using Clustering in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#using-clustering-in-the-cli">Using Clustering in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#available-visualizations">Available Visualizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#heatmap-visualization">Heatmap Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#umap-visualization">UMAP Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#t-sne-visualization">t-SNE Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#differential-expression-visualization">Differential Expression Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#stacked-bars-visualization">Stacked Bars Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#boxplot-violin-plot-visualization">Boxplot/Violin Plot Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#exporting-plots">Exporting Plots</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#customizing-font-sizes">Customizing Font Sizes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#customizing-feature-labels">Customizing Feature Labels</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="clustering.html#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#model-selection">Model Selection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#inputs">Inputs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#outputs">Outputs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#fine-vs-broad-mode">Fine vs. Broad Mode</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#using-llm-based-phenotyping-in-the-gui">Using LLM-Based Phenotyping in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#important-warnings-and-limitations">Important Warnings and Limitations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#tips-and-best-practices">Tips and Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#example-workflow">Example Workflow</a></li>
-<li class="toctree-l2"><a class="reference internal" href="llm_phenotyping.html#troubleshooting">Troubleshooting</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#using-pixel-correlation-analysis-in-the-gui">Using Pixel Correlation Analysis in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#using-pixel-correlation-analysis-in-the-cli">Using Pixel Correlation Analysis in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="pixel_correlation.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#using-quality-control-analysis-in-the-gui">Using Quality Control Analysis in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#using-quality-control-analysis-in-the-cli">Using Quality Control Analysis in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality_control.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#using-spillover-matrix-generation-in-the-gui">Using Spillover Matrix Generation in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#using-spillover-matrix-generation-in-the-cli">Using Spillover Matrix Generation in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spillover_matrix.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#accessing-the-tool">Accessing the Tool</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#working-with-the-roi-table">Working with the ROI Table</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#analysis">Analysis</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#interpreting-the-plots">Interpreting the Plots</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#optimal-energy-criteria">Optimal Energy Criteria</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#determining-x0-for-deconvolution">Determining x0 for Deconvolution</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#exporting-results">Exporting Results</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#best-practices">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#troubleshooting">Troubleshooting</a></li>
-<li class="toctree-l2"><a class="reference internal" href="high_resolution_experimental_design.html#tips">Tips</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#using-simple-spatial-analysis-in-the-gui">Using Simple Spatial Analysis in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#using-simple-spatial-analysis-in-the-cli">Using Simple Spatial Analysis in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#available-visualizations">Available Visualizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#pairwise-enrichment-visualization">Pairwise Enrichment Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#distance-distributions-visualization">Distance Distributions Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#id5">Spatial Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#spatial-communities-visualization">Spatial Communities Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#exporting-plots">Exporting Plots</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="simple_spatial_analysis.html#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#options">Options</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#parameters">Parameters</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#using-advanced-spatial-analysis-in-the-gui">Using Advanced Spatial Analysis in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#using-advanced-spatial-analysis-in-the-cli">Using Advanced Spatial Analysis in the CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#method-details">Method Details</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#tips-and-best-practices">Tips and Best Practices</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#available-visualizations">Available Visualizations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#neighborhood-enrichment-visualization">Neighborhood Enrichment Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#co-occurrence-analysis-visualization">Co-occurrence Analysis Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#spatial-autocorrelation-visualization">Spatial Autocorrelation Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#ripley-functions-visualization">Ripley Functions Visualization</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#exporting-plots">Exporting Plots</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#accessing-visualizations-in-the-gui">Accessing Visualizations in the GUI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="advanced_spatial_analysis.html#tips-and-best-practices-for-visualizations">Tips and Best Practices for Visualizations</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#overview">Overview</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#base-classes">Base Classes</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#integration-with-openimc">Integration with OpenIMC</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#example-implementations">Example Implementations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#best-practices">Best Practices</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#common-pitfalls">Common Pitfalls</a></li>
-<li class="toctree-l2"><a class="reference internal" href="custom_algorithms.html#testing-your-implementation">Testing Your Implementation</a></li>
-</ul>
-</li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
 </ul>
 </div>
+</section>
+<section id="core-workflow">
+<h2>Core Workflow<a class="headerlink" href="#core-workflow" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Core Workflow</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
+</ul>
+</div>
+</section>
+<section id="data-analysis">
+<h2>Data Analysis<a class="headerlink" href="#data-analysis" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Data Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
+</ul>
+</div>
+</section>
+<section id="spatial-analysis">
+<h2>Spatial Analysis<a class="headerlink" href="#spatial-analysis" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Spatial Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+</div>
+</section>
+<section id="advanced-topics">
+<h2>Advanced Topics<a class="headerlink" href="#advanced-topics" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Advanced Topics</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+<li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
+</ul>
+</div>
+</section>
+<section id="reproducibility-sharing">
+<h2>Reproducibility &amp; Sharing<a class="headerlink" href="#reproducibility-sharing" title="Link to this heading">¶</a></h2>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">Reproducibility &amp; Sharing</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="state_management.html">State Management and Reproducibility</a></li>
+</ul>
+</div>
+</section>
+<section id="api-reference">
+<h2>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h2>
 <div class="toctree-wrapper compound">
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -279,6 +154,7 @@
 </ul>
 </div>
 </section>
+</section>
 
 
           </div>
@@ -306,27 +182,43 @@
     </div>
 </search>
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
-<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Core Workflow</span></p>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="image_visualization.html">Image Visualization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="segmentation.html">Segmentation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="feature_extraction.html">Feature Extraction</a></li>
-<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Data Analysis</span></p>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="clustering.html">Clustering</a></li>
 <li class="toctree-l1"><a class="reference internal" href="clustering.html#clustering-visualizations">Clustering Visualizations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="llm_phenotyping.html">LLM-Based Phenotyping</a></li>
-<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="batch_correction.html">Batch Correction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quality_control.html">Quality Control Analysis</a></li>
-<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Spatial Analysis</span></p>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html">Simple Spatial Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="simple_spatial_analysis.html#spatial-analysis-visualizations">Spatial Analysis Visualizations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html">Advanced Spatial Analysis</a></li>
 <li class="toctree-l1"><a class="reference internal" href="advanced_spatial_analysis.html#advanced-spatial-analysis-visualizations">Advanced Spatial Analysis Visualizations</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Advanced Topics</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pixel_correlation.html">Pixel Correlation Analysis</a></li>
+<li class="toctree-l1"><a class="reference internal" href="spillover_matrix.html">Spillover Matrix Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="high_resolution_experimental_design.html">High Resolution Experimental Design</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_algorithms.html">Custom Algorithms</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reproducibility &amp; Sharing</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="state_management.html">State Management and Reproducibility</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
