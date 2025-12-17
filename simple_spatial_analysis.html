@@ -370,25 +370,34 @@
 <p>Shows the distribution of nearest-neighbor distances between cell types using violin or box plots.</p>
 <p><strong>Parameters:</strong></p>
 <ul class="simple">
-<li><p><strong>Clusters to display</strong>: Select which cluster pairs to visualize (multi-select)
-- Can compare distances between same cluster vs. different clusters
+<li><p><strong>Clusters to display</strong>: Select which source clusters to analyze (multi-select)
+- When you select cluster(s), the plot shows distances FROM those clusters TO all other clusters
+- For example, selecting “Cluster 3” shows distances from Cluster 3 cells to their nearest neighbors in all other clusters
+- Can compare distances to same cluster vs. different clusters
 - Useful for identifying spatial relationships</p></li>
 </ul>
 <p><strong>How it works:</strong></p>
 <ol class="arabic simple">
-<li><p>For each cell, finds the nearest neighbor of each cell type</p></li>
+<li><p>For each cell in the selected cluster(s), finds the nearest neighbor of each cluster type</p></li>
 <li><p>Computes Euclidean distance to nearest neighbor</p></li>
 <li><p>Converts to micrometers using pixel_size_um</p></li>
 <li><p>Aggregates distances across all cells</p></li>
-<li><p>Displays as violin/box plots grouped by cluster pair</p></li>
+<li><p>Displays as box plots grouped by cluster pair (Source → Target)</p></li>
 </ol>
+<p><strong>Important Note on Directionality:</strong></p>
+<ul class="simple">
+<li><p>Distance measurements are <strong>directional</strong> (asymmetric)</p></li>
+<li><p>“Cluster 3 → Cluster 4” measures distances FROM Cluster 3 cells TO their nearest Cluster 4 neighbors</p></li>
+<li><p>“Cluster 4 → Cluster 3” measures distances FROM Cluster 4 cells TO their nearest Cluster 3 neighbors</p></li>
+<li><p>These can differ because spatial distributions are not symmetric</p></li>
+</ul>
 <p><strong>Interpretation:</strong></p>
 <ul class="simple">
 <li><p><strong>Shorter distances</strong>: Cell types are spatially close</p></li>
 <li><p><strong>Longer distances</strong>: Cell types are spatially separated</p></li>
 <li><p>Compare distributions to identify spatial relationships</p></li>
-<li><p>Same-cluster distances show within-cluster spatial organization</p></li>
-<li><p>Cross-cluster distances show between-cluster spatial relationships</p></li>
+<li><p>Same-cluster distances (e.g., 3→3) show within-cluster spatial organization</p></li>
+<li><p>Cross-cluster distances (e.g., 3→4) show how far cells must travel to reach another cluster type</p></li>
 </ul>
 <p><strong>Export:</strong></p>
 <ul class="simple">

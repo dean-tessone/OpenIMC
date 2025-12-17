@@ -374,25 +374,34 @@ Shows the distribution of nearest-neighbor distances between cell types using vi
 
 **Parameters:**
 
-- **Clusters to display**: Select which cluster pairs to visualize (multi-select)
-  - Can compare distances between same cluster vs. different clusters
+- **Clusters to display**: Select which source clusters to analyze (multi-select)
+  - When you select cluster(s), the plot shows distances FROM those clusters TO all other clusters
+  - For example, selecting "Cluster 3" shows distances from Cluster 3 cells to their nearest neighbors in all other clusters
+  - Can compare distances to same cluster vs. different clusters
   - Useful for identifying spatial relationships
 
 **How it works:**
 
-1. For each cell, finds the nearest neighbor of each cell type
+1. For each cell in the selected cluster(s), finds the nearest neighbor of each cluster type
 2. Computes Euclidean distance to nearest neighbor
 3. Converts to micrometers using pixel_size_um
 4. Aggregates distances across all cells
-5. Displays as violin/box plots grouped by cluster pair
+5. Displays as box plots grouped by cluster pair (Source → Target)
+
+**Important Note on Directionality:**
+
+- Distance measurements are **directional** (asymmetric)
+- "Cluster 3 → Cluster 4" measures distances FROM Cluster 3 cells TO their nearest Cluster 4 neighbors
+- "Cluster 4 → Cluster 3" measures distances FROM Cluster 4 cells TO their nearest Cluster 3 neighbors
+- These can differ because spatial distributions are not symmetric
 
 **Interpretation:**
 
 - **Shorter distances**: Cell types are spatially close
 - **Longer distances**: Cell types are spatially separated
 - Compare distributions to identify spatial relationships
-- Same-cluster distances show within-cluster spatial organization
-- Cross-cluster distances show between-cluster spatial relationships
+- Same-cluster distances (e.g., 3→3) show within-cluster spatial organization
+- Cross-cluster distances (e.g., 3→4) show how far cells must travel to reach another cluster type
 
 **Export:**
 

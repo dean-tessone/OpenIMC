@@ -847,6 +847,21 @@
         <span class="c1"># No features extracted</span>
         <span class="n">combined_features</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
     
+    <span class="c1"># Apply arcsinh transformation to intensity features after combining all acquisitions</span>
+    <span class="c1"># This is more efficient than applying per-acquisition and ensures consistency</span>
+    <span class="k">if</span> <span class="n">arcsinh</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">combined_features</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+        <span class="c1"># Find all intensity feature columns (exclude frac_pos as it&#39;s a proportion)</span>
+        <span class="n">intensity_cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">combined_features</span><span class="o">.</span><span class="n">columns</span> 
+                         <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">col</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;_</span><span class="si">{</span><span class="n">ft</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">ft</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;mean&#39;</span><span class="p">,</span> <span class="s1">&#39;median&#39;</span><span class="p">,</span> <span class="s1">&#39;std&#39;</span><span class="p">,</span> <span class="s1">&#39;mad&#39;</span><span class="p">,</span> <span class="s1">&#39;p10&#39;</span><span class="p">,</span> <span class="s1">&#39;p90&#39;</span><span class="p">,</span> <span class="s1">&#39;integrated&#39;</span><span class="p">])</span>
+                         <span class="ow">and</span> <span class="ow">not</span> <span class="n">col</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;_frac_pos&#39;</span><span class="p">)]</span>
+        
+        <span class="k">if</span> <span class="n">intensity_cols</span><span class="p">:</span>
+            <span class="c1"># Apply arcsinh to all intensity features at once</span>
+            <span class="n">combined_features</span><span class="p">[</span><span class="n">intensity_cols</span><span class="p">]</span> <span class="o">=</span> <span class="n">arcsinh_normalize</span><span class="p">(</span>
+                <span class="n">combined_features</span><span class="p">[</span><span class="n">intensity_cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> 
+                <span class="n">cofactor</span><span class="o">=</span><span class="n">arcsinh_cofactor</span>
+            <span class="p">)</span>
+    
     <span class="c1"># Save to CSV if output path is provided</span>
     <span class="k">if</span> <span class="n">output_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span>
@@ -1976,10 +1991,61 @@
     
     <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
     
+    <span class="c1"># Optimize: Load all channels at once instead of loading the entire acquisition</span>
+    <span class="c1"># multiple times (once per channel). This is much faster for larger files.</span>
+    <span class="c1"># For MCD files, get_image() reads the entire acquisition each time, so loading</span>
+    <span class="c1"># all channels once and extracting individual channels is much more efficient.</span>
+    <span class="n">img_stack</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">channel_indices</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">n_channels_total</span> <span class="o">=</span> <span class="kc">None</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Load all channels at once</span>
+        <span class="n">img_stack</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_all_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
+        
+        <span class="c1"># Determine shape - loaders return HWC format (H, W, C)</span>
+        <span class="k">if</span> <span class="n">img_stack</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">height</span><span class="p">,</span> <span class="n">width</span><span class="p">,</span> <span class="n">n_channels_total</span> <span class="o">=</span> <span class="n">img_stack</span><span class="o">.</span><span class="n">shape</span>
+        <span class="k">elif</span> <span class="n">img_stack</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="c1"># Single channel - handle separately</span>
+            <span class="n">n_channels_total</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Unexpected shape - fall back to per-channel loading</span>
+            <span class="n">img_stack</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="n">n_channels_total</span> <span class="o">=</span> <span class="kc">None</span>
+        
+        <span class="k">if</span> <span class="n">img_stack</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Get channel indices for the requested channels</span>
+            <span class="n">all_channels</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_channels</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">)</span>
+            <span class="n">channel_indices</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">channels</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">all_channels</span><span class="p">:</span>
+                    <span class="n">channel_indices</span><span class="p">[</span><span class="n">channel</span><span class="p">]</span> <span class="o">=</span> <span class="n">all_channels</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">channel</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># Fallback to per-channel loading if get_all_channels fails</span>
+        <span class="c1"># (e.g., for some loader implementations)</span>
+        <span class="n">img_stack</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">channel_indices</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">n_channels_total</span> <span class="o">=</span> <span class="kc">None</span>
+    
     <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="n">channels</span><span class="p">:</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="c1"># Load image</span>
-            <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+            <span class="c1"># Extract channel from pre-loaded stack if available, otherwise load individually</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">img_stack</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">channel_indices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> 
+                <span class="n">channel</span> <span class="ow">in</span> <span class="n">channel_indices</span> <span class="ow">and</span> <span class="n">n_channels_total</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">):</span>
+                <span class="n">ch_idx</span> <span class="o">=</span> <span class="n">channel_indices</span><span class="p">[</span><span class="n">channel</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">img_stack</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">ch_idx</span> <span class="o">&gt;=</span> <span class="n">n_channels_total</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="n">img</span> <span class="o">=</span> <span class="n">img_stack</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">ch_idx</span><span class="p">]</span>
+                <span class="k">elif</span> <span class="n">img_stack</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">img</span> <span class="o">=</span> <span class="n">img_stack</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">continue</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Fallback: load image individually (slower but works for all loaders)</span>
+                <span class="n">img</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_image</span><span class="p">(</span><span class="n">original_acq_id</span><span class="p">,</span> <span class="n">channel</span><span class="p">)</span>
+            
             <span class="k">if</span> <span class="n">img</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="k">continue</span>
             
@@ -2528,8 +2594,6 @@
             <span class="n">n_workers</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">n_workers</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">n_workers</span><span class="p">)</span>
     
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Starting enrichment analysis&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: n_permutations=</span><span class="si">{</span><span class="n">n_permutations</span><span class="si">}</span><span class="s2">, n_workers=</span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2">, seed=</span><span class="si">{</span><span class="n">seed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     
     <span class="c1"># Collect all ROIs first</span>
     <span class="n">roi_tasks</span> <span class="o">=</span> <span class="p">[]</span>
@@ -2537,13 +2601,11 @@
         <span class="n">roi_edges</span> <span class="o">=</span> <span class="n">edges_df</span><span class="p">[</span><span class="n">edges_df</span><span class="p">[</span><span class="s1">&#39;roi_id&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">roi_id</span><span class="p">)]</span>
         
         <span class="k">if</span> <span class="n">roi_edges</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: ROI </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> has no edges, skipping&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="c1"># Get unique clusters</span>
         <span class="n">unique_clusters</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">roi_df</span><span class="p">[</span><span class="n">cluster_column</span><span class="p">]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_clusters</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: ROI </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> has &lt; 2 clusters, skipping&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="c1"># Prepare ROI task for worker</span>
@@ -2556,49 +2618,39 @@
             <span class="n">seed</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span>  <span class="c1"># Unique seed for each ROI</span>
         <span class="p">))</span>
     
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Prepared </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span><span class="si">}</span><span class="s2"> ROI tasks&quot;</span><span class="p">)</span>
     
     <span class="c1"># Process ROIs with multiprocessing</span>
     <span class="n">enrichment_results</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">n_workers</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
             <span class="c1"># Use multiprocessing: one ROI per worker</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Using MULTIPROCESSING with </span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2"> workers&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Distributing </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span><span class="si">}</span><span class="s2"> ROIs across </span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2"> workers&quot;</span><span class="p">)</span>
             <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
             <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
             <span class="k">with</span> <span class="n">mp</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">processes</span><span class="o">=</span><span class="n">n_workers</span><span class="p">)</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Pool created, starting parallel ROI processing...&quot;</span><span class="p">)</span>
                 <span class="n">roi_results</span> <span class="o">=</span> <span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">roi_enrichment_worker</span><span class="p">,</span> <span class="n">roi_tasks</span><span class="p">)</span>
             <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Multiprocessing completed in </span><span class="si">{</span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
             
             <span class="c1"># Flatten results from all ROIs</span>
             <span class="k">for</span> <span class="n">roi_result_list</span> <span class="ow">in</span> <span class="n">roi_results</span><span class="p">:</span>
                 <span class="n">enrichment_results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">roi_result_list</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Single-threaded fallback: process ROIs sequentially</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Using SINGLE-THREADED mode (n_workers=</span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2">, rois=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
             <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
             <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
             <span class="k">for</span> <span class="n">roi_task</span> <span class="ow">in</span> <span class="n">roi_tasks</span><span class="p">:</span>
                 <span class="n">roi_result_list</span> <span class="o">=</span> <span class="n">roi_enrichment_worker</span><span class="p">(</span><span class="n">roi_task</span><span class="p">)</span>
                 <span class="n">enrichment_results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">roi_result_list</span><span class="p">)</span>
             <span class="n">elapsed</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Single-threaded computation completed in </span><span class="si">{</span><span class="n">elapsed</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
     
     <span class="k">if</span> <span class="ow">not</span> <span class="n">enrichment_results</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: No enrichment results generated&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
     
     <span class="n">results_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">enrichment_results</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Completed! Generated </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results_df</span><span class="p">)</span><span class="si">}</span><span class="s2"> enrichment results&quot;</span><span class="p">)</span>
     
     <span class="c1"># Save output if path is provided</span>
     <span class="k">if</span> <span class="n">output_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span>
         <span class="n">results_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_enrichment: Results saved to </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     
     <span class="k">return</span> <span class="n">results_df</span></div>
 
@@ -2652,8 +2704,6 @@
     
     <span class="n">n_workers</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">n_workers</span><span class="p">)</span>
     
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: Starting distance distribution analysis&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: n_workers=</span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2">, pixel_size_um=</span><span class="si">{</span><span class="n">pixel_size_um</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     
     <span class="c1"># Collect all ROIs first</span>
     <span class="n">roi_tasks</span> <span class="o">=</span> <span class="p">[]</span>
@@ -2661,7 +2711,6 @@
         <span class="c1"># Get unique clusters</span>
         <span class="n">unique_clusters</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">roi_df</span><span class="p">[</span><span class="n">cluster_column</span><span class="p">]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_clusters</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: ROI </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> has no clusters, skipping&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="c1"># Prepare ROI task for worker</span>
@@ -2672,15 +2721,12 @@
             <span class="n">pixel_size_um</span>
         <span class="p">))</span>
     
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: Prepared </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span><span class="si">}</span><span class="s2"> ROI tasks&quot;</span><span class="p">)</span>
     
     <span class="c1"># Process ROIs with multiprocessing</span>
     <span class="n">distance_results</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">n_workers</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
             <span class="c1"># Use multiprocessing: one ROI per worker</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: Using MULTIPROCESSING with </span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2"> workers&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: Distributing </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">roi_tasks</span><span class="p">)</span><span class="si">}</span><span class="s2"> ROIs across </span><span class="si">{</span><span class="n">n_workers</span><span class="si">}</span><span class="s2"> workers&quot;</span><span class="p">)</span>
             <span class="k">with</span> <span class="n">mp</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">processes</span><span class="o">=</span><span class="n">n_workers</span><span class="p">)</span> <span class="k">as</span> <span class="n">pool</span><span class="p">:</span>
                 <span class="n">roi_results</span> <span class="o">=</span> <span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">distance_distribution_worker</span><span class="p">,</span> <span class="n">roi_tasks</span><span class="p">)</span>
                 <span class="c1"># Flatten results from all ROIs</span>
@@ -2688,7 +2734,6 @@
                     <span class="n">distance_results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">roi_result</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Single-threaded processing</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_distance_distribution: Using SINGLE-THREADED processing&quot;</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">roi_task</span> <span class="ow">in</span> <span class="n">roi_tasks</span><span class="p">:</span>
                 <span class="n">roi_result</span> <span class="o">=</span> <span class="n">distance_distribution_worker</span><span class="p">(</span><span class="n">roi_task</span><span class="p">)</span>
                 <span class="n">distance_results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">roi_result</span><span class="p">)</span>
@@ -2978,13 +3023,10 @@
     <span class="n">roi_cluster_map</span> <span class="o">=</span> <span class="p">{}</span>
     
     <span class="k">for</span> <span class="n">roi_id</span><span class="p">,</span> <span class="n">adata</span> <span class="ow">in</span> <span class="n">anndata_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] Processing ROI: </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="s1">&#39;spatial_connectivities&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Skipping </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">: no spatial_connectivities&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="k">if</span> <span class="n">cluster_key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Skipping </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">: cluster_key &#39;</span><span class="si">{</span><span class="n">cluster_key</span><span class="si">}</span><span class="s2">&#39; not in obs&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="c1"># Filter out cells with NaN cluster values</span>
@@ -2992,32 +3034,23 @@
         <span class="n">nan_mask</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">cluster_values</span><span class="p">)</span>
         <span class="n">n_nan</span> <span class="o">=</span> <span class="n">nan_mask</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">n_nan</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Filtering out </span><span class="si">{</span><span class="n">n_nan</span><span class="si">}</span><span class="s2"> cells with NaN cluster values&quot;</span><span class="p">)</span>
             <span class="c1"># Create boolean mask for valid cells (non-NaN)</span>
             <span class="n">valid_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">nan_mask</span>
             <span class="c1"># Filter AnnData object (this will also filter spatial_connectivities)</span>
             <span class="n">adata</span> <span class="o">=</span> <span class="n">adata</span><span class="p">[</span><span class="n">valid_mask</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   After filtering: </span><span class="si">{</span><span class="n">adata</span><span class="o">.</span><span class="n">n_obs</span><span class="si">}</span><span class="s2"> cells remaining&quot;</span><span class="p">)</span>
         
         <span class="c1"># Ensure categorical</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
             <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;category&#39;</span><span class="p">)</span>
         
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Running nhood_enrichment for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   adata.obsp keys before: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Number of cells: </span><span class="si">{</span><span class="n">adata</span><span class="o">.</span><span class="n">n_obs</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
         <span class="c1"># Check graph connectivity</span>
         <span class="k">if</span> <span class="s1">&#39;spatial_connectivities&#39;</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">:</span>
             <span class="n">conn</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;spatial_connectivities&#39;</span><span class="p">]</span>
             <span class="n">n_edges</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">nnz</span> <span class="o">//</span> <span class="mi">2</span>  <span class="c1"># Divide by 2 because it&#39;s symmetric</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Graph has </span><span class="si">{</span><span class="n">n_edges</span><span class="si">}</span><span class="s2"> edges (connections)&quot;</span><span class="p">)</span>
             <span class="c1"># Check if graph is connected</span>
             <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse.csgraph</span><span class="w"> </span><span class="kn">import</span> <span class="n">connected_components</span>
             <span class="n">n_components</span><span class="p">,</span> <span class="n">labels</span> <span class="o">=</span> <span class="n">connected_components</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">directed</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_labels</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Graph has </span><span class="si">{</span><span class="n">n_components</span><span class="si">}</span><span class="s2"> connected component(s)&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">n_components</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   WARNING: Graph is not fully connected! This may cause issues.&quot;</span><span class="p">)</span>
         
         <span class="c1"># Check clusters</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
@@ -3027,28 +3060,18 @@
             <span class="n">categories</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
             <span class="n">unique_vals</span> <span class="o">=</span> <span class="n">categories</span>
         
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Cluster key &#39;</span><span class="si">{</span><span class="n">cluster_key</span><span class="si">}</span><span class="s2">&#39; categories: </span><span class="si">{</span><span class="n">categories</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Number of unique clusters: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   WARNING: Only </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span><span class="si">}</span><span class="s2"> cluster(s) found. Need at least 2 for enrichment analysis!&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Skipping </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> due to insufficient clusters&quot;</span><span class="p">)</span>
             <span class="k">continue</span>
         
         <span class="c1"># Run neighborhood enrichment</span>
         <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">nhood_enrichment</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">cluster_key</span><span class="o">=</span><span class="n">cluster_key</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   nhood_enrichment completed for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
         <span class="c1"># Check ALL keys in uns to see what squidpy stored</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   adata.uns keys after nhood_enrichment: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
             <span class="k">if</span> <span class="s1">&#39;nhood&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;enrich&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found relevant key: &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
                 <span class="n">val</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     Type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">val</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                 <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     Dict keys: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">val</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]       &#39;</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">&#39;: type=</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="si">}</span><span class="s2">, shape=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">pass</span>
         
         <span class="c1"># Extract matrix - try multiple possible keys</span>
         <span class="n">enrichment_data</span> <span class="o">=</span> <span class="kc">None</span>
@@ -3056,7 +3079,6 @@
         <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">possible_keys</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
                 <span class="n">enrichment_data</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found enrichment data at key: &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span>
                 <span class="k">break</span>
         
         <span class="k">if</span> <span class="n">enrichment_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -3064,42 +3086,29 @@
             <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
                 <span class="k">if</span> <span class="s1">&#39;nhood&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;enrich&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
                     <span class="n">enrichment_data</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
-                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found enrichment data at key: &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39; (searched)&quot;</span><span class="p">)</span>
                     <span class="k">break</span>
         
         <span class="k">if</span> <span class="n">enrichment_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">enrichment_data</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   No enrichment data found in uns, using empty dict&quot;</span><span class="p">)</span>
         
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   enrichment_data type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   enrichment_data keys: </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">enrichment_data</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">matrix</span> <span class="o">=</span> <span class="kc">None</span>
         
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
             <span class="k">if</span> <span class="s1">&#39;zscore&#39;</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="p">:</span>
                 <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span><span class="p">[</span><span class="s1">&#39;zscore&#39;</span><span class="p">]</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found zscore matrix, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">elif</span> <span class="s1">&#39;count&#39;</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="p">:</span>
                 <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span><span class="p">[</span><span class="s1">&#39;count&#39;</span><span class="p">]</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found count matrix, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">elif</span> <span class="s1">&#39;stat&#39;</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="p">:</span>
                 <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span><span class="p">[</span><span class="s1">&#39;stat&#39;</span><span class="p">]</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found stat matrix, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">hasattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;shape&#39;</span><span class="p">)</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Searching for matrix-like value in dict...&quot;</span><span class="p">)</span>
                 <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">enrichment_data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     Key &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;: type=</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">, ndim=</span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ndim&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
                         <span class="n">matrix</span> <span class="o">=</span> <span class="n">value</span>
-                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Found matrix at key &#39;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&#39;, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                         <span class="k">break</span>
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">enrichment_data</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
             <span class="n">matrix</span> <span class="o">=</span> <span class="n">enrichment_data</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   enrichment_data is numpy array, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
         <span class="k">if</span> <span class="n">matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">and</span> <span class="n">matrix</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Successfully extracted matrix for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">, shape: </span><span class="si">{</span><span class="n">matrix</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="n">results</span><span class="p">[</span><span class="n">roi_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span>
             <span class="n">enrichment_matrices</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">roi_id</span><span class="p">,</span> <span class="n">matrix</span><span class="p">))</span>
             
@@ -3109,12 +3118,9 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">clusters</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
             <span class="n">roi_cluster_map</span><span class="p">[</span><span class="n">roi_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">clusters</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Added </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2"> with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">clusters</span><span class="p">)</span><span class="si">}</span><span class="s2"> clusters&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Failed to extract valid matrix for </span><span class="si">{</span><span class="n">roi_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     matrix is None: </span><span class="si">{</span><span class="n">matrix</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]     matrix type: </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">matrix</span><span class="p">)</span><span class="si">}</span><span class="s2">, ndim: </span><span class="si">{</span><span class="nb">getattr</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ndim&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">pass</span>
     
     <span class="c1"># Aggregate if multiple ROIs</span>
     <span class="n">aggregated_matrix</span> <span class="o">=</span> <span class="kc">None</span>
@@ -3183,11 +3189,6 @@
         <span class="k">if</span> <span class="n">aggregated_matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">significant_counts_matrix</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">aggregated_matrix</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">significance_threshold</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
     
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG] spatial_neighborhood_enrichment: Returning results&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - results: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2"> ROIs&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - aggregated: </span><span class="si">{</span><span class="n">aggregated_matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">aggregated_matrix</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="kc">None</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - cluster_categories: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_clusters_union</span><span class="p">)</span><span class="si">}</span><span class="s2"> clusters&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   - significant_counts: </span><span class="si">{</span><span class="n">significant_counts_matrix</span><span class="o">.</span><span class="n">shape</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">significant_counts_matrix</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="kc">None</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="kc">None</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     
     <span class="k">return</span> <span class="p">{</span>
         <span class="s1">&#39;results&#39;</span><span class="p">:</span> <span class="n">results</span><span class="p">,</span>
@@ -3239,10 +3240,8 @@
         <span class="n">nan_mask</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">cluster_values</span><span class="p">)</span>
         <span class="n">n_nan</span> <span class="o">=</span> <span class="n">nan_mask</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">n_nan</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Filtering out </span><span class="si">{</span><span class="n">n_nan</span><span class="si">}</span><span class="s2"> cells with NaN cluster values&quot;</span><span class="p">)</span>
             <span class="n">valid_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">nan_mask</span>
             <span class="n">adata</span> <span class="o">=</span> <span class="n">adata</span><span class="p">[</span><span class="n">valid_mask</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   After filtering: </span><span class="si">{</span><span class="n">adata</span><span class="o">.</span><span class="n">n_obs</span><span class="si">}</span><span class="s2"> cells remaining&quot;</span><span class="p">)</span>
         
         <span class="c1"># Ensure categorical</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
@@ -3289,17 +3288,33 @@
         <span class="k">if</span> <span class="s1">&#39;spatial_connectivities&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">:</span>
             <span class="k">continue</span>
         
+        <span class="c1"># Exclude &#39;touches_edge&#39; from analysis</span>
+        <span class="n">var_names_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">var_names</span><span class="p">)</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">var_names</span><span class="p">,</span> <span class="s1">&#39;__iter__&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="p">[]</span>
+        
         <span class="c1"># Run spatial autocorrelation</span>
         <span class="k">if</span> <span class="n">markers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">available_genes</span> <span class="o">=</span> <span class="p">[</span><span class="n">g</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">markers</span> <span class="k">if</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">var_names</span><span class="p">]</span>
+            <span class="c1"># Filter out &#39;touches_edge&#39; from markers</span>
+            <span class="n">markers_filtered</span> <span class="o">=</span> <span class="p">[</span><span class="n">g</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">markers</span> <span class="k">if</span> <span class="n">g</span> <span class="o">!=</span> <span class="s1">&#39;touches_edge&#39;</span><span class="p">]</span>
+            <span class="n">available_genes</span> <span class="o">=</span> <span class="p">[</span><span class="n">g</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">markers_filtered</span> <span class="k">if</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">var_names_list</span><span class="p">]</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">available_genes</span><span class="p">:</span>
                 <span class="k">continue</span>
             <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_autocorr</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;moran&quot;</span><span class="p">,</span> <span class="n">genes</span><span class="o">=</span><span class="n">available_genes</span><span class="p">)</span>
             <span class="n">all_genes</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">available_genes</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_autocorr</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;moran&quot;</span><span class="p">)</span>
-            <span class="n">var_names_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">var_names</span><span class="p">)</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">var_names</span><span class="p">,</span> <span class="s1">&#39;__iter__&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="p">[]</span>
-            <span class="n">all_genes</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">var_names_list</span><span class="p">)</span>
+            <span class="c1"># Filter out &#39;touches_edge&#39; before running autocorrelation</span>
+            <span class="k">if</span> <span class="s1">&#39;touches_edge&#39;</span> <span class="ow">in</span> <span class="n">var_names_list</span><span class="p">:</span>
+                <span class="c1"># Create a filtered view excluding touches_edge</span>
+                <span class="n">var_mask</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">var_names</span> <span class="o">!=</span> <span class="s1">&#39;touches_edge&#39;</span>
+                <span class="n">adata_filtered</span> <span class="o">=</span> <span class="n">adata</span><span class="p">[:,</span> <span class="n">var_mask</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+                <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_autocorr</span><span class="p">(</span><span class="n">adata_filtered</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;moran&quot;</span><span class="p">)</span>
+                <span class="c1"># Copy results back to original adata</span>
+                <span class="k">if</span> <span class="s1">&#39;moranI&#39;</span> <span class="ow">in</span> <span class="n">adata_filtered</span><span class="o">.</span><span class="n">uns</span><span class="p">:</span>
+                    <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s1">&#39;moranI&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata_filtered</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s1">&#39;moranI&#39;</span><span class="p">]</span>
+                <span class="n">var_names_list_filtered</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">var_names_list</span> <span class="k">if</span> <span class="n">v</span> <span class="o">!=</span> <span class="s1">&#39;touches_edge&#39;</span><span class="p">]</span>
+                <span class="n">all_genes</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">var_names_list_filtered</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_autocorr</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;moran&quot;</span><span class="p">)</span>
+                <span class="n">all_genes</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">var_names_list</span><span class="p">)</span>
         
         <span class="c1"># Extract results</span>
         <span class="n">moran_data</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">uns</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;moranI&#39;</span><span class="p">,</span> <span class="p">{})</span>
@@ -3430,10 +3445,8 @@
         <span class="n">nan_mask</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">cluster_values</span><span class="p">)</span>
         <span class="n">n_nan</span> <span class="o">=</span> <span class="n">nan_mask</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">n_nan</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   Filtering out </span><span class="si">{</span><span class="n">n_nan</span><span class="si">}</span><span class="s2"> cells with NaN cluster values&quot;</span><span class="p">)</span>
             <span class="n">valid_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">nan_mask</span>
             <span class="n">adata</span> <span class="o">=</span> <span class="n">adata</span><span class="p">[</span><span class="n">valid_mask</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[DEBUG]   After filtering: </span><span class="si">{</span><span class="n">adata</span><span class="o">.</span><span class="n">n_obs</span><span class="si">}</span><span class="s2"> cells remaining&quot;</span><span class="p">)</span>
         
         <span class="c1"># Ensure categorical</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
