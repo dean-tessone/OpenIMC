@@ -627,12 +627,24 @@
         
         <span class="c1"># Use well name if available, otherwise use acquisition name</span>
         <span class="k">if</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">well</span><span class="p">:</span>
-            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">well</span><span class="si">}</span><span class="s2">_segmentation_masks.tif&quot;</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">well</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">acquisition</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">_segmentation_masks.tif&quot;</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">name</span>
+        
+        <span class="c1"># Sanitize label for filename (replace invalid characters)</span>
+        <span class="n">safe_label</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">c</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">isalnum</span><span class="p">()</span> <span class="ow">or</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">&quot;._-&quot;</span> <span class="k">else</span> <span class="s2">&quot;_&quot;</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">label</span><span class="p">)</span>
+        
+        <span class="c1"># Include source file prefix to match GUI format for compatibility</span>
+        <span class="k">if</span> <span class="n">acquisition</span><span class="o">.</span><span class="n">source_file</span><span class="p">:</span>
+            <span class="n">source_basename</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">acquisition</span><span class="o">.</span><span class="n">source_file</span><span class="p">)</span><span class="o">.</span><span class="n">stem</span>
+            <span class="n">safe_source</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">c</span> <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">isalnum</span><span class="p">()</span> <span class="ow">or</span> <span class="n">c</span> <span class="ow">in</span> <span class="s2">&quot;._-&quot;</span> <span class="k">else</span> <span class="s2">&quot;_&quot;</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">source_basename</span><span class="p">)</span>
+            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">safe_source</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">safe_label</span><span class="si">}</span><span class="s2">_segmentation_masks.tif&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output_filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">safe_label</span><span class="si">}</span><span class="s2">_segmentation_masks.tif&quot;</span>
+        
         <span class="n">output_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">output_filename</span>
         
-        <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">),</span> <span class="n">mask</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">),</span> <span class="n">compression</span><span class="o">=</span><span class="s1">&#39;lzw&#39;</span><span class="p">)</span>
+        <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">),</span> <span class="n">mask</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint32</span><span class="p">),</span> <span class="n">compression</span><span class="o">=</span><span class="s1">&#39;lzw&#39;</span><span class="p">)</span>
     
     <span class="k">return</span> <span class="n">mask</span></div>
 
@@ -936,7 +948,10 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="c1"># Auto-detect: exclude non-feature columns (matching GUI)</span>
         <span class="n">exclude_cols</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;label&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_id&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_name&#39;</span><span class="p">,</span> <span class="s1">&#39;well&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cell_id&#39;</span><span class="p">,</span>
-                       <span class="s1">&#39;source_file&#39;</span><span class="p">,</span> <span class="s1">&#39;source_well&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_label&#39;</span><span class="p">}</span>
+                       <span class="s1">&#39;source_file&#39;</span><span class="p">,</span> <span class="s1">&#39;source_well&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_label&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;centroid_x&#39;</span><span class="p">,</span> <span class="s1">&#39;centroid_y&#39;</span><span class="p">,</span> <span class="s1">&#39;area&#39;</span><span class="p">,</span> <span class="s1">&#39;area_um2&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter_um&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;eccentricity&#39;</span><span class="p">,</span> <span class="s1">&#39;solidity&#39;</span><span class="p">,</span> <span class="s1">&#39;circularity&#39;</span><span class="p">,</span> <span class="s1">&#39;major_axis_length&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;minor_axis_length&#39;</span><span class="p">,</span> <span class="s1">&#39;orientation&#39;</span><span class="p">,</span> <span class="s1">&#39;extent&#39;</span><span class="p">,</span> <span class="s1">&#39;convex_area&#39;</span><span class="p">,</span> <span class="s1">&#39;euler_number&#39;</span><span class="p">}</span>
         <span class="n">cluster_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">features_df</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">exclude_cols</span><span class="p">]</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Column selection: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cluster_columns</span><span class="p">)</span><span class="si">}</span><span class="s2"> columns, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
     
@@ -960,7 +975,7 @@
     <span class="k">if</span> <span class="n">scaling</span> <span class="o">==</span> <span class="s1">&#39;zscore&#39;</span><span class="p">:</span>
         <span class="c1"># Z-score normalization: (x - mean) / std</span>
         <span class="n">data_means</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
-        <span class="n">data_stds</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">ddof</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">data_stds</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">ddof</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
         
         <span class="c1"># Handle columns with zero variance or NaN std/mean</span>
         <span class="n">zero_var_cols</span> <span class="o">=</span> <span class="p">(</span><span class="n">data_stds</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">data_stds</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span> <span class="o">|</span> <span class="n">data_means</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span>
@@ -1659,7 +1674,7 @@
         <span class="n">g</span><span class="o">.</span><span class="n">es</span><span class="p">[</span><span class="s1">&#39;weight&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">weights</span>
     
     <span class="c1"># Run community detection with seed</span>
-    <span class="n">partition</span> <span class="o">=</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">find_partition</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">ModularityVertexPartition</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">partition</span> <span class="o">=</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">find_partition</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">ModularityVertexPartition</span><span class="p">,</span> <span class="n">weights</span><span class="o">=</span><span class="s1">&#39;weight&#39;</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
     <span class="n">communities</span> <span class="o">=</span> <span class="n">partition</span><span class="o">.</span><span class="n">membership</span>
     
     <span class="c1"># Map community labels back to dataframe</span>
@@ -1707,7 +1722,7 @@
     <span class="n">g</span><span class="o">.</span><span class="n">es</span><span class="p">[</span><span class="s1">&#39;weight&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">weights</span>
     
     <span class="c1"># Run community detection with seed</span>
-    <span class="n">partition</span> <span class="o">=</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">find_partition</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">ModularityVertexPartition</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">partition</span> <span class="o">=</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">find_partition</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">leidenalg</span><span class="o">.</span><span class="n">ModularityVertexPartition</span><span class="p">,</span> <span class="n">weights</span><span class="o">=</span><span class="s1">&#39;weight&#39;</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
     <span class="n">communities</span> <span class="o">=</span> <span class="n">partition</span><span class="o">.</span><span class="n">membership</span>
     
     <span class="c1"># Map community labels back to dataframe</span>
@@ -2382,7 +2397,7 @@
     <span class="n">acquisition</span><span class="p">:</span> <span class="n">AcquisitionInfo</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span>
     <span class="n">x0</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">7.0</span><span class="p">,</span>
-    <span class="n">iterations</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="n">iterations</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span><span class="p">,</span>
     <span class="n">output_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;float&quot;</span><span class="p">,</span>
     <span class="n">loader_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">source_file_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2394,7 +2409,8 @@
     <span class="n">contribs_arr</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">kernel_dim</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">region_data_full</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">I0</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">I0</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">333</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply Richardson-Lucy deconvolution to high resolution IMC images.</span>
 <span class="sd">    </span>
@@ -2406,8 +2422,9 @@
 <span class="sd">        acquisition: Acquisition information</span>
 <span class="sd">        output_dir: Output directory for deconvolved images</span>
 <span class="sd">        x0: Parameter for kernel calculation (default: 7.0)</span>
-<span class="sd">        iterations: Number of Richardson-Lucy iterations (default: 4)</span>
+<span class="sd">        iterations: Number of Richardson-Lucy iterations (default: 7)</span>
 <span class="sd">        output_format: Output format (&#39;float&#39; or &#39;uint16&#39;, default: &#39;float&#39;)</span>
+<span class="sd">        resolution: HR-IMC resolution in nm (333 or 500, default: 333)</span>
 <span class="sd">        loader_path: Optional explicit path to loader file/directory (if loader doesn&#39;t have file_path/directory attribute)</span>
 <span class="sd">        source_file_path: Optional source file path for filename generation (defaults to loader_path)</span>
 <span class="sd">        unique_acq_id: Optional unique acquisition ID for filename generation (defaults to acquisition.id)</span>
@@ -2532,7 +2549,8 @@
         <span class="n">contribs_arr</span><span class="o">=</span><span class="n">contribs_arr</span><span class="p">,</span>
         <span class="n">kernel_dim</span><span class="o">=</span><span class="n">kernel_dim</span><span class="p">,</span>
         <span class="n">region_data_full</span><span class="o">=</span><span class="n">region_data_full</span><span class="p">,</span>
-        <span class="n">I0</span><span class="o">=</span><span class="n">I0</span>
+        <span class="n">I0</span><span class="o">=</span><span class="n">I0</span><span class="p">,</span>
+        <span class="n">resolution</span><span class="o">=</span><span class="n">resolution</span>
     <span class="p">)</span>
     
     <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span></div>

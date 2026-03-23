@@ -169,7 +169,7 @@ openimc<span class="w"> </span>preprocess<span class="w"> </span>input.mcd<span 
 </ul>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>args</strong> – Command-line arguments containing:
+<dd class="field-odd"><p><strong>args</strong> – <p>Command-line arguments containing:
 - input: Path to input MCD file or OME-TIFF directory
 - output: Path to output directory for segmentation masks
 - method: Segmentation method (‘cellsam’, ‘cellpose’, or ‘watershed’)
@@ -177,20 +177,38 @@ openimc<span class="w"> </span>preprocess<span class="w"> </span>input.mcd<span 
 - cytoplasm_channels: Optional comma-separated list of cytoplasm channels
 - acquisition: Optional acquisition ID or name (uses first if not specified)
 - denoise: Optional flag to apply denoising before segmentation
-- arcsinh: Optional flag to apply arcsinh normalization
-- arcsinh_cofactor: Arcsinh cofactor (default: 1.0)
-- Various method-specific parameters (model, diameter, thresholds, etc.)</p>
+- normalization_method: Intensity normalization method (default: channelwise_minmax)</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>”channelwise_minmax”: Min-max scaling per channel (recommended, same as GUI default)</p></li>
+<li><p>”None”: No normalization</p></li>
+<li><p>”arcsinh”: Arcsinh transformation</p></li>
+<li><p>”percentile_clip”: Percentile clipping</p></li>
+</ul>
+</div></blockquote>
+<ul class="simple">
+<li><p>arcsinh_cofactor: Arcsinh cofactor (default: 1.0)</p></li>
+<li><p>percentile_low/high: Percentile bounds for percentile_clip (default: 1.0, 99.0)</p></li>
+<li><p>Various method-specific parameters (model, diameter, thresholds, etc.)</p></li>
+</ul>
+</p>
 </dd>
 </dl>
 <p class="rubric">Examples</p>
-<p>Segment using Cellpose:</p>
+<p>Segment using Cellpose with default channelwise_minmax normalization:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">openimc</span> <span class="n">segment</span> <span class="nb">input</span><span class="o">.</span><span class="n">mcd</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">method</span> <span class="n">cellpose</span> \
     <span class="o">--</span><span class="n">nuclear</span><span class="o">-</span><span class="n">channels</span> <span class="n">DAPI</span> <span class="o">--</span><span class="n">model</span> <span class="n">cyto3</span> <span class="o">--</span><span class="n">gpu</span><span class="o">-</span><span class="nb">id</span> <span class="mi">0</span>
 </pre></div>
 </div>
-<p>Segment using Watershed:</p>
+<p>Segment using CellSAM with no normalization:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">openimc</span> <span class="n">segment</span> <span class="nb">input</span><span class="o">.</span><span class="n">mcd</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">method</span> <span class="n">cellsam</span> \
+    <span class="o">--</span><span class="n">nuclear</span><span class="o">-</span><span class="n">channels</span> <span class="n">DNA1</span> <span class="o">--</span><span class="n">normalization</span><span class="o">-</span><span class="n">method</span> <span class="kc">None</span>
+</pre></div>
+</div>
+<p>Segment using Watershed with arcsinh normalization:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">openimc</span> <span class="n">segment</span> <span class="nb">input</span><span class="o">.</span><span class="n">mcd</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">method</span> <span class="n">watershed</span> \
-    <span class="o">--</span><span class="n">nuclear</span><span class="o">-</span><span class="n">channels</span> <span class="n">DNA1</span> <span class="o">--</span><span class="n">cytoplasm</span><span class="o">-</span><span class="n">channels</span> <span class="n">CK8_CK18</span>
+    <span class="o">--</span><span class="n">nuclear</span><span class="o">-</span><span class="n">channels</span> <span class="n">DNA1</span> <span class="o">--</span><span class="n">cytoplasm</span><span class="o">-</span><span class="n">channels</span> <span class="n">CK8_CK18</span> \
+    <span class="o">--</span><span class="n">normalization</span><span class="o">-</span><span class="n">method</span> <span class="n">arcsinh</span> <span class="o">--</span><span class="n">arcsinh</span><span class="o">-</span><span class="n">cofactor</span> <span class="mf">5.0</span>
 </pre></div>
 </div>
 </dd></dl>

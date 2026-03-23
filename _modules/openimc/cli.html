@@ -57,6 +57,7 @@
 <span class="sd">All commands can be accessed via the ``openimc`` command-line tool.</span>
 
 <span class="sd">Available Commands:</span>
+<span class="sd">    - info: Display MCD file information (acquisitions, channels)</span>
 <span class="sd">    - preprocess: Denoise and export images to OME-TIFF format</span>
 <span class="sd">    - segment: Perform cell segmentation using various methods (CellSAM, Cellpose, Watershed)</span>
 <span class="sd">    - extract-features: Extract morphological and intensity features from segmented cells</span>
@@ -227,6 +228,106 @@
     <span class="k">return</span> <span class="n">denoise_settings</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">info_command</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Display information about an MCD file including acquisitions and channels.</span>
+<span class="sd">    </span>
+<span class="sd">    This command provides a quick way to inspect the contents of an MCD file</span>
+<span class="sd">    without loading the full image data. It lists all acquisitions and their</span>
+<span class="sd">    associated channel names, which is useful for determining the correct</span>
+<span class="sd">    channel names to use with other commands like segment or extract-features.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        args: Command-line arguments containing:</span>
+<span class="sd">            - input: Path to input MCD file</span>
+<span class="sd">            - acquisition: Optional acquisition ID or name to show details for</span>
+<span class="sd">            - format: Output format (&#39;table&#39; or &#39;json&#39;)</span>
+<span class="sd">    </span>
+<span class="sd">    Examples:</span>
+<span class="sd">        List all acquisitions and channels::</span>
+<span class="sd">        </span>
+<span class="sd">            openimc info input.mcd</span>
+<span class="sd">        </span>
+<span class="sd">        Show details for a specific acquisition::</span>
+<span class="sd">        </span>
+<span class="sd">            openimc info input.mcd --acquisition &quot;ROI_001&quot;</span>
+<span class="sd">        </span>
+<span class="sd">        Output as JSON for scripting::</span>
+<span class="sd">        </span>
+<span class="sd">            openimc info input.mcd --format json</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">input_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">input_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: Input file not found: </span><span class="si">{</span><span class="n">input_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">input_path</span><span class="o">.</span><span class="n">suffix</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;.mcd&#39;</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: Input must be an MCD file, got: </span><span class="si">{</span><span class="n">input_path</span><span class="o">.</span><span class="n">suffix</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    
+    <span class="c1"># Load the MCD file</span>
+    <span class="n">loader</span> <span class="o">=</span> <span class="n">MCDLoader</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">loader</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">input_path</span><span class="p">))</span>
+        <span class="n">acquisitions</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">list_acquisitions</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">input_path</span><span class="p">))</span>
+        
+        <span class="c1"># Filter by acquisition if specified</span>
+        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">acquisition</span><span class="p">:</span>
+            <span class="n">filtered</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">acquisitions</span> 
+                       <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">args</span><span class="o">.</span><span class="n">acquisition</span> <span class="ow">or</span> <span class="n">a</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="n">args</span><span class="o">.</span><span class="n">acquisition</span><span class="p">]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">filtered</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: Acquisition &#39;</span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">acquisition</span><span class="si">}</span><span class="s2">&#39; not found.&quot;</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Available acquisitions: </span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">name</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">acquisitions</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">acquisitions</span> <span class="o">=</span> <span class="n">filtered</span>
+        
+        <span class="c1"># Output format</span>
+        <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">format</span> <span class="o">==</span> <span class="s1">&#39;json&#39;</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">acq</span> <span class="ow">in</span> <span class="n">acquisitions</span><span class="p">:</span>
+                <span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+                    <span class="s1">&#39;id&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                    <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                    <span class="s1">&#39;well&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">well</span><span class="p">,</span>
+                    <span class="s1">&#39;size&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;height&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">size</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s1">&#39;width&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">size</span><span class="p">[</span><span class="mi">1</span><span class="p">]},</span>
+                    <span class="s1">&#39;num_channels&#39;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">acq</span><span class="o">.</span><span class="n">channels</span><span class="p">),</span>
+                    <span class="s1">&#39;channels&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">channels</span><span class="p">,</span>
+                    <span class="s1">&#39;channel_metals&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">channel_metals</span><span class="p">,</span>
+                    <span class="s1">&#39;channel_labels&#39;</span><span class="p">:</span> <span class="n">acq</span><span class="o">.</span><span class="n">channel_labels</span>
+                <span class="p">})</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Table format (default)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="si">{</span><span class="s1">&#39;=&#39;</span><span class="o">*</span><span class="mi">60</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;MCD File: </span><span class="si">{</span><span class="n">input_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="s1">&#39;=&#39;</span><span class="o">*</span><span class="mi">60</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total acquisitions: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">acquisitions</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            
+            <span class="k">for</span> <span class="n">acq</span> <span class="ow">in</span> <span class="n">acquisitions</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="si">{</span><span class="s1">&#39;-&#39;</span><span class="o">*</span><span class="mi">60</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Acquisition: </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  ID: </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">acq</span><span class="o">.</span><span class="n">well</span><span class="p">:</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Well: </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">well</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">acq</span><span class="o">.</span><span class="n">size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">and</span> <span class="n">acq</span><span class="o">.</span><span class="n">size</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Size: </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">size</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> (W x H)&quot;</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Channels (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">acq</span><span class="o">.</span><span class="n">channels</span><span class="p">)</span><span class="si">}</span><span class="s2">):&quot;</span><span class="p">)</span>
+                
+                <span class="c1"># Print channels in a nice formatted way</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">ch</span><span class="p">,</span> <span class="n">metal</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">acq</span><span class="o">.</span><span class="n">channels</span><span class="p">,</span> <span class="n">acq</span><span class="o">.</span><span class="n">channel_metals</span><span class="p">,</span> <span class="n">acq</span><span class="o">.</span><span class="n">channel_labels</span><span class="p">)):</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">:</span><span class="s2">3d</span><span class="si">}</span><span class="s2">. </span><span class="si">{</span><span class="n">ch</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">verbose</span><span class="p">:</span>
+                        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;         Metal: </span><span class="si">{</span><span class="n">metal</span><span class="si">}</span><span class="s2">, Label: </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="si">{</span><span class="s1">&#39;=&#39;</span><span class="o">*</span><span class="mi">60</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Tip: Use channel names (e.g., &#39;</span><span class="si">{example}</span><span class="s2">&#39;) with --nuclear-channels&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                <span class="n">example</span><span class="o">=</span><span class="n">acquisitions</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">channels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="n">acquisitions</span> <span class="ow">and</span> <span class="n">acquisitions</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">channels</span> <span class="k">else</span> <span class="s1">&#39;DNA1_Ir191&#39;</span>
+            <span class="p">))</span>
+    
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">loader</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
 <div class="viewcode-block" id="preprocess_command">
 <a class="viewcode-back" href="../../api_cli.html#openimc.cli.preprocess_command">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">preprocess_command</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
@@ -330,26 +431,38 @@
 <span class="sd">            - cytoplasm_channels: Optional comma-separated list of cytoplasm channels</span>
 <span class="sd">            - acquisition: Optional acquisition ID or name (uses first if not specified)</span>
 <span class="sd">            - denoise: Optional flag to apply denoising before segmentation</span>
-<span class="sd">            - arcsinh: Optional flag to apply arcsinh normalization</span>
+<span class="sd">            - normalization_method: Intensity normalization method (default: channelwise_minmax)</span>
+<span class="sd">                - &quot;channelwise_minmax&quot;: Min-max scaling per channel (recommended, same as GUI default)</span>
+<span class="sd">                - &quot;None&quot;: No normalization</span>
+<span class="sd">                - &quot;arcsinh&quot;: Arcsinh transformation</span>
+<span class="sd">                - &quot;percentile_clip&quot;: Percentile clipping</span>
 <span class="sd">            - arcsinh_cofactor: Arcsinh cofactor (default: 1.0)</span>
+<span class="sd">            - percentile_low/high: Percentile bounds for percentile_clip (default: 1.0, 99.0)</span>
 <span class="sd">            - Various method-specific parameters (model, diameter, thresholds, etc.)</span>
 <span class="sd">    </span>
 <span class="sd">    Examples:</span>
-<span class="sd">        Segment using Cellpose::</span>
+<span class="sd">        Segment using Cellpose with default channelwise_minmax normalization::</span>
 <span class="sd">        </span>
 <span class="sd">            openimc segment input.mcd output/ --method cellpose \\</span>
 <span class="sd">                --nuclear-channels DAPI --model cyto3 --gpu-id 0</span>
 <span class="sd">        </span>
-<span class="sd">        Segment using Watershed::</span>
+<span class="sd">        Segment using CellSAM with no normalization::</span>
+<span class="sd">        </span>
+<span class="sd">            openimc segment input.mcd output/ --method cellsam \\</span>
+<span class="sd">                --nuclear-channels DNA1 --normalization-method None</span>
+<span class="sd">        </span>
+<span class="sd">        Segment using Watershed with arcsinh normalization::</span>
 <span class="sd">        </span>
 <span class="sd">            openimc segment input.mcd output/ --method watershed \\</span>
-<span class="sd">                --nuclear-channels DNA1 --cytoplasm-channels CK8_CK18</span>
+<span class="sd">                --nuclear-channels DNA1 --cytoplasm-channels CK8_CK18 \\</span>
+<span class="sd">                --normalization-method arcsinh --arcsinh-cofactor 5.0</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loading data from: </span><span class="si">{</span><span class="n">args</span><span class="o">.</span><span class="n">input</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">loader</span><span class="p">,</span> <span class="n">loader_type</span> <span class="o">=</span> <span class="n">load_mcd</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">input</span><span class="p">,</span> <span class="n">channel_format</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="s1">&#39;channel_format&#39;</span><span class="p">,</span> <span class="s1">&#39;CHW&#39;</span><span class="p">))</span>
     
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">acquisitions</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">list_acquisitions</span><span class="p">()</span>
+        <span class="c1"># Pass input path so acquisitions have source_file set (needed for proper mask naming)</span>
+        <span class="n">acquisitions</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">list_acquisitions</span><span class="p">(</span><span class="n">source_file</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
         
         <span class="c1"># Get acquisition (use first if not specified)</span>
         <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">acquisition</span><span class="p">:</span>
@@ -401,6 +514,13 @@
         <span class="k">for</span> <span class="n">acq</span> <span class="ow">in</span> <span class="n">acquisitions</span><span class="p">:</span>
                 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Processing acquisition: </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> (ID: </span><span class="si">{</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
                     
+                <span class="c1"># Determine normalization method (--arcsinh flag is deprecated but still supported)</span>
+                <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">arcsinh</span> <span class="ow">and</span> <span class="n">args</span><span class="o">.</span><span class="n">normalization_method</span> <span class="o">==</span> <span class="s1">&#39;channelwise_minmax&#39;</span><span class="p">:</span>
+                    <span class="c1"># User used deprecated --arcsinh flag, honor it</span>
+                    <span class="n">norm_method</span> <span class="o">=</span> <span class="s1">&#39;arcsinh&#39;</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">norm_method</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">normalization_method</span>
+                
                 <span class="c1"># Use core segment function</span>
                 <span class="n">mask</span> <span class="o">=</span> <span class="n">segment</span><span class="p">(</span>
                     <span class="n">loader</span><span class="o">=</span><span class="n">loader</span><span class="p">,</span>
@@ -410,9 +530,9 @@
                     <span class="n">cyto_channels</span><span class="o">=</span><span class="n">cyto_channels</span> <span class="k">if</span> <span class="n">cyto_channels</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
                     <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">,</span>
                     <span class="n">denoise_settings</span><span class="o">=</span><span class="n">denoise_settings</span><span class="p">,</span>
-                    <span class="n">normalization_method</span><span class="o">=</span><span class="s1">&#39;arcsinh&#39;</span> <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">arcsinh</span> <span class="k">else</span> <span class="s1">&#39;None&#39;</span><span class="p">,</span>
-                    <span class="n">arcsinh_cofactor</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">arcsinh_cofactor</span> <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">arcsinh</span> <span class="k">else</span> <span class="mf">1.0</span><span class="p">,</span>
-                    <span class="n">percentile_params</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">99.0</span><span class="p">),</span>
+                    <span class="n">normalization_method</span><span class="o">=</span><span class="n">norm_method</span><span class="p">,</span>
+                    <span class="n">arcsinh_cofactor</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">arcsinh_cofactor</span><span class="p">,</span>
+                    <span class="n">percentile_params</span><span class="o">=</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">percentile_low</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">percentile_high</span><span class="p">),</span>
                     <span class="n">nuclear_combo_method</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">nuclear_fusion_method</span><span class="p">,</span>
                     <span class="n">cyto_combo_method</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">cyto_fusion_method</span><span class="p">,</span>
                     <span class="n">nuclear_weights</span><span class="o">=</span><span class="n">nuclear_weights</span><span class="p">,</span>
@@ -435,7 +555,8 @@
                     <span class="n">compactness</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">compactness</span>
                 <span class="p">)</span>
                 
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  ✓ Segmentation complete: </span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span><span class="si">}</span><span class="s2"> cells detected&quot;</span><span class="p">)</span>
+                <span class="n">n_cells</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">mask</span><span class="p">))</span> <span class="o">-</span> <span class="mi">1</span>  <span class="c1"># Subtract 1 for background (label 0)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  ✓ Segmentation complete: </span><span class="si">{</span><span class="n">n_cells</span><span class="si">}</span><span class="s2"> cells detected&quot;</span><span class="p">)</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">✓ Segmentation complete! Output saved to: </span><span class="si">{</span><span class="n">output_dir</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         
@@ -1138,7 +1259,8 @@
                 <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">,</span>
                 <span class="n">x0</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">x0</span><span class="p">,</span>
                 <span class="n">iterations</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">iterations</span><span class="p">,</span>
-                <span class="n">output_format</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">output_format</span>
+                <span class="n">output_format</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">output_format</span><span class="p">,</span>
+                <span class="n">resolution</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">resolution</span>
             <span class="p">)</span>
             
             <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Saved to: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -1956,14 +2078,15 @@
                     <span class="n">acq_id</span><span class="o">=</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
                     <span class="n">output_dir</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">deconv_output</span><span class="p">),</span>
                     <span class="n">x0</span><span class="o">=</span><span class="n">deconv_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;x0&#39;</span><span class="p">,</span> <span class="mf">7.0</span><span class="p">),</span>
-                    <span class="n">iterations</span><span class="o">=</span><span class="n">deconv_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;iterations&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+                    <span class="n">iterations</span><span class="o">=</span><span class="n">deconv_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;iterations&#39;</span><span class="p">,</span> <span class="mi">7</span><span class="p">),</span>
                     <span class="n">output_format</span><span class="o">=</span><span class="n">deconv_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;output_format&#39;</span><span class="p">,</span> <span class="s1">&#39;float&#39;</span><span class="p">),</span>
                     <span class="n">channel_names</span><span class="o">=</span><span class="n">channels</span><span class="p">,</span>
                     <span class="n">source_file_path</span><span class="o">=</span><span class="n">acq</span><span class="o">.</span><span class="n">source_file</span><span class="p">,</span>
                     <span class="n">unique_acq_id</span><span class="o">=</span><span class="n">acq</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
                     <span class="n">loader_type</span><span class="o">=</span><span class="n">loader_type</span><span class="p">,</span>
                     <span class="n">channel_format</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;channel_format&#39;</span><span class="p">,</span> <span class="s1">&#39;CHW&#39;</span><span class="p">),</span>
-                    <span class="n">well_name</span><span class="o">=</span><span class="n">acq</span><span class="o">.</span><span class="n">well</span>
+                    <span class="n">well_name</span><span class="o">=</span><span class="n">acq</span><span class="o">.</span><span class="n">well</span><span class="p">,</span>
+                    <span class="n">resolution</span><span class="o">=</span><span class="n">deconv_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;resolution&#39;</span><span class="p">,</span> <span class="mi">333</span><span class="p">)</span>
                 <span class="p">)</span>
                 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  ✓ Saved: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">finally</span><span class="p">:</span>
@@ -2426,6 +2549,14 @@
     
     <span class="n">subparsers</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">add_subparsers</span><span class="p">(</span><span class="n">dest</span><span class="o">=</span><span class="s1">&#39;command&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Command to run&#39;</span><span class="p">)</span>
     
+    <span class="c1"># Info command - list acquisitions and channels</span>
+    <span class="n">info_parser</span> <span class="o">=</span> <span class="n">subparsers</span><span class="o">.</span><span class="n">add_parser</span><span class="p">(</span><span class="s1">&#39;info&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Display MCD file information (acquisitions, channels)&#39;</span><span class="p">)</span>
+    <span class="n">info_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;input&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Input MCD file&#39;</span><span class="p">)</span>
+    <span class="n">info_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--acquisition&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Show details for a specific acquisition (by ID or name)&#39;</span><span class="p">)</span>
+    <span class="n">info_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--format&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;table&#39;</span><span class="p">,</span> <span class="s1">&#39;json&#39;</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="s1">&#39;table&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Output format (default: table)&#39;</span><span class="p">)</span>
+    <span class="n">info_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--verbose&#39;</span><span class="p">,</span> <span class="s1">&#39;-v&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Show additional channel details (metal and label separately)&#39;</span><span class="p">)</span>
+    <span class="n">info_parser</span><span class="o">.</span><span class="n">set_defaults</span><span class="p">(</span><span class="n">func</span><span class="o">=</span><span class="n">info_command</span><span class="p">)</span>
+    
     <span class="c1"># Preprocess command</span>
     <span class="n">preprocess_parser</span> <span class="o">=</span> <span class="n">subparsers</span><span class="o">.</span><span class="n">add_parser</span><span class="p">(</span><span class="s1">&#39;preprocess&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Preprocess images (denoising, export to OME-TIFF). Note: arcsinh normalization is not applied to exported images.&#39;</span><span class="p">)</span>
     <span class="n">preprocess_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;input&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Input MCD file or OME-TIFF directory&#39;</span><span class="p">)</span>
@@ -2467,8 +2598,11 @@
     <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--use-wsi&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Use WSI mode for CellSAM (for ROIs with &gt;500 cells, increases processing time)&#39;</span><span class="p">)</span>
     <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--low-contrast-enhancement&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Enable low contrast enhancement for CellSAM (for poor contrast images)&#39;</span><span class="p">)</span>
     <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--gauge-cell-size&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Enable gauge cell size for CellSAM (runs twice: estimates error, then returns mask)&#39;</span><span class="p">)</span>
-    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--arcsinh&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Apply arcsinh normalization before segmentation&#39;</span><span class="p">)</span>
-    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--arcsinh-cofactor&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Arcsinh cofactor (default: 1.0)&#39;</span><span class="p">)</span>
+    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--normalization-method&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;None&#39;</span><span class="p">,</span> <span class="s1">&#39;channelwise_minmax&#39;</span><span class="p">,</span> <span class="s1">&#39;arcsinh&#39;</span><span class="p">,</span> <span class="s1">&#39;percentile_clip&#39;</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="s1">&#39;channelwise_minmax&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Intensity normalization method (default: channelwise_minmax, same as GUI)&#39;</span><span class="p">)</span>
+    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--arcsinh&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;(Deprecated) Use --normalization-method arcsinh instead. Apply arcsinh normalization before segmentation&#39;</span><span class="p">)</span>
+    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--arcsinh-cofactor&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Arcsinh cofactor for arcsinh normalization (default: 1.0)&#39;</span><span class="p">)</span>
+    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--percentile-low&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Low percentile for percentile_clip normalization (default: 1.0)&#39;</span><span class="p">)</span>
+    <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--percentile-high&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">99.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;High percentile for percentile_clip normalization (default: 99.0)&#39;</span><span class="p">)</span>
     <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--denoise&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;all&#39;</span><span class="p">],</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Apply denoising to all channels (use &quot;all&quot; for hot pixel removal on all channels)&#39;</span><span class="p">)</span>
     <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--denoise-method&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;median3&#39;</span><span class="p">,</span> <span class="s1">&#39;n_sd_local_median&#39;</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="s1">&#39;median3&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Hot pixel removal method: median3 (3x3 median filter) or n_sd_local_median (replace pixels above N SD over local median, default: median3)&#39;</span><span class="p">)</span>
     <span class="n">segment_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--denoise-n-sd&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Number of standard deviations for n_sd_local_median method only (ignored for median3, default: 5.0)&#39;</span><span class="p">)</span>
@@ -2698,8 +2832,9 @@
     <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--channel-format&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;CHW&#39;</span><span class="p">,</span> <span class="s1">&#39;HWC&#39;</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="s1">&#39;CHW&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Channel format for OME-TIFF files (default: CHW)&#39;</span><span class="p">)</span>
     <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--acquisition&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Acquisition ID or name (processes all if not specified)&#39;</span><span class="p">)</span>
     <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--x0&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">7.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Parameter for kernel calculation (default: 7.0)&#39;</span><span class="p">)</span>
-    <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--iterations&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Number of Richardson-Lucy iterations (default: 4)&#39;</span><span class="p">)</span>
+    <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--iterations&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Number of Richardson-Lucy iterations (default: 7)&#39;</span><span class="p">)</span>
     <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--output-format&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;float&#39;</span><span class="p">,</span> <span class="s1">&#39;uint16&#39;</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="s1">&#39;float&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Output format (default: float)&#39;</span><span class="p">)</span>
+    <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--resolution&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="mi">333</span><span class="p">,</span> <span class="mi">500</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="mi">333</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;HR-IMC resolution in nm (default: 333)&#39;</span><span class="p">)</span>
     <span class="n">deconv_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--workers&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="sa">f</span><span class="s1">&#39;Number of parallel workers (default: </span><span class="si">{</span><span class="n">get_default_workers</span><span class="p">()</span><span class="si">}</span><span class="s1">)&#39;</span><span class="p">)</span>
     <span class="n">deconv_parser</span><span class="o">.</span><span class="n">set_defaults</span><span class="p">(</span><span class="n">func</span><span class="o">=</span><span class="n">deconvolution_command</span><span class="p">)</span>
     
