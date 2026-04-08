@@ -83,12 +83,17 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.data.mcd_loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCDLoader</span><span class="p">,</span> <span class="n">AcquisitionInfo</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.data.ometiff_loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">OMETIFFLoader</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.export_worker</span><span class="w"> </span><span class="kn">import</span> <span class="n">process_channel_for_export</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.feature_worker</span><span class="w"> </span><span class="kn">import</span> <span class="n">_apply_denoise_to_channel</span><span class="p">,</span> <span class="n">extract_features_for_acquisition</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.feature_worker</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_apply_denoise_to_channel</span><span class="p">,</span>
+    <span class="n">extract_features_for_acquisition</span><span class="p">,</span>
+    <span class="n">drop_excluded_channel_feature_columns</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.watershed_worker</span><span class="w"> </span><span class="kn">import</span> <span class="n">watershed_segmentation</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.batch_correction</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">apply_combat_correction</span><span class="p">,</span>
     <span class="n">apply_harmony_correction</span><span class="p">,</span>
     <span class="n">detect_batch_variable</span><span class="p">,</span>
+    <span class="n">get_feature_columns_from_dataframe</span><span class="p">,</span>
     <span class="n">validate_batch_correction_inputs</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">openimc.processing.spillover_correction</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -858,6 +863,10 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="c1"># No features extracted</span>
         <span class="n">combined_features</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+
+    <span class="c1"># Enforce channel exclusion at final table level (after concat) so excluded</span>
+    <span class="c1"># channels cannot appear as columns with NaN values.</span>
+    <span class="n">combined_features</span> <span class="o">=</span> <span class="n">drop_excluded_channel_feature_columns</span><span class="p">(</span><span class="n">combined_features</span><span class="p">,</span> <span class="n">excluded_channels</span><span class="p">)</span>
     
     <span class="c1"># Apply arcsinh transformation to intensity features after combining all acquisitions</span>
     <span class="c1"># This is more efficient than applying per-acquisition and ensures consistency</span>
@@ -938,8 +947,12 @@
 <span class="sd">        ValueError: If method is invalid or required parameters are missing</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
     <span class="n">t_start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Starting clustering: method=</span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">, input shape=</span><span class="si">{</span><span class="n">features_df</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="c1"># Set explicit seeds once at function entry for reproducible behavior.</span>
+    <span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
     
     <span class="c1"># Select columns for clustering</span>
     <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
@@ -1079,14 +1092,18 @@
         
         <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
         <span class="c1"># Build k-NN graph using sklearn (matching old GUI implementation)</span>
-        <span class="n">nbrs</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">n_neighbors</span><span class="o">=</span><span class="n">n_neighbors</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">nbrs</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">n_neighbors</span><span class="o">=</span><span class="n">n_neighbors</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="c1"># Backward compatibility with older sklearn versions without n_jobs arg.</span>
+            <span class="n">nbrs</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">n_neighbors</span><span class="o">=</span><span class="n">n_neighbors</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
         <span class="n">distances_knn</span><span class="p">,</span> <span class="n">indices_knn</span> <span class="o">=</span> <span class="n">nbrs</span><span class="o">.</span><span class="n">kneighbors</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: k-NN calculation took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
         
         <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
         <span class="c1"># Create graph from k-NN (matching old GUI implementation)</span>
-        <span class="n">edges</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="n">weights</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">edge_weights</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">directed_edge_count</span> <span class="o">=</span> <span class="mi">0</span>
         
         <span class="k">if</span> <span class="n">use_jaccard</span><span class="p">:</span>
             <span class="c1"># Compute neighbor sets for Jaccard similarity (PhenoGraph-like)</span>
@@ -1097,35 +1114,43 @@
             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
                     <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
-                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="n">directed_edge_count</span> <span class="o">+=</span> <span class="mi">1</span>
                         <span class="c1"># Compute Jaccard similarity: |N(i) ∩ N(j)| / |N(i) ∪ N(j)|</span>
                         <span class="n">intersection</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&amp;</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
                         <span class="n">union</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">|</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
                         <span class="n">jaccard</span> <span class="o">=</span> <span class="n">intersection</span> <span class="o">/</span> <span class="n">union</span> <span class="k">if</span> <span class="n">union</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
-                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">jaccard</span><span class="p">)</span>
+                        <span class="n">u</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                        <span class="n">v</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">neighbor_idx</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">u</span> <span class="o">&gt;</span> <span class="n">v</span><span class="p">:</span>
+                            <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="p">,</span> <span class="n">u</span>
+                        <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+                        <span class="n">prev</span> <span class="o">=</span> <span class="n">edge_weights</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">jaccard</span> <span class="o">&gt;</span> <span class="n">prev</span><span class="p">:</span>
+                            <span class="n">edge_weights</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">jaccard</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Use inverse distance weighting (default)</span>
             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
                     <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
-                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="n">directed_edge_count</span> <span class="o">+=</span> <span class="mi">1</span>
                         <span class="c1"># Convert distance to similarity (inverse, normalized) - matching old GUI</span>
                         <span class="n">weight</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">distances_knn</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j_idx</span><span class="p">])</span>
-                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+                        <span class="n">u</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                        <span class="n">v</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">neighbor_idx</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">u</span> <span class="o">&gt;</span> <span class="n">v</span><span class="p">:</span>
+                            <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="p">,</span> <span class="n">u</span>
+                        <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+                        <span class="n">prev</span> <span class="o">=</span> <span class="n">edge_weights</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">weight</span> <span class="o">&gt;</span> <span class="n">prev</span><span class="p">:</span>
+                            <span class="n">edge_weights</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Edge list creation took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Created </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span><span class="si">}</span><span class="s2"> edges from k-NN&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Created </span><span class="si">{</span><span class="n">directed_edge_count</span><span class="si">}</span><span class="s2"> directed edges from k-NN&quot;</span><span class="p">)</span>
         
         <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-        <span class="c1"># Create symmetric graph (undirected - convert to symmetric)</span>
-        <span class="n">edge_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
-        <span class="n">symmetric_edges</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="n">symmetric_weights</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">),</span> <span class="n">w</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">edges</span><span class="p">,</span> <span class="n">weights</span><span class="p">):</span>
-            <span class="k">if</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">edge_set</span> <span class="ow">and</span> <span class="p">(</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">edge_set</span><span class="p">:</span>
-                <span class="n">edge_set</span><span class="o">.</span><span class="n">add</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">))</span>
-                <span class="n">symmetric_edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">))</span>
-                <span class="n">symmetric_weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>
+        <span class="c1"># Convert to a deterministic undirected edge representation.</span>
+        <span class="n">symmetric_edges</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">edge_weights</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">symmetric_weights</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">edge_weights</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Symmetric graph conversion took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Leiden: Final graph has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">symmetric_edges</span><span class="p">)</span><span class="si">}</span><span class="s2"> unique edges&quot;</span><span class="p">)</span>
@@ -1166,14 +1191,18 @@
         
         <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
         <span class="c1"># Build k-NN graph using sklearn (same as Leiden)</span>
-        <span class="n">nbrs</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">n_neighbors</span><span class="o">=</span><span class="n">n_neighbors</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">nbrs</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">n_neighbors</span><span class="o">=</span><span class="n">n_neighbors</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="c1"># Backward compatibility with older sklearn versions without n_jobs arg.</span>
+            <span class="n">nbrs</span> <span class="o">=</span> <span class="n">NearestNeighbors</span><span class="p">(</span><span class="n">n_neighbors</span><span class="o">=</span><span class="n">n_neighbors</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="n">metric</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
         <span class="n">distances_knn</span><span class="p">,</span> <span class="n">indices_knn</span> <span class="o">=</span> <span class="n">nbrs</span><span class="o">.</span><span class="n">kneighbors</span><span class="p">(</span><span class="n">data_values</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: k-NN calculation took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
         
         <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
         <span class="c1"># Create graph from k-NN</span>
-        <span class="n">edges</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="n">weights</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">edge_weights</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">directed_edge_count</span> <span class="o">=</span> <span class="mi">0</span>
         
         <span class="k">if</span> <span class="n">use_jaccard</span><span class="p">:</span>
             <span class="c1"># Compute neighbor sets for Jaccard similarity (PhenoGraph-like)</span>
@@ -1184,35 +1213,43 @@
             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
                     <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
-                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="n">directed_edge_count</span> <span class="o">+=</span> <span class="mi">1</span>
                         <span class="c1"># Compute Jaccard similarity: |N(i) ∩ N(j)| / |N(i) ∪ N(j)|</span>
                         <span class="n">intersection</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&amp;</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
                         <span class="n">union</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">neighbor_sets</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">|</span> <span class="n">neighbor_sets</span><span class="p">[</span><span class="n">neighbor_idx</span><span class="p">])</span>
                         <span class="n">jaccard</span> <span class="o">=</span> <span class="n">intersection</span> <span class="o">/</span> <span class="n">union</span> <span class="k">if</span> <span class="n">union</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
-                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">jaccard</span><span class="p">)</span>
+                        <span class="n">u</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                        <span class="n">v</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">neighbor_idx</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">u</span> <span class="o">&gt;</span> <span class="n">v</span><span class="p">:</span>
+                            <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="p">,</span> <span class="n">u</span>
+                        <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+                        <span class="n">prev</span> <span class="o">=</span> <span class="n">edge_weights</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">jaccard</span> <span class="o">&gt;</span> <span class="n">prev</span><span class="p">:</span>
+                            <span class="n">edge_weights</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">jaccard</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Use inverse distance weighting (default)</span>
             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
                 <span class="k">for</span> <span class="n">j_idx</span><span class="p">,</span> <span class="n">neighbor_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">indices_knn</span><span class="p">[</span><span class="n">i</span><span class="p">]):</span>
                     <span class="k">if</span> <span class="n">neighbor_idx</span> <span class="o">!=</span> <span class="n">i</span><span class="p">:</span>  <span class="c1"># Don&#39;t add self-loops</span>
-                        <span class="n">edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">neighbor_idx</span><span class="p">))</span>
+                        <span class="n">directed_edge_count</span> <span class="o">+=</span> <span class="mi">1</span>
                         <span class="c1"># Convert distance to similarity (inverse, normalized)</span>
                         <span class="n">weight</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">distances_knn</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">j_idx</span><span class="p">])</span>
-                        <span class="n">weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+                        <span class="n">u</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                        <span class="n">v</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">neighbor_idx</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">u</span> <span class="o">&gt;</span> <span class="n">v</span><span class="p">:</span>
+                            <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="p">,</span> <span class="n">u</span>
+                        <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+                        <span class="n">prev</span> <span class="o">=</span> <span class="n">edge_weights</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">prev</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">weight</span> <span class="o">&gt;</span> <span class="n">prev</span><span class="p">:</span>
+                            <span class="n">edge_weights</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Edge list creation took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Created </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span><span class="si">}</span><span class="s2"> edges from k-NN&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Created </span><span class="si">{</span><span class="n">directed_edge_count</span><span class="si">}</span><span class="s2"> directed edges from k-NN&quot;</span><span class="p">)</span>
         
         <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-        <span class="c1"># Create symmetric graph (undirected - convert to symmetric)</span>
-        <span class="n">edge_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
-        <span class="n">symmetric_edges</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="n">symmetric_weights</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="k">for</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">),</span> <span class="n">w</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">edges</span><span class="p">,</span> <span class="n">weights</span><span class="p">):</span>
-            <span class="k">if</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">edge_set</span> <span class="ow">and</span> <span class="p">(</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">edge_set</span><span class="p">:</span>
-                <span class="n">edge_set</span><span class="o">.</span><span class="n">add</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">))</span>
-                <span class="n">symmetric_edges</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">))</span>
-                <span class="n">symmetric_weights</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>
+        <span class="c1"># Convert to a deterministic undirected edge representation.</span>
+        <span class="n">symmetric_edges</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">edge_weights</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">symmetric_weights</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">edge_weights</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
         
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Symmetric graph conversion took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Louvain: Final graph has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">symmetric_edges</span><span class="p">)</span><span class="si">}</span><span class="s2"> unique edges&quot;</span><span class="p">)</span>
@@ -1783,13 +1820,7 @@
     
     <span class="c1"># Auto-detect features if not provided</span>
     <span class="k">if</span> <span class="n">features</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="c1"># Exclude non-feature columns</span>
-        <span class="n">exclude_cols</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s1">&#39;label&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_id&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_name&#39;</span><span class="p">,</span> <span class="s1">&#39;well&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster&#39;</span><span class="p">,</span>
-            <span class="s1">&#39;cell_id&#39;</span><span class="p">,</span> <span class="s1">&#39;centroid_x&#39;</span><span class="p">,</span> <span class="s1">&#39;centroid_y&#39;</span><span class="p">,</span> <span class="s1">&#39;source_file&#39;</span><span class="p">,</span> <span class="s1">&#39;source_well&#39;</span><span class="p">,</span>
-            <span class="n">batch_var</span>
-        <span class="p">}</span>
-        <span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">features_df</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">exclude_cols</span><span class="p">]</span>
+        <span class="n">features</span> <span class="o">=</span> <span class="n">get_feature_columns_from_dataframe</span><span class="p">(</span><span class="n">features_df</span><span class="p">,</span> <span class="n">batch_var</span><span class="o">=</span><span class="n">batch_var</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">features</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;No features found to correct. Please specify features.&quot;</span><span class="p">)</span>
     
@@ -2942,6 +2973,8 @@
         <span class="n">roi_ids</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">features_df</span><span class="p">[</span><span class="n">roi_column</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">())</span>
     
     <span class="n">anndata_dict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">skipped_rois</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">adjusted_k_rois</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
     
     <span class="k">for</span> <span class="n">current_roi_id</span> <span class="ow">in</span> <span class="n">roi_ids</span><span class="p">:</span>
         <span class="c1"># Convert dataframe to AnnData</span>
@@ -2953,6 +2986,11 @@
         <span class="p">)</span>
         
         <span class="k">if</span> <span class="n">adata</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">skipped_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="s2">&quot;no valid cells after filtering&quot;</span><span class="p">))</span>
+            <span class="k">continue</span>
+        <span class="n">n_cells</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">n_obs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n_cells</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">skipped_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="s2">&quot;no valid cells after filtering&quot;</span><span class="p">))</span>
             <span class="k">continue</span>
         
         <span class="c1"># Ensure cluster columns are categorical (required by squidpy)</span>
@@ -2964,43 +3002,86 @@
         <span class="c1"># Build spatial graph</span>
         <span class="n">coords</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s1">&#39;spatial&#39;</span><span class="p">]</span>
         
-        <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;kNN&quot;</span><span class="p">:</span>
-            <span class="c1"># Use squidpy for kNN</span>
-            <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">coord_type</span><span class="o">=</span><span class="s2">&quot;generic&quot;</span><span class="p">,</span> <span class="n">n_neighs</span><span class="o">=</span><span class="n">k_neighbors</span><span class="p">,</span> <span class="n">n_rings</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-        <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;Radius&quot;</span><span class="p">:</span>
-            <span class="c1"># Radius is in micrometers, coordinates are in micrometers</span>
-            <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">coord_type</span><span class="o">=</span><span class="s2">&quot;generic&quot;</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">n_rings</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-        <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;Delaunay&quot;</span><span class="p">:</span>
-            <span class="c1"># Delaunay triangulation - manual implementation</span>
-            <span class="n">tri</span> <span class="o">=</span> <span class="n">Delaunay</span><span class="p">(</span><span class="n">coords</span><span class="p">)</span>
-            <span class="n">n_cells</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">coords</span><span class="p">)</span>
-            <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
-            <span class="k">for</span> <span class="n">simplex</span> <span class="ow">in</span> <span class="n">tri</span><span class="o">.</span><span class="n">simplices</span><span class="p">:</span>
-                <span class="c1"># Each simplex has 3 vertices, create edges between all pairs</span>
-                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
-                    <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">):</span>
-                        <span class="n">rows</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">simplex</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">simplex</span><span class="p">[</span><span class="n">j</span><span class="p">]])</span>
-                        <span class="n">cols</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">simplex</span><span class="p">[</span><span class="n">j</span><span class="p">],</span> <span class="n">simplex</span><span class="p">[</span><span class="n">i</span><span class="p">]])</span>
-            
-            <span class="c1"># Create sparse matrix</span>
-            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span>
-            <span class="n">conn</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">csr_matrix</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n_cells</span><span class="p">,</span> <span class="n">n_cells</span><span class="p">))</span>
-            
-            <span class="c1"># Store in AnnData format</span>
-            <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;spatial_connectivities&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">conn</span>
-            
-            <span class="c1"># Calculate distances</span>
-            <span class="n">distances</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">):</span>
-                <span class="n">dist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">coords</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">coords</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
-                <span class="n">distances</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dist</span><span class="p">)</span>
-            <span class="n">dist_matrix</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">csr_matrix</span><span class="p">((</span><span class="n">distances</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n_cells</span><span class="p">,</span> <span class="n">n_cells</span><span class="p">))</span>
-            <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;spatial_distances&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dist_matrix</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;kNN&quot;</span><span class="p">:</span>
+                <span class="c1"># squidpy/scikit-learn require n_neighbors &lt; n_samples for self-neighbor queries.</span>
+                <span class="k">if</span> <span class="n">n_cells</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">skipped_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="s2">&quot;fewer than 2 cells for kNN&quot;</span><span class="p">))</span>
+                    <span class="k">continue</span>
+
+                <span class="n">requested_k</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">k_neighbors</span><span class="p">)</span>
+                <span class="n">effective_k</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">requested_k</span><span class="p">),</span> <span class="n">n_cells</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">effective_k</span> <span class="o">!=</span> <span class="n">requested_k</span><span class="p">:</span>
+                    <span class="n">adjusted_k_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="n">requested_k</span><span class="p">,</span> <span class="n">effective_k</span><span class="p">))</span>
+                <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">coord_type</span><span class="o">=</span><span class="s2">&quot;generic&quot;</span><span class="p">,</span> <span class="n">n_neighs</span><span class="o">=</span><span class="n">effective_k</span><span class="p">,</span> <span class="n">n_rings</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;Radius&quot;</span><span class="p">:</span>
+                <span class="c1"># Radius is in micrometers, coordinates are in micrometers.</span>
+                <span class="c1"># ROIs with one cell are allowed but will produce no edges.</span>
+                <span class="n">sq</span><span class="o">.</span><span class="n">gr</span><span class="o">.</span><span class="n">spatial_neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">coord_type</span><span class="o">=</span><span class="s2">&quot;generic&quot;</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">n_rings</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;Delaunay&quot;</span><span class="p">:</span>
+                <span class="c1"># Delaunay triangulation requires at least 3 points.</span>
+                <span class="k">if</span> <span class="n">n_cells</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+                    <span class="n">skipped_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="s2">&quot;fewer than 3 cells for Delaunay&quot;</span><span class="p">))</span>
+                    <span class="k">continue</span>
+
+                <span class="n">tri</span> <span class="o">=</span> <span class="n">Delaunay</span><span class="p">(</span><span class="n">coords</span><span class="p">)</span>
+                <span class="n">rows</span><span class="p">,</span> <span class="n">cols</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">simplex</span> <span class="ow">in</span> <span class="n">tri</span><span class="o">.</span><span class="n">simplices</span><span class="p">:</span>
+                    <span class="c1"># Each simplex has 3 vertices, create edges between all pairs.</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+                        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">):</span>
+                            <span class="n">rows</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">simplex</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">simplex</span><span class="p">[</span><span class="n">j</span><span class="p">]])</span>
+                            <span class="n">cols</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">simplex</span><span class="p">[</span><span class="n">j</span><span class="p">],</span> <span class="n">simplex</span><span class="p">[</span><span class="n">i</span><span class="p">]])</span>
+                
+                <span class="c1"># Create sparse matrix.</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">))</span>
+                <span class="n">conn</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">csr_matrix</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n_cells</span><span class="p">,</span> <span class="n">n_cells</span><span class="p">))</span>
+                
+                <span class="c1"># Store in AnnData format.</span>
+                <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;spatial_connectivities&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">conn</span>
+                
+                <span class="c1"># Calculate distances.</span>
+                <span class="n">distances</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">):</span>
+                    <span class="n">dist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">coords</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">coords</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+                    <span class="n">distances</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dist</span><span class="p">)</span>
+                <span class="n">dist_matrix</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">csr_matrix</span><span class="p">((</span><span class="n">distances</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cols</span><span class="p">)),</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n_cells</span><span class="p">,</span> <span class="n">n_cells</span><span class="p">))</span>
+                <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">[</span><span class="s1">&#39;spatial_distances&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dist_matrix</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">err</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s2">&quot;n_neighbors&quot;</span> <span class="ow">in</span> <span class="n">err</span> <span class="ow">or</span> <span class="s2">&quot;n_samples_fit&quot;</span> <span class="ow">in</span> <span class="n">err</span><span class="p">:</span>
+                <span class="n">skipped_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;insufficient cells for requested neighborhood graph (</span><span class="si">{</span><span class="n">err</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">))</span>
+                <span class="k">continue</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c1"># Keep processing other ROIs, especially for Delaunay edge cases (e.g., degenerate geometry).</span>
+            <span class="n">skipped_rois</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;graph construction failed (</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">))</span>
+            <span class="k">continue</span>
         
         <span class="c1"># Verify graph was created</span>
         <span class="k">if</span> <span class="s1">&#39;spatial_connectivities&#39;</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsp</span><span class="p">:</span>
             <span class="n">anndata_dict</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">current_roi_id</span><span class="p">)]</span> <span class="o">=</span> <span class="n">adata</span>
     
+    <span class="k">if</span> <span class="n">adjusted_k_rois</span><span class="p">:</span>
+        <span class="n">adjusted_preview</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">roi</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">old_k</span><span class="si">}</span><span class="s2">-&gt;</span><span class="si">{</span><span class="n">new_k</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">roi</span><span class="p">,</span> <span class="n">old_k</span><span class="p">,</span> <span class="n">new_k</span> <span class="ow">in</span> <span class="n">adjusted_k_rois</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">adjusted_k_rois</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">8</span><span class="p">:</span>
+            <span class="n">adjusted_preview</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;, ... (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">adjusted_k_rois</span><span class="p">)</span><span class="si">}</span><span class="s2"> total)&quot;</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;[CORE.SPATIAL] Adjusted k-neighbors for small ROIs to avoid failures: </span><span class="si">{</span><span class="n">adjusted_preview</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">skipped_rois</span><span class="p">:</span>
+        <span class="n">skipped_preview</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">roi</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">)&quot;</span> <span class="k">for</span> <span class="n">roi</span><span class="p">,</span> <span class="n">reason</span> <span class="ow">in</span> <span class="n">skipped_rois</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">skipped_rois</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">8</span><span class="p">:</span>
+            <span class="n">skipped_preview</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;, ... (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">skipped_rois</span><span class="p">)</span><span class="si">}</span><span class="s2"> total)&quot;</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;[CORE.SPATIAL] Skipped ROI(s) during spatial graph construction: </span><span class="si">{</span><span class="n">skipped_preview</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
     <span class="k">return</span> <span class="n">anndata_dict</span></div>
 
 
@@ -3618,7 +3699,6 @@
     <span class="n">df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     
     <span class="k">return</span> <span class="n">output_path</span></div>
-
 
 </pre></div>
 
