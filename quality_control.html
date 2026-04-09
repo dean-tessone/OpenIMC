@@ -52,6 +52,12 @@
 <li><p><strong>Pixel-level QC</strong>: Analyzes all pixels using Otsu thresholding to separate signal from background</p></li>
 <li><p><strong>Cell-level QC</strong>: Uses segmentation masks to separate cell pixels from background pixels</p></li>
 </ol>
+<p>For cell-level QC, OpenIMC now supports multiple signal definitions so sparse markers are not diluted by marker-negative cells:</p>
+<ul class="simple">
+<li><p><strong>Positive pixels above background</strong>: Default. Uses in-cell pixels above <code class="docutils literal notranslate"><span class="pre">background_mean</span> <span class="pre">+</span> <span class="pre">N</span> <span class="pre">*</span> <span class="pre">robust_background_sd</span></code></p></li>
+<li><p><strong>Upper quantile of cell intensity</strong>: Uses the brightest cells only, based on the upper tail of per-cell mean intensities</p></li>
+<li><p><strong>All cell pixels (legacy)</strong>: Uses every in-cell pixel as signal for backward-compatible whole-cell averaging</p></li>
+</ul>
 </section>
 <section id="parameters">
 <h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h2>
@@ -65,6 +71,12 @@
 - Must match image dimensions
 - Pixels with mask &gt; 0 are considered cells
 - Pixels with mask == 0 are considered background</p></li>
+<li><p><strong>cell_signal_method</strong> (cell mode only, default: <code class="docutils literal notranslate"><span class="pre">&quot;positive_pixels&quot;</span></code>): Cell-mode signal definition
+- <code class="docutils literal notranslate"><span class="pre">&quot;positive_pixels&quot;</span></code>: Estimate signal from in-cell pixels above a background-derived threshold
+- <code class="docutils literal notranslate"><span class="pre">&quot;upper_quantile&quot;</span></code>: Estimate signal from the brightest cells only
+- <code class="docutils literal notranslate"><span class="pre">&quot;all_cell_mean&quot;</span></code>: Legacy behavior using all in-cell pixels as signal</p></li>
+<li><p><strong>positive_threshold_sd</strong> (cell mode only, default: <code class="docutils literal notranslate"><span class="pre">2.0</span></code>): Number of robust background standard deviations used by <code class="docutils literal notranslate"><span class="pre">positive_pixels</span></code></p></li>
+<li><p><strong>upper_quantile</strong> (cell mode only, default: <code class="docutils literal notranslate"><span class="pre">0.90</span></code>): Quantile in <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">1]</span></code> used by <code class="docutils literal notranslate"><span class="pre">upper_quantile</span></code></p></li>
 </ul>
 </section>
 <section id="using-quality-control-analysis-in-the-gui">
@@ -82,6 +94,13 @@
 </ul>
 </div></blockquote>
 <ul class="simple">
+<li><p>In cell-level mode, choose a <strong>Cell Signal Definition</strong>:</p>
+<ul>
+<li><p><strong>Positive pixels above background</strong>: Best default for sparse markers</p></li>
+<li><p><strong>Upper quantile of cell intensity</strong>: Focuses on the brightest cells</p></li>
+<li><p><strong>All cell pixels (legacy)</strong>: Preserves the older whole-cell average behavior</p></li>
+</ul>
+</li>
 <li><p>Optionally select specific channels (or analyze all channels)</p></li>
 <li><p>If using cell-level mode, ensure segmentation masks are available</p></li>
 <li><p>Click <strong>Run Analysis</strong> to start the process</p></li>
@@ -108,6 +127,26 @@
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--mode<span class="w"> </span>cell<span class="w"> </span><span class="se">\\</span>
 <span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/
+</pre></div>
+</div>
+</section>
+<section id="cell-level-command-for-sparse-markers">
+<h3>Cell-level Command for Sparse Markers<a class="headerlink" href="#cell-level-command-for-sparse-markers" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mode<span class="w"> </span>cell<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/roi1.tif<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cell-signal-method<span class="w"> </span>positive_pixels<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--positive-threshold-sd<span class="w"> </span><span class="m">2</span>.0
+</pre></div>
+</div>
+</section>
+<section id="cell-level-command-with-upper-quantile-signal">
+<h3>Cell-level Command with Upper-Quantile Signal<a class="headerlink" href="#cell-level-command-with-upper-quantile-signal" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>output.csv<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mode<span class="w"> </span>cell<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--mask<span class="w"> </span>segmentation_masks/roi1.tif<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--cell-signal-method<span class="w"> </span>upper_quantile<span class="w"> </span><span class="se">\\</span>
+<span class="w">    </span>--upper-quantile<span class="w"> </span><span class="m">0</span>.95
 </pre></div>
 </div>
 </section>
@@ -157,8 +196,18 @@
 - Background: pixels at or below threshold</p>
 <p><strong>Cell-level Mode:</strong>
 - Uses segmentation masks to separate cells from background
-- Signal: pixels within cells (mask &gt; 0)
+- Signal: selected in-cell pixels or cells, depending on <code class="docutils literal notranslate"><span class="pre">cell_signal_method</span></code>
 - Background: pixels outside cells (mask == 0)</p>
+<p><strong>Positive-Pixel Threshold Mode:</strong></p>
+<p>For sparse markers, signal is estimated from in-cell pixels above a background-derived cutoff:</p>
+<div class="math notranslate nohighlight">
+\[ \begin{align}\begin{aligned}\sigma_{\text{bg,robust}} = \max(\sigma_{\text{background}}, 0.001 \times |\mu_{\text{background}}|, 0.0001 \times \text{range}, 10^{-6})\\T = \mu_{\text{background}} + N \times \sigma_{\text{bg,robust}}\\\text{signal pixels} = \{x \in \text{cells} \mid x &gt; T\}\end{aligned}\end{align} \]</div>
+<p>This follows the IMC practice of background removal plus positive-pixel support for per-cell marker quantification, which is particularly useful for dim or sparse markers.</p>
+<p><strong>Upper-Quantile Mode:</strong></p>
+<p>For markers expected in only a subset of cells, signal can be estimated from the upper tail of the per-cell intensity distribution:</p>
+<div class="math notranslate nohighlight">
+\[ \begin{align}\begin{aligned}Q = \operatorname{quantile}(\text{cell mean intensities}, q)\\\text{signal cells} = \{c \mid \mu_c \ge Q\}\end{aligned}\end{align} \]</div>
+<p>This keeps the background denominator unchanged while redefining signal from the biologically informative upper tail.</p>
 <p><strong>Citation:</strong>
 - Otsu, N. (1979). “A threshold selection method from gray-level histograms.” IEEE Transactions on Systems, Man, and Cybernetics, 9(1), 62-66. <a class="reference external" href="https://doi.org/10.1109/TSMC.1979.4310076">DOI: 10.1109/TSMC.1979.4310076</a>
 - Implementation: <a class="reference external" href="https://scikit-image.org/docs/stable/api/skimage.filters.html#skimage.filters.threshold_otsu">scikit-image filters.threshold_otsu</a></p>
@@ -181,7 +230,14 @@
 <p><strong>Quality Metrics:</strong>
 - <strong>snr</strong>: Signal-to-Noise Ratio (see equation above)
 - <strong>coverage_pct</strong>: Percentage of pixels covered by signal/cells
-- <strong>cell_density</strong> (cell mode only): Number of cells per unit area</p>
+- <strong>cell_density</strong> (cell mode only): Number of cells per unit area
+- <strong>cell_signal_method</strong> (cell mode only): Signal definition used for the reported SNR
+- <strong>signal_threshold</strong> (positive-pixel mode only): Background-derived threshold used to select signal pixels
+- <strong>signal_quantile</strong> (upper-quantile mode only): Quantile used to select high-signal cells
+- <strong>n_signal_pixels</strong> (cell mode only): Number of signal pixels selected by the chosen cell signal method
+- <strong>n_signal_cells</strong> (cell mode only): Number of cells contributing signal under the chosen method
+- <strong>signal_fraction</strong> (cell mode only): Fraction of in-cell pixels classified as signal
+- <strong>signal_coverage_pct</strong> (cell mode only): Percentage of image pixels contributing signal under the chosen method</p>
 <p><strong>Percentile Metrics (pixel mode only):</strong>
 - <strong>p1, p25, p75, p99</strong>: 1st, 25th, 75th, and 99th percentiles</p>
 </section>
@@ -191,7 +247,8 @@
 <ol class="arabic">
 <li><p><strong>Mode Selection</strong>:
 - Use <strong>pixel-level</strong> mode for quick assessment without segmentation
-- Use <strong>cell-level</strong> mode for more accurate SNR when segmentation is available</p></li>
+- Use <strong>cell-level</strong> mode for more accurate SNR when segmentation is available
+- For sparse markers, prefer <strong>positive_pixels</strong> or <strong>upper_quantile</strong> over legacy all-cell averaging</p></li>
 <li><p><strong>SNR Interpretation</strong>:
 - <strong>SNR &gt; 10</strong>: Excellent signal quality
 - <strong>SNR 5-10</strong>: Good signal quality

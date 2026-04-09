@@ -1064,6 +1064,9 @@
 <span class="sd">            - channels: Optional comma-separated list of channels to analyze</span>
 <span class="sd">            - mask: Optional path to mask file for cell-level analysis</span>
 <span class="sd">            - mode: Analysis mode (&#39;pixel&#39; or &#39;cell&#39;)</span>
+<span class="sd">            - cell_signal_method: Cell-mode signal selection method</span>
+<span class="sd">            - positive_threshold_sd: Robust-SD threshold multiplier for positive-pixel mode</span>
+<span class="sd">            - upper_quantile: Quantile used by upper-quantile cell mode</span>
 <span class="sd">    </span>
 <span class="sd">    Returns:</span>
 <span class="sd">        CSV file with QC metrics for each channel.</span>
@@ -1107,7 +1110,10 @@
                 <span class="n">acquisition</span><span class="o">=</span><span class="n">acq</span><span class="p">,</span>
                 <span class="n">channels</span><span class="o">=</span><span class="n">channels</span><span class="p">,</span>
                 <span class="n">mode</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">mode</span><span class="p">,</span>
-                <span class="n">mask</span><span class="o">=</span><span class="n">mask</span>
+                <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">,</span>
+                <span class="n">cell_signal_method</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">cell_signal_method</span><span class="p">,</span>
+                <span class="n">positive_threshold_sd</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">positive_threshold_sd</span><span class="p">,</span>
+                <span class="n">upper_quantile</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">upper_quantile</span><span class="p">,</span>
             <span class="p">)</span>
             
             <span class="k">if</span> <span class="ow">not</span> <span class="n">results_df</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
@@ -2802,6 +2808,24 @@
     <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--channels&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Comma-separated list of channels to analyze (uses all if not specified)&#39;</span><span class="p">)</span>
     <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--mode&#39;</span><span class="p">,</span> <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;pixel&#39;</span><span class="p">,</span> <span class="s1">&#39;cell&#39;</span><span class="p">],</span> <span class="n">default</span><span class="o">=</span><span class="s1">&#39;pixel&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Analysis mode (default: pixel)&#39;</span><span class="p">)</span>
     <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--mask&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Path to segmentation mask file (required for cell mode)&#39;</span><span class="p">)</span>
+    <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s1">&#39;--cell-signal-method&#39;</span><span class="p">,</span>
+        <span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;positive_pixels&#39;</span><span class="p">,</span> <span class="s1">&#39;upper_quantile&#39;</span><span class="p">,</span> <span class="s1">&#39;all_cell_mean&#39;</span><span class="p">],</span>
+        <span class="n">default</span><span class="o">=</span><span class="s1">&#39;positive_pixels&#39;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Cell-mode signal definition (default: positive_pixels)&#39;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s1">&#39;--positive-threshold-sd&#39;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Robust background SD multiplier for positive-pixel cell mode (default: 2.0)&#39;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s1">&#39;--upper-quantile&#39;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">0.90</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Upper quantile in (0, 1] for upper-quantile cell mode (default: 0.90)&#39;</span><span class="p">,</span>
+    <span class="p">)</span>
     <span class="n">qc_parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;--workers&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="sa">f</span><span class="s1">&#39;Number of parallel workers (default: </span><span class="si">{</span><span class="n">get_default_workers</span><span class="p">()</span><span class="si">}</span><span class="s1">)&#39;</span><span class="p">)</span>
     <span class="n">qc_parser</span><span class="o">.</span><span class="n">set_defaults</span><span class="p">(</span><span class="n">func</span><span class="o">=</span><span class="n">qc_analysis_command</span><span class="p">)</span>
     
@@ -2910,7 +2934,6 @@
 
 <span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s1">&#39;__main__&#39;</span><span class="p">:</span>
     <span class="n">main</span><span class="p">()</span>
-
 </pre></div>
 
           </div>

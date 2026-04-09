@@ -307,6 +307,12 @@ Quality Control Analysis
     # Cell-level QC analysis (requires mask)
     openimc qc-analysis input.mcd qc_results.csv --mode cell --mask masks/roi1.tif
 
+    # Sparse-marker cell QC using positive pixels above background
+    openimc qc-analysis input.mcd qc_results.csv --mode cell --mask masks/roi1.tif --cell-signal-method positive_pixels --positive-threshold-sd 2.0
+
+    # Upper-tail cell QC using the brightest cells only
+    openimc qc-analysis input.mcd qc_results.csv --mode cell --mask masks/roi1.tif --cell-signal-method upper_quantile --upper-quantile 0.95
+
 **Parameters:**
 - ``input`` - Input MCD file or OME-TIFF directory (required)
 - ``output`` - Output CSV file with QC metrics (required)
@@ -315,6 +321,9 @@ Quality Control Analysis
 - ``--channels`` - Comma-separated list of channels to analyze (uses all if not specified)
 - ``--mode`` - Analysis mode: ``pixel`` or ``cell`` (default: ``pixel``)
 - ``--mask`` - Path to segmentation mask file (required for cell mode)
+- ``--cell-signal-method`` - Cell-mode signal definition: ``positive_pixels``, ``upper_quantile``, or ``all_cell_mean`` (default: ``positive_pixels``)
+- ``--positive-threshold-sd`` - Robust background SD multiplier used by ``positive_pixels`` (default: ``2.0``)
+- ``--upper-quantile`` - Quantile in ``(0, 1]`` used by ``upper_quantile`` (default: ``0.90``)
 - ``--workers`` - Number of parallel workers (default: auto)
 
 Spillover Correction

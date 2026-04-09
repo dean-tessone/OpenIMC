@@ -26,8 +26,8 @@ Spatial Graph Construction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **method** (default: ``"kNN"``): Graph construction method
-  - ``"kNN"``: k-nearest neighbors graph
-  - ``"Radius"``: Connect all cells within a specified radius
+  - ``"kNN"``: k-nearest neighbors graph exported as a deduplicated undirected edge list
+  - ``"Radius"``: Connect all cells within a specified radius threshold
   - ``"Delaunay"``: Delaunay triangulation (connects cells in triangular mesh)
 
 - **k_neighbors** (default: ``10``): Number of nearest neighbors for kNN method
@@ -37,6 +37,7 @@ Spatial Graph Construction
 
 - **radius** (required for Radius method): Maximum distance for edges in pixels
   - Only used when method is "Radius"
+  - The simple graph builder currently interprets this threshold in pixels
   - Larger radius (50-100) connects more distant cells
   - Smaller radius (20-50) connects only nearby cells
   - Should be adjusted based on cell density
@@ -172,12 +173,13 @@ Spatial graphs represent cell neighborhoods by connecting cells that are spatial
 
 **k-Nearest Neighbors (kNN)**:
 - Connects each cell to its k nearest neighbors
-- Creates a directed graph (can be made undirected)
+- Exports a deduplicated undirected edge list for downstream analyses
 - Good for uniform cell densities
 - Fast computation using KD-tree
 
 **Radius-based**:
-- Connects all cells within a specified radius
+- Connects all cells within a specified radius threshold
+- The simple graph builder currently applies the threshold in pixels
 - Creates an undirected graph
 - Good for variable cell densities
 - More edges than kNN for dense regions
@@ -196,23 +198,45 @@ Pairwise Enrichment
 
 Pairwise enrichment tests whether two cell types co-occur or avoid each other more than expected by chance.
 
+OpenIMC simple pairwise enrichment operates on the fixed edge list produced by the simple graph builder.
+Each edge is treated as an unordered cluster pair within an ROI.
+
 **How it works:**
 
-1. **Observed Co-occurrence**: Count edges between cell type A and cell type B in the spatial graph
+1. **Observed Co-occurrence**: Count the number of undirected edges between cluster A and cluster B in each ROI
 
-2. **Expected Co-occurrence**: Compute expected number of edges under random spatial distribution
-   - Based on proportions of each cell type
+2. **Analytical Expected Value**: Compute an expected edge count from the ROI-specific cluster proportions and total number of edges
 
-3. **Permutation Test**: Randomly shuffle cell type labels while preserving graph structure
-   - Repeat n_permutations times
-   - Compute z-score: (observed - mean(permuted)) / std(permuted)
+3. **Permutation Test**: Randomly shuffle cluster labels within each ROI while preserving the graph structure
+   - Repeat ``n_permutations`` times
+   - Compute z-score: ``(observed - mean(permuted)) / std(permuted)``
 
-4. **P-value**: Proportion of permutations with z-score as extreme or more extreme
+4. **P-value**: Compute a two-sided permutation p-value from the shuffled null distribution
+
+5. **Plotting**: Display a symmetric cluster-by-cluster heatmap
+   - The GUI averages ROI-level ``z_score`` and ``p_value`` values by ``cluster_A``/``cluster_B`` before plotting when multiple ROIs are present
+
+**Output:**
+
+- The core/CLI result is a CSV-style table with one row per ROI and unordered cluster pair
+- Reported fields are ``roi_id``, ``cluster_A``, ``cluster_B``, ``observed``, ``expected``, ``p_value``, ``z_score``, and ``n_permutations``
 
 **Interpretation:**
 - Positive z-score + significant p-value: Enrichment (co-occurrence)
 - Negative z-score + significant p-value: Depletion (avoidance)
 - Non-significant: Random spatial distribution
+
+.. note::
+   Simple pairwise enrichment is complementary to Advanced Spatial Analysis neighborhood enrichment, not numerically interchangeable with it. Even when graph settings look similar, the advanced workflow uses Squidpy's AnnData neighborhood-enrichment statistic rather than this undirected edge-pair test.
+
+Why Results Differ from Advanced Neighborhood Enrichment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- **Statistic definition**: Simple pairwise enrichment counts unordered cluster-cluster edges on a fixed edge list. Advanced neighborhood enrichment evaluates a focal-cluster by neighbor-cluster enrichment matrix on an AnnData graph.
+- **Graph representation**: Simple enrichment runs on OpenIMC's deduplicated edge list. Advanced enrichment runs on Squidpy spatial connectivities stored in AnnData.
+- **Symmetry**: Simple pairwise enrichment is plotted as a symmetric heatmap. Advanced neighborhood enrichment is interpreted by row cluster versus neighbor cluster and can differ from a symmetric edge-pair summary.
+- **ROI aggregation**: Simple GUI plots average ROI-level ``z_score`` and ``p_value`` values. Advanced GUI plots align ROI matrices and aggregate z-scores by ``mean`` or ``sum``.
+- **Reproducibility controls**: Simple pairwise enrichment exposes both ``n_permutations`` and ``seed`` for the enrichment step. Advanced neighborhood enrichment currently does not expose Squidpy's neighborhood-enrichment ``n_perms`` or enrichment-level ``seed`` controls through the OpenIMC wrapper.
 
 **Citation:**
 - Based on standard spatial co-occurrence analysis methods used in spatial transcriptomics and imaging mass cytometry
@@ -596,4 +620,3 @@ Tips and Best Practices for Visualizations
    - Use PNG at 300 DPI for presentations
    - Adjust font sizes for small figures
    - Spatial visualizations may need larger figure sizes
-

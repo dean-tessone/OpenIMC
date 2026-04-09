@@ -33,22 +33,22 @@ Parameters
 Graph Construction
 ~~~~~~~~~~~~~~~~~~
 
-Same as Simple Spatial Analysis:
-- **method**: kNN, Radius, or Delaunay
-- **k_neighbors**: Number of neighbors for kNN
-- **radius**: Maximum distance for Radius method
-- **pixel_size_um**: Pixel size in micrometers
+The graph-construction controls resemble Simple Spatial Analysis in the GUI, but the implementation is different:
+
+- **method**: ``kNN``, ``Radius``, or ``Delaunay``
+- **k_neighbors**: Number of neighbors for kNN graph construction through Squidpy
+- **radius**: Maximum distance for ``Radius`` graphs in micrometers after coordinate scaling
+- **pixel_size_um**: Pixel size in micrometers used to convert centroid coordinates before building AnnData graphs
 
 Neighborhood Enrichment
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-- **n_permutations** (default: ``100``): Number of permutations for statistical testing
-  - More permutations provide more accurate p-values
-  - Typical range: 100-1000
+- **ROI** (optional): Run a single ROI or use **All ROIs** to aggregate across the current ROI set
+- **Aggregation**: ``Mean`` or ``Sum`` when **All ROIs** is selected
+- **cluster_column**: Cluster annotation used for the Squidpy enrichment matrix
 
-- **interaction_threshold** (optional): Threshold for considering interactions significant
-  - Used to filter results
-  - Default: based on statistical significance
+.. note::
+   The current OpenIMC wrapper does not expose Squidpy's neighborhood-enrichment ``n_perms`` or enrichment-level ``seed`` options. The GUI and CLI surface the resulting z-score/count-style matrices rather than neighborhood-enrichment p-values.
 
 Co-occurrence Analysis
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -107,10 +107,11 @@ Using Advanced Spatial Analysis in the GUI
    
    - **Neighborhood Enrichment Tab**:
    
-     - Set number of permutations
+     - Optionally choose a single ROI or **All ROIs**
+     - Choose aggregation mode and cluster column
      - Click "Run Neighborhood Enrichment"
-     - Results show enrichment scores and p-values
-     - Results are stored in AnnData objects
+     - Results show a cluster-by-neighbor-cluster z-score matrix
+     - Single-ROI results are stored in AnnData objects; multi-ROI results are aligned and aggregated for display
    
    - **Co-occurrence Analysis Tab**:
    
@@ -155,10 +156,12 @@ Neighborhood Enrichment
 
 .. code-block:: bash
 
-   openimc spatial-enrichment features.csv enrichment_results.csv \\
+   openimc spatial-nhood-enrichment features.csv \\
+       --output enrichment_results.h5ad \\
        --method kNN \\
        --k-neighbors 10 \\
-       --n-permutations 500
+       --cluster-column cluster \\
+       --aggregation mean
 
 Co-occurrence Analysis
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -215,29 +218,39 @@ Method Details
 Neighborhood Enrichment
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Neighborhood enrichment analyzes whether cell types are enriched or depleted in the neighborhoods of other cell types.
+OpenIMC advanced neighborhood enrichment wraps ``squidpy.gr.nhood_enrichment`` on ROI-specific AnnData spatial graphs.
+The result is best interpreted as a focal-cluster by neighbor-cluster enrichment matrix rather than the undirected edge-pair summary used by Simple Spatial Analysis.
 
 **How it works:**
 
-1. **Neighborhood Definition**: For each cell, define its neighborhood (spatially adjacent cells)
+1. **Graph Construction**: Build or reuse ROI-specific AnnData spatial connectivities with Squidpy
 
-2. **Observed Composition**: Compute the composition of cell types in each cell's neighborhood
+2. **Neighborhood Counting**: For each cluster, count neighboring clusters in the AnnData connectivity graph
 
-3. **Expected Composition**: Compute expected composition under random spatial distribution
+3. **Squidpy Statistic**: Run Squidpy's neighborhood-enrichment permutation test to compute z-scores and counts
+   - Squidpy stores these results under ``adata.uns['{cluster_key}_nhood_enrichment']``
 
-4. **Enrichment Score**: Compare observed vs. expected composition
-   - Positive score: Enrichment
-   - Negative score: Depletion
-
-5. **Statistical Testing**: Use permutation tests to assess significance
+4. **OpenIMC Aggregation**: If multiple ROIs are selected, OpenIMC aligns ROI matrices to the union of clusters and aggregates the z-score matrices by ``mean`` or ``sum`` for display
 
 **Interpretation:**
-- Enrichment: Cell type A is more common in neighborhoods of cell type B than expected
-- Depletion: Cell type A is less common in neighborhoods of cell type B than expected
+- Rows correspond to the focal cell cluster and columns correspond to the neighboring cluster
+- Positive z-scores indicate more neighbors than expected; negative z-scores indicate fewer neighbors than expected
+- The current OpenIMC wrapper surfaces z-score/count-style outputs from Squidpy, not neighborhood-enrichment p-values
+- Depending on graph construction and aggregation, the matrix should not be interpreted as the same statistic as simple pairwise enrichment
+
+Why Results Differ from Simple Pairwise Enrichment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- **Statistic definition**: Advanced neighborhood enrichment uses Squidpy's cluster-by-neighbor-cluster enrichment statistic. Simple pairwise enrichment counts unordered edges between cluster pairs.
+- **Graph representation**: Advanced enrichment uses AnnData spatial connectivities. Simple enrichment uses OpenIMC's deduplicated undirected edge list.
+- **Symmetry and directionality**: Advanced heatmaps are interpreted as row cluster versus neighbor cluster. Simple pairwise heatmaps are symmetric by construction.
+- **ROI aggregation**: Advanced OpenIMC displays align ROI matrices and aggregate z-scores by ``mean`` or ``sum``. Simple GUI displays average ROI-level ``z_score`` and ``p_value`` values by cluster pair.
+- **Reproducibility controls**: Simple pairwise enrichment exposes ``n_permutations`` and ``seed`` directly for the enrichment step. Advanced neighborhood enrichment currently does not expose Squidpy's neighborhood-enrichment ``n_perms`` or enrichment-level ``seed`` controls through the OpenIMC wrapper.
 
 **Citation:**
 - Based on methods in: Schapiro, D., et al. (2017). "histoCAT: analysis of cell phenotypes and interactions in multiplex image cytometry data." Nature Methods, 14(9), 873-876. `DOI: 10.1038/s41592-017-0001-x <https://doi.org/10.1038/s41592-017-0001-x>`_
 - Implementation: `squidpy.gr.nhood_enrichment <https://squidpy.readthedocs.io/en/stable/api/squidpy.gr.nhood_enrichment.html>`_
+- Additional implementation references: `Squidpy graph builder <https://squidpy.readthedocs.io/en/stable/_modules/squidpy/gr/_build.html>`_ and `Squidpy neighborhood-enrichment source <https://squidpy.readthedocs.io/en/stable/_modules/squidpy/gr/_nhood.html>`_
 
 Co-occurrence Analysis
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -391,11 +404,12 @@ Tips and Best Practices
    - Use **Ripley Functions** to test for clustering/dispersion
 
 3. **Parameter Tuning**:
-   - **n_permutations**: Use at least 100, preferably 500-1000 for publication
+   - Tune graph parameters first (``k_neighbors``, ``radius``, and ROI selection), since they strongly affect neighborhood-based statistics
    - **max_dist** (Ripley): Should cover relevant spatial scales (1-5 cell diameters)
 
 4. **Statistical Interpretation**:
-   - Always consider both effect size and p-value
+   - Interpret each method using the outputs it actually returns
+   - For neighborhood enrichment, focus on the z-score matrix and row/column semantics
    - Multiple testing correction may be needed for many comparisons
    - Visualize results to understand spatial patterns
 
@@ -411,8 +425,8 @@ Tips and Best Practices
 
 7. **Integration with Simple Spatial Analysis**:
    - Use Simple Spatial Analysis for initial exploration
-   - Use Advanced Spatial Analysis for detailed statistical testing
-   - Combine results from both for comprehensive spatial analysis
+   - Use Advanced Spatial Analysis for Squidpy-based neighborhood and spatial statistics
+   - Treat simple pairwise enrichment and advanced neighborhood enrichment as complementary, not interchangeable
 
 8. **AnnData Export**:
    - Export AnnData objects after building graphs or running analyses
@@ -442,29 +456,27 @@ Available Visualizations
 Neighborhood Enrichment Visualization
 --------------------------------------
 
-Shows a heatmap of enrichment scores indicating whether cell types are enriched or depleted in the neighborhoods of other cell types.
+Shows a heatmap of neighborhood-enrichment z-scores, with focal cell clusters on the rows and neighbor clusters on the columns.
 
 **Parameters:**
 
-- **n_permutations** (default: ``100``): Number of permutations for statistical testing
-  - More permutations provide more accurate p-values
-  - Recommended: 500-1000 for publication
-  - Range: 10-10000
+- **ROI**: Plot a selected ROI or an aggregated view across **All ROIs**
+- **Aggregation**: ``Mean`` or ``Sum`` when plotting multiple ROIs together
+- **Cluster column**: Select the cluster annotation used to build the Squidpy enrichment matrix
 
 **How it works:**
 
-1. For each cell, defines its neighborhood (spatially adjacent cells)
-2. Computes observed composition of cell types in each cell's neighborhood
-3. Computes expected composition under random spatial distribution
-4. Calculates enrichment scores: (observed - expected) / expected
-5. Performs permutation tests to assess significance
-6. Displays results as heatmap with enrichment scores and p-values
+1. Build or reuse the AnnData spatial graph for each ROI
+2. Run Squidpy neighborhood enrichment on the selected cluster column
+3. Read Squidpy's z-score/count results from the AnnData object
+4. If multiple ROIs are selected, align cluster sets and aggregate z-score matrices by ``mean`` or ``sum``
+5. Display the resulting matrix as a heatmap
 
 **Interpretation:**
 
-- **Positive score + significant p-value**: Enrichment (cell type A is more common in neighborhoods of cell type B than expected)
-- **Negative score + significant p-value**: Depletion (cell type A is less common in neighborhoods of cell type B than expected)
-- **Non-significant**: Random spatial distribution
+- **Positive z-score**: The column cluster appears more often than expected in the row cluster's neighborhood
+- **Negative z-score**: The column cluster appears less often than expected in the row cluster's neighborhood
+- OpenIMC currently plots z-score matrices for this analysis rather than neighborhood-enrichment p-values
 - Color intensity indicates strength of enrichment/depletion
 
 **Export:**
@@ -679,7 +691,7 @@ Accessing Visualizations in the GUI
 
 **Tab-Specific Controls:**
 
-- **Neighborhood Enrichment**: n_permutations, Run button, Save Plot button
+- **Neighborhood Enrichment**: ROI selection, Aggregation, Cluster column, Run button, Save Plot button
 - **Co-occurrence Analysis**: Method, Reference cluster (for one_vs_others), Run button, Save Plot button
 - **Spatial Autocorrelation**: Feature selection, Method, n_permutations, Run button, Save Plot button
 - **Ripley Functions**: Cluster column, Mode, max_dist, Run button, Save Plot button
@@ -688,8 +700,8 @@ Tips and Best Practices for Visualizations
 -------------------------------------------
 
 1. **Neighborhood Enrichment:**
-   - Use at least 100 permutations, preferably 500-1000 for publication
-   - Interpret enrichment scores in context of p-values
+   - Interpret the heatmap by row cluster versus neighbor cluster
+   - Compare results across graph settings and ROI aggregation modes
    - Look for consistent patterns across multiple ROIs
    - Consider biological context when interpreting results
 
@@ -717,4 +729,3 @@ Tips and Best Practices for Visualizations
    - Adjust font sizes for small figures
    - Heatmaps may need larger figure sizes
    - Export AnnData objects for further analysis in other tools
-

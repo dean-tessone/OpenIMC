@@ -585,7 +585,10 @@ signal-to-noise ratios, detection rates, and other QC metrics.</p>
 - acquisition: Optional acquisition ID or name
 - channels: Optional comma-separated list of channels to analyze
 - mask: Optional path to mask file for cell-level analysis
-- mode: Analysis mode (‘pixel’ or ‘cell’)</p>
+- mode: Analysis mode (‘pixel’ or ‘cell’)
+- cell_signal_method: Cell-mode signal selection method
+- positive_threshold_sd: Robust-SD threshold multiplier for positive-pixel mode
+- upper_quantile: Quantile used by upper-quantile cell mode</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>CSV file with QC metrics for each channel.</p>
@@ -599,6 +602,12 @@ openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span
 
 <span class="c1"># Cell-level QC analysis (requires mask)</span>
 openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>qc_results.csv<span class="w"> </span>--mode<span class="w"> </span>cell<span class="w"> </span>--mask<span class="w"> </span>masks/roi1.tif
+
+<span class="c1"># Sparse-marker cell QC using positive pixels above background</span>
+openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>qc_results.csv<span class="w"> </span>--mode<span class="w"> </span>cell<span class="w"> </span>--mask<span class="w"> </span>masks/roi1.tif<span class="w"> </span>--cell-signal-method<span class="w"> </span>positive_pixels<span class="w"> </span>--positive-threshold-sd<span class="w"> </span><span class="m">2</span>.0
+
+<span class="c1"># Upper-tail cell QC using the brightest cells only</span>
+openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span class="w"> </span>qc_results.csv<span class="w"> </span>--mode<span class="w"> </span>cell<span class="w"> </span>--mask<span class="w"> </span>masks/roi1.tif<span class="w"> </span>--cell-signal-method<span class="w"> </span>upper_quantile<span class="w"> </span>--upper-quantile<span class="w"> </span><span class="m">0</span>.95
 </pre></div>
 </div>
 <p><strong>Parameters:</strong>
@@ -609,6 +618,9 @@ openimc<span class="w"> </span>qc-analysis<span class="w"> </span>input.mcd<span
 - <code class="docutils literal notranslate"><span class="pre">--channels</span></code> - Comma-separated list of channels to analyze (uses all if not specified)
 - <code class="docutils literal notranslate"><span class="pre">--mode</span></code> - Analysis mode: <code class="docutils literal notranslate"><span class="pre">pixel</span></code> or <code class="docutils literal notranslate"><span class="pre">cell</span></code> (default: <code class="docutils literal notranslate"><span class="pre">pixel</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--mask</span></code> - Path to segmentation mask file (required for cell mode)
+- <code class="docutils literal notranslate"><span class="pre">--cell-signal-method</span></code> - Cell-mode signal definition: <code class="docutils literal notranslate"><span class="pre">positive_pixels</span></code>, <code class="docutils literal notranslate"><span class="pre">upper_quantile</span></code>, or <code class="docutils literal notranslate"><span class="pre">all_cell_mean</span></code> (default: <code class="docutils literal notranslate"><span class="pre">positive_pixels</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--positive-threshold-sd</span></code> - Robust background SD multiplier used by <code class="docutils literal notranslate"><span class="pre">positive_pixels</span></code> (default: <code class="docutils literal notranslate"><span class="pre">2.0</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">--upper-quantile</span></code> - Quantile in <code class="docutils literal notranslate"><span class="pre">(0,</span> <span class="pre">1]</span></code> used by <code class="docutils literal notranslate"><span class="pre">upper_quantile</span></code> (default: <code class="docutils literal notranslate"><span class="pre">0.90</span></code>)
 - <code class="docutils literal notranslate"><span class="pre">--workers</span></code> - Number of parallel workers (default: auto)</p>
 </section>
 <section id="spillover-correction">

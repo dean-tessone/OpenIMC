@@ -268,7 +268,7 @@ This is done by clicking the ‘Spatial Analysis’ button.</p>
 There are three methods to build the spatial graph:</p>
 <ul class="simple">
 <li><p><strong>k-nearest neighbors (kNN)</strong>: The default method and recommended for most datasets. K is the number of neighbors to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.</p></li>
-<li><p><strong>Radius</strong>: Recommended for datasets with a small number of cells or a small number of cell types. Radius is the radius in micrometers to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.</p></li>
+<li><p><strong>Radius</strong>: Connect cells within a chosen radius. In the advanced Squidpy-backed workflow, radius is interpreted in micrometers after coordinate scaling; see the Simple Spatial Analysis page for the current simple-workflow radius semantics.</p></li>
 <li><p><strong>Delaunay</strong>: Recommended for datasets with a large number of cells or a large number of cell types. Delaunay is based on the Delaunay triangulation of the cells. See more details in the Spatial Analysis section.</p></li>
 </ul>
 <p><strong>Available Visualizations:</strong></p>
@@ -279,6 +279,10 @@ There are three methods to build the spatial graph:</p>
 <li><p><strong>Pairwise enrichment analysis</strong>: Test for significant spatial co-occurrence or avoidance between cluster pairs using permutation tests</p></li>
 <li><p><strong>Community detection</strong>: Detect communities in the spatial graph → rather than clustering the cells, we cluster based on the spatial relationship between the cells</p></li>
 </ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Simple pairwise enrichment in the basic spatial workflow and neighborhood enrichment in the advanced Squidpy-backed workflow are complementary analyses, not numerically interchangeable outputs. They use different graph representations and different enrichment statistics, so matching graph settings do not guarantee matching heatmaps.</p>
+</div>
 <figure class="align-center" id="id10">
 <a class="reference internal image-reference" href="_images/spatial_visualization.png"><img alt="Spatial Visualizations in the Simple Analysis Window" src="_images/spatial_visualization.png" style="width: 1000px;" />
 </a>

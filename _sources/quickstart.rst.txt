@@ -273,7 +273,7 @@ The first step of spatial analysis is to build a spatial graph of the cells.
 There are three methods to build the spatial graph:
 
 - **k-nearest neighbors (kNN)**: The default method and recommended for most datasets. K is the number of neighbors to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.
-- **Radius**: Recommended for datasets with a small number of cells or a small number of cell types. Radius is the radius in micrometers to consider for the spatial graph for each cell. Set this to a reasonable number based on the density of the cells.
+- **Radius**: Connect cells within a chosen radius. In the advanced Squidpy-backed workflow, radius is interpreted in micrometers after coordinate scaling; see the Simple Spatial Analysis page for the current simple-workflow radius semantics.
 - **Delaunay**: Recommended for datasets with a large number of cells or a large number of cell types. Delaunay is based on the Delaunay triangulation of the cells. See more details in the Spatial Analysis section.
 
 **Available Visualizations:**
@@ -284,6 +284,9 @@ Some spatial visualizations are available in the simple analysis window, includi
 - **Distance distribution of the cells**: Show the distance distribution of the cells by their cluster → what is the distribution of distances between cells of the same cluster vs. cells of different clusters?
 - **Pairwise enrichment analysis**: Test for significant spatial co-occurrence or avoidance between cluster pairs using permutation tests
 - **Community detection**: Detect communities in the spatial graph → rather than clustering the cells, we cluster based on the spatial relationship between the cells
+
+.. note::
+   Simple pairwise enrichment in the basic spatial workflow and neighborhood enrichment in the advanced Squidpy-backed workflow are complementary analyses, not numerically interchangeable outputs. They use different graph representations and different enrichment statistics, so matching graph settings do not guarantee matching heatmaps.
 
 .. figure:: _static/images/spatial_visualization.png
    :alt: Spatial Visualizations in the Simple Analysis Window

@@ -20,6 +20,12 @@ QC analysis can be performed in two modes:
 1. **Pixel-level QC**: Analyzes all pixels using Otsu thresholding to separate signal from background
 2. **Cell-level QC**: Uses segmentation masks to separate cell pixels from background pixels
 
+For cell-level QC, OpenIMC now supports multiple signal definitions so sparse markers are not diluted by marker-negative cells:
+
+- **Positive pixels above background**: Default. Uses in-cell pixels above ``background_mean + N * robust_background_sd``
+- **Upper quantile of cell intensity**: Uses the brightest cells only, based on the upper tail of per-cell mean intensities
+- **All cell pixels (legacy)**: Uses every in-cell pixel as signal for backward-compatible whole-cell averaging
+
 Parameters
 ----------
 
@@ -35,6 +41,15 @@ Parameters
   - Pixels with mask > 0 are considered cells
   - Pixels with mask == 0 are considered background
 
+- **cell_signal_method** (cell mode only, default: ``"positive_pixels"``): Cell-mode signal definition
+  - ``"positive_pixels"``: Estimate signal from in-cell pixels above a background-derived threshold
+  - ``"upper_quantile"``: Estimate signal from the brightest cells only
+  - ``"all_cell_mean"``: Legacy behavior using all in-cell pixels as signal
+
+- **positive_threshold_sd** (cell mode only, default: ``2.0``): Number of robust background standard deviations used by ``positive_pixels``
+
+- **upper_quantile** (cell mode only, default: ``0.90``): Quantile in ``(0, 1]`` used by ``upper_quantile``
+
 Using Quality Control Analysis in the GUI
 -------------------------------------------
 
@@ -48,6 +63,11 @@ Using Quality Control Analysis in the GUI
    
      - **Pixel-level**: Uses Otsu thresholding (no mask required)
      - **Cell-level**: Uses segmentation masks (requires masks to be loaded)
+   - In cell-level mode, choose a **Cell Signal Definition**:
+
+     - **Positive pixels above background**: Best default for sparse markers
+     - **Upper quantile of cell intensity**: Focuses on the brightest cells
+     - **All cell pixels (legacy)**: Preserves the older whole-cell average behavior
    
    - Optionally select specific channels (or analyze all channels)
    - If using cell-level mode, ensure segmentation masks are available
@@ -79,6 +99,28 @@ Cell-level Command
    openimc qc-analysis input.mcd output.csv \\
        --mode cell \\
        --mask segmentation_masks/
+
+Cell-level Command for Sparse Markers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   openimc qc-analysis input.mcd output.csv \\
+       --mode cell \\
+       --mask segmentation_masks/roi1.tif \\
+       --cell-signal-method positive_pixels \\
+       --positive-threshold-sd 2.0
+
+Cell-level Command with Upper-Quantile Signal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   openimc qc-analysis input.mcd output.csv \\
+       --mode cell \\
+       --mask segmentation_masks/roi1.tif \\
+       --cell-signal-method upper_quantile \\
+       --upper-quantile 0.95
 
 With Specific Channels
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -143,8 +185,34 @@ This ensures SNR values remain reasonable even for very uniform backgrounds or v
 
 **Cell-level Mode:**
 - Uses segmentation masks to separate cells from background
-- Signal: pixels within cells (mask > 0)
+- Signal: selected in-cell pixels or cells, depending on ``cell_signal_method``
 - Background: pixels outside cells (mask == 0)
+
+**Positive-Pixel Threshold Mode:**
+
+For sparse markers, signal is estimated from in-cell pixels above a background-derived cutoff:
+
+.. math::
+
+   \sigma_{\text{bg,robust}} = \max(\sigma_{\text{background}}, 0.001 \times |\mu_{\text{background}}|, 0.0001 \times \text{range}, 10^{-6})
+
+   T = \mu_{\text{background}} + N \times \sigma_{\text{bg,robust}}
+
+   \text{signal pixels} = \{x \in \text{cells} \mid x > T\}
+
+This follows the IMC practice of background removal plus positive-pixel support for per-cell marker quantification, which is particularly useful for dim or sparse markers.
+
+**Upper-Quantile Mode:**
+
+For markers expected in only a subset of cells, signal can be estimated from the upper tail of the per-cell intensity distribution:
+
+.. math::
+
+   Q = \operatorname{quantile}(\text{cell mean intensities}, q)
+
+   \text{signal cells} = \{c \mid \mu_c \ge Q\}
+
+This keeps the background denominator unchanged while redefining signal from the biologically informative upper tail.
 
 **Citation:**
 - Otsu, N. (1979). "A threshold selection method from gray-level histograms." IEEE Transactions on Systems, Man, and Cybernetics, 9(1), 62-66. `DOI: 10.1109/TSMC.1979.4310076 <https://doi.org/10.1109/TSMC.1979.4310076>`_
@@ -174,6 +242,13 @@ The following metrics are computed for each channel:
 - **snr**: Signal-to-Noise Ratio (see equation above)
 - **coverage_pct**: Percentage of pixels covered by signal/cells
 - **cell_density** (cell mode only): Number of cells per unit area
+- **cell_signal_method** (cell mode only): Signal definition used for the reported SNR
+- **signal_threshold** (positive-pixel mode only): Background-derived threshold used to select signal pixels
+- **signal_quantile** (upper-quantile mode only): Quantile used to select high-signal cells
+- **n_signal_pixels** (cell mode only): Number of signal pixels selected by the chosen cell signal method
+- **n_signal_cells** (cell mode only): Number of cells contributing signal under the chosen method
+- **signal_fraction** (cell mode only): Fraction of in-cell pixels classified as signal
+- **signal_coverage_pct** (cell mode only): Percentage of image pixels contributing signal under the chosen method
 
 **Percentile Metrics (pixel mode only):**
 - **p1, p25, p75, p99**: 1st, 25th, 75th, and 99th percentiles
@@ -184,6 +259,7 @@ Tips and Best Practices
 1. **Mode Selection**:
    - Use **pixel-level** mode for quick assessment without segmentation
    - Use **cell-level** mode for more accurate SNR when segmentation is available
+   - For sparse markers, prefer **positive_pixels** or **upper_quantile** over legacy all-cell averaging
 
 2. **SNR Interpretation**:
    - **SNR > 10**: Excellent signal quality
@@ -214,4 +290,3 @@ Tips and Best Practices
    - Check SNR vs Intensity plot for expected relationships
    - High-intensity channels should generally have higher SNR
    - Investigate outliers in the SNR vs Intensity plot
-
