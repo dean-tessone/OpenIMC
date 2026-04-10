@@ -3111,6 +3111,24 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_ordered_cluster_categorical</span><span class="p">(</span>
+    <span class="n">values</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">canonicalize_ids</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a stable ordered categorical series for spatial-analysis cluster columns.&quot;&quot;&quot;</span>
+    <span class="n">normalized</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">canonicalize_cluster_id</span><span class="p">)</span> <span class="k">if</span> <span class="n">canonicalize_ids</span> <span class="k">else</span> <span class="n">values</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">ordered_categories</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span>
+        <span class="n">pd</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">normalized</span><span class="o">.</span><span class="n">dropna</span><span class="p">()),</span>
+        <span class="n">canonical</span><span class="o">=</span><span class="n">canonicalize_ids</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
+        <span class="n">pd</span><span class="o">.</span><span class="n">Categorical</span><span class="p">(</span><span class="n">normalized</span><span class="p">,</span> <span class="n">categories</span><span class="o">=</span><span class="n">ordered_categories</span><span class="p">,</span> <span class="n">ordered</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+        <span class="n">index</span><span class="o">=</span><span class="n">values</span><span class="o">.</span><span class="n">index</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">values</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
 <div class="viewcode-block" id="build_spatial_graph_anndata">
 <a class="viewcode-back" href="../../api_core.html#openimc.core.build_spatial_graph_anndata">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_spatial_graph_anndata</span><span class="p">(</span>
@@ -3203,12 +3221,10 @@
         <span class="c1"># Ensure cluster columns are categorical (required by squidpy)</span>
         <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_phenotype&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_id&#39;</span><span class="p">]:</span>
             <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="p">{</span><span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_id&#39;</span><span class="p">}:</span>
-                    <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">canonicalize_cluster_id</span><span class="p">)</span>
-                <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
-                    <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;category&#39;</span><span class="p">)</span>
-                <span class="n">ordered_categories</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">categories</span><span class="p">,</span> <span class="n">canonical</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-                <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">reorder_categories</span><span class="p">(</span><span class="n">ordered_categories</span><span class="p">,</span> <span class="n">ordered</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="n">_ordered_cluster_categorical</span><span class="p">(</span>
+                    <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">col</span><span class="p">],</span>
+                    <span class="n">canonicalize_ids</span><span class="o">=</span><span class="p">(</span><span class="n">col</span> <span class="ow">in</span> <span class="p">{</span><span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_id&#39;</span><span class="p">}),</span>
+                <span class="p">)</span>
         
         <span class="c1"># Build spatial graph</span>
         <span class="n">coords</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s1">&#39;spatial&#39;</span><span class="p">]</span>
@@ -3405,12 +3421,11 @@
             <span class="n">adata</span> <span class="o">=</span> <span class="n">adata</span><span class="p">[</span><span class="n">valid_mask</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
         
         <span class="c1"># Ensure categorical</span>
-        <span class="k">if</span> <span class="n">cluster_key</span> <span class="ow">in</span> <span class="p">{</span><span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_id&#39;</span><span class="p">}:</span>
-            <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">canonicalize_cluster_id</span><span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
-            <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;category&#39;</span><span class="p">)</span>
-        <span class="n">ordered_categories</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">categories</span><span class="p">,</span> <span class="n">canonical</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-        <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">reorder_categories</span><span class="p">(</span><span class="n">ordered_categories</span><span class="p">,</span> <span class="n">ordered</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">canonicalize_cluster_ids</span> <span class="o">=</span> <span class="n">cluster_key</span> <span class="ow">in</span> <span class="p">{</span><span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_id&#39;</span><span class="p">}</span>
+        <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">_ordered_cluster_categorical</span><span class="p">(</span>
+            <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span>
+            <span class="n">canonicalize_ids</span><span class="o">=</span><span class="n">canonicalize_cluster_ids</span><span class="p">,</span>
+        <span class="p">)</span>
         
         
         <span class="c1"># Check graph connectivity</span>
@@ -3424,9 +3439,12 @@
         <span class="c1"># Check clusters</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
             <span class="n">categories</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">categories</span><span class="p">)</span>
-            <span class="n">unique_vals</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">(),</span> <span class="n">canonical</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">unique_vals</span> <span class="o">=</span> <span class="n">categories</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">categories</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">(),</span> <span class="n">canonical</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">categories</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span>
+                <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">(),</span>
+                <span class="n">canonical</span><span class="o">=</span><span class="n">canonicalize_cluster_ids</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="n">unique_vals</span> <span class="o">=</span> <span class="n">categories</span>
         
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_vals</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
@@ -3468,7 +3486,10 @@
             <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">],</span> <span class="s1">&#39;cat&#39;</span><span class="p">):</span>
                 <span class="n">clusters</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">cat</span><span class="o">.</span><span class="n">categories</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="n">clusters</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">(),</span> <span class="n">canonical</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="n">clusters</span> <span class="o">=</span> <span class="n">sort_cluster_values</span><span class="p">(</span>
+                    <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="n">cluster_key</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">(),</span>
+                    <span class="n">canonical</span><span class="o">=</span><span class="n">canonicalize_cluster_ids</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="n">roi_cluster_map</span><span class="p">[</span><span class="n">roi_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">clusters</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">if</span> <span class="n">matrix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -3485,7 +3506,10 @@
         <span class="c1"># Get union of all clusters</span>
         <span class="n">all_cluster_sets</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">(</span><span class="n">clusters</span><span class="p">)</span> <span class="k">for</span> <span class="n">clusters</span> <span class="ow">in</span> <span class="n">roi_cluster_map</span><span class="o">.</span><span class="n">values</span><span class="p">()]</span>
         <span class="n">all_clusters_union</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">sort_cluster_values</span><span class="p">(</span><span class="nb">set</span><span class="p">()</span><span class="o">.</span><span class="n">union</span><span class="p">(</span><span class="o">*</span><span class="n">all_cluster_sets</span><span class="p">),</span> <span class="n">canonical</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">sort_cluster_values</span><span class="p">(</span>
+                <span class="nb">set</span><span class="p">()</span><span class="o">.</span><span class="n">union</span><span class="p">(</span><span class="o">*</span><span class="n">all_cluster_sets</span><span class="p">),</span>
+                <span class="n">canonical</span><span class="o">=</span><span class="p">(</span><span class="n">cluster_key</span> <span class="ow">in</span> <span class="p">{</span><span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster_id&#39;</span><span class="p">}),</span>
+            <span class="p">)</span>
             <span class="k">if</span> <span class="n">all_cluster_sets</span>
             <span class="k">else</span> <span class="p">[]</span>
         <span class="p">)</span>
