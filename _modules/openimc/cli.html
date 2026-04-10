@@ -91,6 +91,7 @@
 <span class="sd">        openimc cluster features.csv clustered.csv --method leiden --resolution 1.0</span>
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">multiprocessing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">mp</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
@@ -138,21 +139,17 @@
     <span class="n">export_anndata</span>
 <span class="p">)</span>
 
-<span class="c1"># Try to import Cellpose (optional)</span>
-<span class="c1"># Catch both ImportError and OSError (Windows DLL loading errors)</span>
-<span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">cellpose</span><span class="w"> </span><span class="kn">import</span> <span class="n">models</span>
-    <span class="n">_HAVE_CELLPOSE</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">):</span>
-    <span class="n">_HAVE_CELLPOSE</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_optional_dependency_available</span><span class="p">(</span><span class="n">module_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check for an optional dependency without importing it.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">find_spec</span><span class="p">(</span><span class="n">module_name</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span>
 
-<span class="c1"># Try to import CellSAM (optional)</span>
-<span class="c1"># Catch both ImportError and OSError (Windows DLL loading errors)</span>
-<span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">cellSAM</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_model</span><span class="p">,</span> <span class="n">cellsam_pipeline</span>
-    <span class="n">_HAVE_CELLSAM</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">):</span>
-    <span class="n">_HAVE_CELLSAM</span> <span class="o">=</span> <span class="kc">False</span>
+
+<span class="c1"># Avoid importing optional Torch-backed dependencies at CLI import time.</span>
+<span class="n">_HAVE_CELLPOSE</span> <span class="o">=</span> <span class="n">_optional_dependency_available</span><span class="p">(</span><span class="s2">&quot;cellpose&quot;</span><span class="p">)</span>
+<span class="n">_HAVE_CELLSAM</span> <span class="o">=</span> <span class="n">_optional_dependency_available</span><span class="p">(</span><span class="s2">&quot;cellSAM&quot;</span><span class="p">)</span>
 
 
 <span class="c1"># Helper function to get default number of workers</span>
