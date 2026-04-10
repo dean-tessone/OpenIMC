@@ -57,21 +57,21 @@ Using Quality Control Analysis in the GUI
 
 2. Navigate to **Analysis → QC Analysis…** in the menu bar
 
-3. In the QC analysis dialog:
-   - Select which acquisitions to analyze
-   - Choose analysis mode:
+3. In the QC analysis dialog, click **QC Settings...** to configure:
+   - Which acquisitions to analyze
+   - The analysis mode:
    
      - **Pixel-level**: Uses Otsu thresholding (no mask required)
      - **Cell-level**: Uses segmentation masks (requires masks to be loaded)
-   - In cell-level mode, choose a **Cell Signal Definition**:
+   - In cell-level mode, choose the **Cell Signal Definition**:
 
      - **Positive pixels above background**: Best default for sparse markers
      - **Upper quantile of cell intensity**: Focuses on the brightest cells
      - **All cell pixels (legacy)**: Preserves the older whole-cell average behavior
    
-   - Optionally select specific channels (or analyze all channels)
+   - Optional denoising and worker settings
    - If using cell-level mode, ensure segmentation masks are available
-   - Click **Run Analysis** to start the process
+   - Click **Done**, then click **Calculate QC Metrics** in the main QC window
 
 4. Results are displayed in multiple tabs:
    - **QC Metrics Table**: Detailed metrics for each channel

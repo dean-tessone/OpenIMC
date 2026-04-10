@@ -84,9 +84,9 @@
 <ol class="arabic">
 <li><p>Load your IMC data file (<code class="docutils literal notranslate"><span class="pre">.mcd</span></code> or OME-TIFF directory)</p></li>
 <li><p>Navigate to <strong>Analysis → QC Analysis…</strong> in the menu bar</p></li>
-<li><p>In the QC analysis dialog:
-- Select which acquisitions to analyze
-- Choose analysis mode:</p>
+<li><p>In the QC analysis dialog, click <strong>QC Settings…</strong> to configure:
+- Which acquisitions to analyze
+- The analysis mode:</p>
 <blockquote>
 <div><ul class="simple">
 <li><p><strong>Pixel-level</strong>: Uses Otsu thresholding (no mask required)</p></li>
@@ -94,16 +94,16 @@
 </ul>
 </div></blockquote>
 <ul class="simple">
-<li><p>In cell-level mode, choose a <strong>Cell Signal Definition</strong>:</p>
+<li><p>In cell-level mode, choose the <strong>Cell Signal Definition</strong>:</p>
 <ul>
 <li><p><strong>Positive pixels above background</strong>: Best default for sparse markers</p></li>
 <li><p><strong>Upper quantile of cell intensity</strong>: Focuses on the brightest cells</p></li>
 <li><p><strong>All cell pixels (legacy)</strong>: Preserves the older whole-cell average behavior</p></li>
 </ul>
 </li>
-<li><p>Optionally select specific channels (or analyze all channels)</p></li>
+<li><p>Optional denoising and worker settings</p></li>
 <li><p>If using cell-level mode, ensure segmentation masks are available</p></li>
-<li><p>Click <strong>Run Analysis</strong> to start the process</p></li>
+<li><p>Click <strong>Done</strong>, then click <strong>Calculate QC Metrics</strong> in the main QC window</p></li>
 </ul>
 </li>
 <li><p>Results are displayed in multiple tabs:
