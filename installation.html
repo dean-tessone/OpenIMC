@@ -38,6 +38,9 @@
 <p>This guide covers installation of OpenIMC for different use cases. Choose the
 installation method that best fits your needs: full installation (all features),
 GUI-only installation, or CLI-only installation.</p>
+<p>OpenIMC supports both <code class="docutils literal notranslate"><span class="pre">uv</span></code> and Conda-based workflows. <code class="docutils literal notranslate"><span class="pre">uv</span></code> is the preferred
+option for most users because it provides a fast, lightweight virtual
+environment and package management workflow.</p>
 <section id="prerequisites">
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
 <dl>
@@ -68,8 +71,12 @@ GUI-only installation, or CLI-only installation.</p>
 </dd>
 <dt><strong>Important: datrie Dependency</strong></dt><dd><p>Some users may encounter issues installing the <code class="docutils literal notranslate"><span class="pre">datrie</span></code> package, which is
 a dependency of certain OpenIMC components. If you encounter errors related
-to <code class="docutils literal notranslate"><span class="pre">datrie</span></code> during installation, install it from conda-forge <strong>before</strong>
-running <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code>:</p>
+to <code class="docutils literal notranslate"><span class="pre">datrie</span></code> during installation, first try installing it into your active
+environment before re-running the main dependency install:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>datrie
+</pre></div>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">datrie</span></code> still fails to build, install it from conda-forge instead:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>datrie
 </pre></div>
 </div>
@@ -82,7 +89,31 @@ where <code class="docutils literal notranslate"><span class="pre">datrie</span>
 <h2>Full Installation<a class="headerlink" href="#full-installation" title="Link to this heading">¶</a></h2>
 <p>The full installation includes all features: GUI interface, CLI tools, and all
 optional dependencies for segmentation, clustering, and spatial analysis.</p>
-<p><strong>Option 1: Conda Environment (Recommended)</strong></p>
+<p><strong>Option 1: uv Environment (Recommended)</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
+git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-tessone/OpenIMC.git
+<span class="nb">cd</span><span class="w"> </span>OpenIMC
+
+<span class="c1"># Create and activate a uv-managed virtual environment</span>
+uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.11
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: .venv\Scripts\activate</span>
+
+<span class="c1"># If datrie fails later, see the note in Prerequisites above</span>
+
+<span class="c1"># Install dependencies</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+
+<span class="c1"># Install the package in editable mode (enables CLI and GUI commands)</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+
+<span class="c1"># Verify installation - run GUI</span>
+openimc-gui
+
+<span class="c1"># Or verify CLI installation</span>
+openimc<span class="w"> </span>--help
+</pre></div>
+</div>
+<p><strong>Option 2: Conda Environment</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-tessone/OpenIMC.git
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
@@ -91,8 +122,8 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>openimc<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
 conda<span class="w"> </span>activate<span class="w"> </span>openimc
 
-<span class="c1"># Install datrie if needed (see Prerequisites above)</span>
-conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>datrie
+<span class="c1"># If datrie fails later, install it from conda-forge</span>
+<span class="c1"># conda install -c conda-forge datrie</span>
 
 <span class="c1"># Install dependencies</span>
 pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
@@ -107,7 +138,7 @@ openimc-gui
 openimc<span class="w"> </span>--help
 </pre></div>
 </div>
-<p><strong>Option 2: Virtual Environment</strong></p>
+<p><strong>Option 3: Standard Virtual Environment</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-tessone/OpenIMC.git
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
@@ -140,7 +171,28 @@ openimc<span class="w"> </span>--help
 capabilities, you can install OpenIMC’s CLI tools. Note that some
 GUI dependencies (like PyQt5) may still be installed as they are part of the
 core requirements, but the CLI can be used without a display.</p>
-<p><strong>Option 1: Conda Environment</strong></p>
+<p><strong>Option 1: uv Environment (Recommended)</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
+git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-tessone/OpenIMC.git
+<span class="nb">cd</span><span class="w"> </span>OpenIMC
+
+<span class="c1"># Create and activate a uv-managed virtual environment</span>
+uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.11
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: .venv\Scripts\activate</span>
+
+<span class="c1"># If datrie fails later, see the note in Prerequisites above</span>
+
+<span class="c1"># Install dependencies</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+
+<span class="c1"># Install the package in editable mode (enables CLI)</span>
+uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+
+<span class="c1"># Verify CLI installation</span>
+openimc<span class="w"> </span>--help
+</pre></div>
+</div>
+<p><strong>Option 2: Conda Environment</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-tessone/OpenIMC.git
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
@@ -149,8 +201,8 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>openimc<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
 conda<span class="w"> </span>activate<span class="w"> </span>openimc
 
-<span class="c1"># Install datrie if needed (see Prerequisites above)</span>
-conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>datrie
+<span class="c1"># If datrie fails later, install it from conda-forge</span>
+<span class="c1"># conda install -c conda-forge datrie</span>
 
 <span class="c1"># Install dependencies</span>
 pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
@@ -162,7 +214,7 @@ pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </s
 openimc<span class="w"> </span>--help
 </pre></div>
 </div>
-<p><strong>Option 2: Virtual Environment</strong></p>
+<p><strong>Option 3: Standard Virtual Environment</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Clone the repository</span>
 git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-tessone/OpenIMC.git
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
@@ -306,7 +358,8 @@ required</p></li>
 </li>
 <li><p><strong>datrie installation errors</strong></p>
 <p>If you encounter build errors with <code class="docutils literal notranslate"><span class="pre">datrie</span></code>, install it from conda-forge
-before running <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code>:</p>
+after trying <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">pip</span> <span class="pre">install</span> <span class="pre">datrie</span></code> or <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">datrie</span></code> in your
+active environment:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>datrie
 </pre></div>
 </div>

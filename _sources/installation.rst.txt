@@ -5,6 +5,10 @@ This guide covers installation of OpenIMC for different use cases. Choose the
 installation method that best fits your needs: full installation (all features),
 GUI-only installation, or CLI-only installation.
 
+OpenIMC supports both ``uv`` and Conda-based workflows. ``uv`` is the preferred
+option for most users because it provides a fast, lightweight virtual
+environment and package management workflow.
+
 Prerequisites
 -------------
 
@@ -33,8 +37,14 @@ Prerequisites
 **Important: datrie Dependency**
    Some users may encounter issues installing the ``datrie`` package, which is
    a dependency of certain OpenIMC components. If you encounter errors related
-   to ``datrie`` during installation, install it from conda-forge **before**
-   running ``pip install``:
+   to ``datrie`` during installation, first try installing it into your active
+   environment before re-running the main dependency install:
+
+   .. code-block:: bash
+
+      uv pip install datrie
+
+   If ``datrie`` still fails to build, install it from conda-forge instead:
 
    .. code-block:: bash
 
@@ -49,7 +59,33 @@ Full Installation
 The full installation includes all features: GUI interface, CLI tools, and all
 optional dependencies for segmentation, clustering, and spatial analysis.
 
-**Option 1: Conda Environment (Recommended)**
+**Option 1: uv Environment (Recommended)**
+
+.. code-block:: bash
+
+   # Clone the repository
+   git clone https://github.com/dean-tessone/OpenIMC.git
+   cd OpenIMC
+
+   # Create and activate a uv-managed virtual environment
+   uv venv --python 3.11
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+   # If datrie fails later, see the note in Prerequisites above
+
+   # Install dependencies
+   uv pip install -r requirements.txt
+
+   # Install the package in editable mode (enables CLI and GUI commands)
+   uv pip install -e .
+
+   # Verify installation - run GUI
+   openimc-gui
+
+   # Or verify CLI installation
+   openimc --help
+
+**Option 2: Conda Environment**
 
 .. code-block:: bash
 
@@ -61,8 +97,8 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    conda create -n openimc python=3.11
    conda activate openimc
 
-   # Install datrie if needed (see Prerequisites above)
-   conda install -c conda-forge datrie
+   # If datrie fails later, install it from conda-forge
+   # conda install -c conda-forge datrie
 
    # Install dependencies
    pip install -r requirements.txt
@@ -76,7 +112,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    # Or verify CLI installation
    openimc --help
 
-**Option 2: Virtual Environment**
+**Option 3: Standard Virtual Environment**
 
 .. code-block:: bash
 
@@ -113,7 +149,30 @@ capabilities, you can install OpenIMC's CLI tools. Note that some
 GUI dependencies (like PyQt5) may still be installed as they are part of the
 core requirements, but the CLI can be used without a display.
 
-**Option 1: Conda Environment**
+**Option 1: uv Environment (Recommended)**
+
+.. code-block:: bash
+
+   # Clone the repository
+   git clone https://github.com/dean-tessone/OpenIMC.git
+   cd OpenIMC
+
+   # Create and activate a uv-managed virtual environment
+   uv venv --python 3.11
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+   # If datrie fails later, see the note in Prerequisites above
+
+   # Install dependencies
+   uv pip install -r requirements.txt
+
+   # Install the package in editable mode (enables CLI)
+   uv pip install -e .
+
+   # Verify CLI installation
+   openimc --help
+
+**Option 2: Conda Environment**
 
 .. code-block:: bash
 
@@ -125,8 +184,8 @@ core requirements, but the CLI can be used without a display.
    conda create -n openimc python=3.11
    conda activate openimc
 
-   # Install datrie if needed (see Prerequisites above)
-   conda install -c conda-forge datrie
+   # If datrie fails later, install it from conda-forge
+   # conda install -c conda-forge datrie
 
    # Install dependencies
    pip install -r requirements.txt
@@ -137,7 +196,7 @@ core requirements, but the CLI can be used without a display.
    # Verify CLI installation
    openimc --help
 
-**Option 2: Virtual Environment**
+**Option 3: Standard Virtual Environment**
 
 .. code-block:: bash
 
@@ -289,10 +348,9 @@ Common Issues
 6. **datrie installation errors**
 
    If you encounter build errors with ``datrie``, install it from conda-forge
-   before running ``pip install -r requirements.txt``:
+   after trying ``uv pip install datrie`` or ``pip install datrie`` in your
+   active environment:
 
    .. code-block:: bash
 
       conda install -c conda-forge datrie
-
-
