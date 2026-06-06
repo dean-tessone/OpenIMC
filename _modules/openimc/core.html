@@ -1107,6 +1107,184 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_apply_pca_to_clustering_matrix</span><span class="p">(</span>
+    <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">pca_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;variance&quot;</span><span class="p">,</span>
+    <span class="n">pca_variance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.95</span><span class="p">,</span>
+    <span class="n">pca_n_components</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Project a cleaned/scaled clustering matrix into PC space.&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.decomposition</span><span class="w"> </span><span class="kn">import</span> <span class="n">PCA</span>
+    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;scikit-learn is required for PCA clustering&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+    <span class="n">mode</span> <span class="o">=</span> <span class="p">(</span><span class="n">pca_mode</span> <span class="ow">or</span> <span class="s2">&quot;variance&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;n_components&quot;</span><span class="p">,</span> <span class="s2">&quot;components&quot;</span><span class="p">,</span> <span class="s2">&quot;component&quot;</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">,</span> <span class="s2">&quot;number&quot;</span><span class="p">}:</span>
+        <span class="n">mode</span> <span class="o">=</span> <span class="s2">&quot;components&quot;</span>
+    <span class="k">elif</span> <span class="n">mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;variance&quot;</span><span class="p">,</span> <span class="s2">&quot;components&quot;</span><span class="p">}:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;pca_mode must be &#39;variance&#39; or &#39;components&#39;&quot;</span><span class="p">)</span>
+
+    <span class="n">max_components</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+    <span class="k">if</span> <span class="n">max_components</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;PCA requires at least one valid row and one valid feature&quot;</span><span class="p">)</span>
+
+    <span class="n">requested_variance</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">requested_n_components</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;variance&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">pca_variance</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;pca_variance is required when pca_mode=&#39;variance&#39;&quot;</span><span class="p">)</span>
+        <span class="n">requested_variance</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">pca_variance</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mf">0.0</span> <span class="o">&lt;</span> <span class="n">requested_variance</span> <span class="o">&lt;=</span> <span class="mf">1.0</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;pca_variance must be greater than 0 and less than or equal to 1&quot;</span><span class="p">)</span>
+        <span class="n">n_components</span> <span class="o">=</span> <span class="n">requested_variance</span> <span class="k">if</span> <span class="n">requested_variance</span> <span class="o">&lt;</span> <span class="mf">1.0</span> <span class="k">else</span> <span class="n">max_components</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">pca_n_components</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;pca_n_components is required when pca_mode=&#39;components&#39;&quot;</span><span class="p">)</span>
+        <span class="n">requested_n_components</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">pca_n_components</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">requested_n_components</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;pca_n_components must be at least 1&quot;</span><span class="p">)</span>
+        <span class="n">n_components</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">requested_n_components</span><span class="p">,</span> <span class="n">max_components</span><span class="p">)</span>
+
+    <span class="n">pca</span> <span class="o">=</span> <span class="n">PCA</span><span class="p">(</span><span class="n">n_components</span><span class="o">=</span><span class="n">n_components</span><span class="p">,</span> <span class="n">svd_solver</span><span class="o">=</span><span class="s2">&quot;full&quot;</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">transformed</span> <span class="o">=</span> <span class="n">pca</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
+    <span class="n">retained_components</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">transformed</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">pc_columns</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;PC</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">retained_components</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)]</span>
+    <span class="n">pca_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">transformed</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">pc_columns</span><span class="p">)</span>
+
+    <span class="n">explained_ratios</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">pca</span><span class="o">.</span><span class="n">explained_variance_ratio_</span><span class="p">,</span> <span class="n">nan</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;feature_representation&quot;</span><span class="p">:</span> <span class="s2">&quot;principal_components&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;use_pca&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">&quot;pca_selection_mode&quot;</span><span class="p">:</span> <span class="n">mode</span><span class="p">,</span>
+        <span class="s2">&quot;pca_requested_variance&quot;</span><span class="p">:</span> <span class="n">requested_variance</span><span class="p">,</span>
+        <span class="s2">&quot;pca_requested_n_components&quot;</span><span class="p">:</span> <span class="n">requested_n_components</span><span class="p">,</span>
+        <span class="s2">&quot;pca_n_components_retained&quot;</span><span class="p">:</span> <span class="n">retained_components</span><span class="p">,</span>
+        <span class="s2">&quot;pca_variance_retained&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">explained_ratios</span><span class="p">)),</span>
+        <span class="s2">&quot;pca_input_feature_count&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span>
+        <span class="s2">&quot;pca_max_components&quot;</span><span class="p">:</span> <span class="n">max_components</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">pca_df</span><span class="p">,</span> <span class="n">metadata</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_prepare_clustering_matrix</span><span class="p">(</span>
+    <span class="n">features_df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">columns</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">scaling</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;zscore&quot;</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">use_pca</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">pca_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;variance&quot;</span><span class="p">,</span>
+    <span class="n">pca_variance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.95</span><span class="p">,</span>
+    <span class="n">pca_n_components</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">42</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the numeric matrix used by clustering algorithms.&quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
+        <span class="n">cluster_columns</span> <span class="o">=</span> <span class="n">columns</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">exclude_cols</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;label&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_id&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_name&#39;</span><span class="p">,</span> <span class="s1">&#39;well&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cell_id&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;source_file&#39;</span><span class="p">,</span> <span class="s1">&#39;source_well&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_label&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;centroid_x&#39;</span><span class="p">,</span> <span class="s1">&#39;centroid_y&#39;</span><span class="p">,</span> <span class="s1">&#39;area&#39;</span><span class="p">,</span> <span class="s1">&#39;area_um2&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter_um&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;eccentricity&#39;</span><span class="p">,</span> <span class="s1">&#39;solidity&#39;</span><span class="p">,</span> <span class="s1">&#39;circularity&#39;</span><span class="p">,</span> <span class="s1">&#39;major_axis_length&#39;</span><span class="p">,</span>
+                       <span class="s1">&#39;minor_axis_length&#39;</span><span class="p">,</span> <span class="s1">&#39;orientation&#39;</span><span class="p">,</span> <span class="s1">&#39;extent&#39;</span><span class="p">,</span> <span class="s1">&#39;convex_area&#39;</span><span class="p">,</span> <span class="s1">&#39;euler_number&#39;</span><span class="p">}</span>
+        <span class="n">cluster_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">features_df</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">exclude_cols</span><span class="p">]</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Column selection: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cluster_columns</span><span class="p">)</span><span class="si">}</span><span class="s2"> columns, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+    <span class="n">missing</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">cluster_columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">features_df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Columns not found: </span><span class="si">{</span><span class="n">missing</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">features_df</span><span class="p">[</span><span class="n">cluster_columns</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Data copy: shape=</span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">numeric_only</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Handle missing/infinite: took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">scaling</span> <span class="o">==</span> <span class="s1">&#39;zscore&#39;</span><span class="p">:</span>
+        <span class="n">data_means</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+        <span class="n">data_stds</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">ddof</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">zero_var_cols</span> <span class="o">=</span> <span class="p">(</span><span class="n">data_stds</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">data_stds</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span> <span class="o">|</span> <span class="n">data_means</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">zero_var_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">zero_var_cols</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">non_zero_var_cols</span> <span class="o">=</span> <span class="o">~</span><span class="n">zero_var_cols</span>
+            <span class="k">if</span> <span class="n">non_zero_var_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                <span class="n">normalized_data</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">non_zero_var_cols</span><span class="p">]</span> <span class="o">-</span> <span class="n">data_means</span><span class="p">[</span><span class="n">non_zero_var_cols</span><span class="p">])</span> <span class="o">/</span> <span class="n">data_stds</span><span class="p">[</span><span class="n">non_zero_var_cols</span><span class="p">]</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">non_zero_var_cols</span><span class="p">]</span> <span class="o">=</span> <span class="n">normalized_data</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span> <span class="o">-</span> <span class="n">data_means</span><span class="p">)</span> <span class="o">/</span> <span class="n">data_stds</span>
+    <span class="k">elif</span> <span class="n">scaling</span> <span class="o">==</span> <span class="s1">&#39;mad&#39;</span><span class="p">:</span>
+        <span class="n">data_medians</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">median</span><span class="p">()</span>
+        <span class="n">mad_values</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+            <span class="n">col_data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+            <span class="n">median_val</span> <span class="o">=</span> <span class="n">data_medians</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">median_val</span><span class="p">):</span>
+                <span class="n">mad_values</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">mad</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">col_data</span> <span class="o">-</span> <span class="n">median_val</span><span class="p">))</span>
+                <span class="n">mad_values</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">mad</span><span class="p">)</span> <span class="k">else</span> <span class="n">mad</span>
+
+        <span class="n">mad_series</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">mad_values</span><span class="p">)</span>
+        <span class="n">zero_mad_cols</span> <span class="o">=</span> <span class="p">(</span><span class="n">mad_series</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">mad_series</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span> <span class="o">|</span> <span class="n">data_medians</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">zero_mad_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">zero_mad_cols</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">non_zero_mad_cols</span> <span class="o">=</span> <span class="o">~</span><span class="n">zero_mad_cols</span>
+            <span class="k">if</span> <span class="n">non_zero_mad_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="n">non_zero_mad_cols</span><span class="p">]:</span>
+                    <span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">-</span> <span class="n">data_medians</span><span class="p">[</span><span class="n">col</span><span class="p">])</span> <span class="o">/</span> <span class="n">mad_series</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">-</span> <span class="n">data_medians</span><span class="p">[</span><span class="n">col</span><span class="p">])</span> <span class="o">/</span> <span class="n">mad_series</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Scaling complete: took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s1">&#39;any&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s1">&#39;any&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Dropna: shape=</span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Insufficient data for clustering. Need at least 2 rows and 2 columns after cleaning.&quot;</span><span class="p">)</span>
+
+    <span class="n">pca_metadata</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;feature_representation&quot;</span><span class="p">:</span> <span class="s2">&quot;raw_features&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;use_pca&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="s2">&quot;pca_selection_mode&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;pca_requested_variance&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;pca_requested_n_components&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;pca_n_components_retained&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;pca_variance_retained&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;pca_input_feature_count&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span>
+        <span class="s2">&quot;pca_max_components&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])),</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="n">use_pca</span><span class="p">:</span>
+        <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">data</span><span class="p">,</span> <span class="n">pca_metadata</span> <span class="o">=</span> <span class="n">_apply_pca_to_clustering_matrix</span><span class="p">(</span>
+            <span class="n">data</span><span class="p">,</span>
+            <span class="n">pca_mode</span><span class="o">=</span><span class="n">pca_mode</span><span class="p">,</span>
+            <span class="n">pca_variance</span><span class="o">=</span><span class="n">pca_variance</span><span class="p">,</span>
+            <span class="n">pca_n_components</span><span class="o">=</span><span class="n">pca_n_components</span><span class="p">,</span>
+            <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="s2">&quot;[CORE.CLUSTER] PCA projection: &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">pca_metadata</span><span class="p">[</span><span class="s1">&#39;pca_input_feature_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> features -&gt; &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">pca_metadata</span><span class="p">[</span><span class="s1">&#39;pca_n_components_retained&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> PCs &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">pca_metadata</span><span class="p">[</span><span class="s1">&#39;pca_variance_retained&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> variance), &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">data</span><span class="p">,</span> <span class="n">cluster_columns</span><span class="p">,</span> <span class="n">pca_metadata</span>
+
+
 <div class="viewcode-block" id="cluster">
 <a class="viewcode-back" href="../../api_core.html#openimc.core.cluster">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span>
@@ -1130,7 +1308,12 @@
     <span class="n">min_cluster_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">min_samples</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
     <span class="n">cluster_selection_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;eom&quot;</span><span class="p">,</span>  <span class="c1"># HDBSCAN cluster selection method</span>
-    <span class="n">hdbscan_metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euclidean&quot;</span>  <span class="c1"># HDBSCAN distance metric</span>
+    <span class="n">hdbscan_metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euclidean&quot;</span><span class="p">,</span>  <span class="c1"># HDBSCAN distance metric</span>
+    <span class="c1"># PCA representation parameters</span>
+    <span class="n">use_pca</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">pca_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;variance&quot;</span><span class="p">,</span>
+    <span class="n">pca_variance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.95</span><span class="p">,</span>
+    <span class="n">pca_n_components</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Perform clustering on feature data.</span>
 <span class="sd">    </span>
@@ -1154,6 +1337,10 @@
 <span class="sd">        min_samples: Minimum samples for HDBSCAN (default: 5)</span>
 <span class="sd">        cluster_selection_method: Cluster selection method for HDBSCAN (&quot;eom&quot; or &quot;leaf&quot;, default: &quot;eom&quot;)</span>
 <span class="sd">        hdbscan_metric: Distance metric for HDBSCAN (default: &quot;euclidean&quot;)</span>
+<span class="sd">        use_pca: If True, cluster on principal components instead of raw/scaled features</span>
+<span class="sd">        pca_mode: PCA selection mode (&quot;variance&quot; or &quot;components&quot;)</span>
+<span class="sd">        pca_variance: Proportion of variance to retain when pca_mode=&quot;variance&quot;</span>
+<span class="sd">        pca_n_components: Number of PCs to retain when pca_mode=&quot;components&quot;</span>
 <span class="sd">    </span>
 <span class="sd">    Returns:</span>
 <span class="sd">        DataFrame with cluster labels added in &#39;cluster&#39; column</span>
@@ -1169,96 +1356,16 @@
     <span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
     <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
     
-    <span class="c1"># Select columns for clustering</span>
-    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-    <span class="k">if</span> <span class="n">columns</span><span class="p">:</span>
-        <span class="n">cluster_columns</span> <span class="o">=</span> <span class="n">columns</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="c1"># Auto-detect: exclude non-feature columns (matching GUI)</span>
-        <span class="n">exclude_cols</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;label&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_id&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_name&#39;</span><span class="p">,</span> <span class="s1">&#39;well&#39;</span><span class="p">,</span> <span class="s1">&#39;cluster&#39;</span><span class="p">,</span> <span class="s1">&#39;cell_id&#39;</span><span class="p">,</span>
-                       <span class="s1">&#39;source_file&#39;</span><span class="p">,</span> <span class="s1">&#39;source_well&#39;</span><span class="p">,</span> <span class="s1">&#39;acquisition_label&#39;</span><span class="p">,</span>
-                       <span class="s1">&#39;centroid_x&#39;</span><span class="p">,</span> <span class="s1">&#39;centroid_y&#39;</span><span class="p">,</span> <span class="s1">&#39;area&#39;</span><span class="p">,</span> <span class="s1">&#39;area_um2&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter&#39;</span><span class="p">,</span> <span class="s1">&#39;perimeter_um&#39;</span><span class="p">,</span>
-                       <span class="s1">&#39;eccentricity&#39;</span><span class="p">,</span> <span class="s1">&#39;solidity&#39;</span><span class="p">,</span> <span class="s1">&#39;circularity&#39;</span><span class="p">,</span> <span class="s1">&#39;major_axis_length&#39;</span><span class="p">,</span>
-                       <span class="s1">&#39;minor_axis_length&#39;</span><span class="p">,</span> <span class="s1">&#39;orientation&#39;</span><span class="p">,</span> <span class="s1">&#39;extent&#39;</span><span class="p">,</span> <span class="s1">&#39;convex_area&#39;</span><span class="p">,</span> <span class="s1">&#39;euler_number&#39;</span><span class="p">}</span>
-        <span class="n">cluster_columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">features_df</span><span class="o">.</span><span class="n">columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">exclude_cols</span><span class="p">]</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Column selection: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cluster_columns</span><span class="p">)</span><span class="si">}</span><span class="s2"> columns, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Validate columns</span>
-    <span class="n">missing</span> <span class="o">=</span> <span class="p">[</span><span class="n">col</span> <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">cluster_columns</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">features_df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Columns not found: </span><span class="si">{</span><span class="n">missing</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Prepare data exactly like GUI _prepare_clustering_data</span>
-    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="n">features_df</span><span class="p">[</span><span class="n">cluster_columns</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Data copy: shape=</span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Handle missing/infinite values safely (matching GUI)</span>
-    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">numeric_only</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Handle missing/infinite: took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Apply scaling (matching GUI _apply_scaling)</span>
-    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-    <span class="k">if</span> <span class="n">scaling</span> <span class="o">==</span> <span class="s1">&#39;zscore&#39;</span><span class="p">:</span>
-        <span class="c1"># Z-score normalization: (x - mean) / std</span>
-        <span class="n">data_means</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
-        <span class="n">data_stds</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">ddof</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-        
-        <span class="c1"># Handle columns with zero variance or NaN std/mean</span>
-        <span class="n">zero_var_cols</span> <span class="o">=</span> <span class="p">(</span><span class="n">data_stds</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">data_stds</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span> <span class="o">|</span> <span class="n">data_means</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">zero_var_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
-            <span class="c1"># Set zero variance/NaN columns to 0 (centered but not scaled)</span>
-            <span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">zero_var_cols</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="n">non_zero_var_cols</span> <span class="o">=</span> <span class="o">~</span><span class="n">zero_var_cols</span>
-            <span class="k">if</span> <span class="n">non_zero_var_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
-                <span class="n">normalized_data</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">non_zero_var_cols</span><span class="p">]</span> <span class="o">-</span> <span class="n">data_means</span><span class="p">[</span><span class="n">non_zero_var_cols</span><span class="p">])</span> <span class="o">/</span> <span class="n">data_stds</span><span class="p">[</span><span class="n">non_zero_var_cols</span><span class="p">]</span>
-                <span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">non_zero_var_cols</span><span class="p">]</span> <span class="o">=</span> <span class="n">normalized_data</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="c1"># Normalize all columns</span>
-            <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span> <span class="o">-</span> <span class="n">data_means</span><span class="p">)</span> <span class="o">/</span> <span class="n">data_stds</span>
-    <span class="k">elif</span> <span class="n">scaling</span> <span class="o">==</span> <span class="s1">&#39;mad&#39;</span><span class="p">:</span>
-        <span class="c1"># MAD (Median Absolute Deviation) scaling: (x - median) / MAD</span>
-        <span class="n">data_medians</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">median</span><span class="p">()</span>
-        
-        <span class="c1"># Calculate MAD for each column</span>
-        <span class="n">mad_values</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-            <span class="n">col_data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
-            <span class="n">median_val</span> <span class="o">=</span> <span class="n">data_medians</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
-            <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">median_val</span><span class="p">):</span>
-                <span class="n">mad_values</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">mad</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">col_data</span> <span class="o">-</span> <span class="n">median_val</span><span class="p">))</span>
-                <span class="n">mad_values</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span> <span class="k">if</span> <span class="n">pd</span><span class="o">.</span><span class="n">isna</span><span class="p">(</span><span class="n">mad</span><span class="p">)</span> <span class="k">else</span> <span class="n">mad</span>
-        
-        <span class="n">mad_series</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">mad_values</span><span class="p">)</span>
-        
-        <span class="c1"># Handle columns with zero MAD or NaN</span>
-        <span class="n">zero_mad_cols</span> <span class="o">=</span> <span class="p">(</span><span class="n">mad_series</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="n">mad_series</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span> <span class="o">|</span> <span class="n">data_medians</span><span class="o">.</span><span class="n">isna</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">zero_mad_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
-            <span class="n">data</span><span class="o">.</span><span class="n">loc</span><span class="p">[:,</span> <span class="n">zero_mad_cols</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="n">non_zero_mad_cols</span> <span class="o">=</span> <span class="o">~</span><span class="n">zero_mad_cols</span>
-            <span class="k">if</span> <span class="n">non_zero_mad_cols</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
-                <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="n">non_zero_mad_cols</span><span class="p">]:</span>
-                    <span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">-</span> <span class="n">data_medians</span><span class="p">[</span><span class="n">col</span><span class="p">])</span> <span class="o">/</span> <span class="n">mad_series</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-                <span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">col</span><span class="p">]</span> <span class="o">-</span> <span class="n">data_medians</span><span class="p">[</span><span class="n">col</span><span class="p">])</span> <span class="o">/</span> <span class="n">mad_series</span><span class="p">[</span><span class="n">col</span><span class="p">]</span>
-    <span class="c1"># If scaling == &#39;none&#39;, skip scaling</span>
-    
-    <span class="c1"># Handle any infinities that might have been introduced</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Scaling complete: took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Drop any residual non-finite rows/cols (matching GUI)</span>
-    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s1">&#39;any&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s1">&#39;any&#39;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Dropna: shape=</span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Guard: require at least 2 rows and 2 columns</span>
-    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">2</span> <span class="ow">or</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Insufficient data for clustering. Need at least 2 rows and 2 columns after cleaning.&quot;</span><span class="p">)</span>
+    <span class="n">data</span><span class="p">,</span> <span class="n">cluster_columns</span><span class="p">,</span> <span class="n">pca_metadata</span> <span class="o">=</span> <span class="n">_prepare_clustering_matrix</span><span class="p">(</span>
+        <span class="n">features_df</span><span class="p">,</span>
+        <span class="n">columns</span><span class="o">=</span><span class="n">columns</span><span class="p">,</span>
+        <span class="n">scaling</span><span class="o">=</span><span class="n">scaling</span><span class="p">,</span>
+        <span class="n">use_pca</span><span class="o">=</span><span class="n">use_pca</span><span class="p">,</span>
+        <span class="n">pca_mode</span><span class="o">=</span><span class="n">pca_mode</span><span class="p">,</span>
+        <span class="n">pca_variance</span><span class="o">=</span><span class="n">pca_variance</span><span class="p">,</span>
+        <span class="n">pca_n_components</span><span class="o">=</span><span class="n">pca_n_components</span><span class="p">,</span>
+        <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
+    <span class="p">)</span>
     
     <span class="c1"># Store original indices to map back</span>
     <span class="n">original_indices</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">index</span>
@@ -1559,6 +1666,7 @@
     <span class="n">result_df</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cluster_series</span>
     <span class="c1"># Fill NaN with 0 (noise/unassigned) if needed</span>
     <span class="n">result_df</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">result_df</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="n">result_df</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;pca_metadata&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pca_metadata</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[CORE.CLUSTER] Mapping labels back took </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
     
     <span class="c1"># Save output if path is provided</span>

@@ -66,6 +66,14 @@
 - <code class="docutils literal notranslate"><span class="pre">&quot;none&quot;</span></code>: No scaling (use raw features)
 - <code class="docutils literal notranslate"><span class="pre">&quot;zscore&quot;</span></code>: Z-score normalization (mean=0, std=1)
 - <code class="docutils literal notranslate"><span class="pre">&quot;mad&quot;</span></code>: Median Absolute Deviation normalization (robust to outliers)</p></li>
+<li><p><strong>use_pca</strong> (default: <code class="docutils literal notranslate"><span class="pre">False</span></code>): Cluster on principal components instead of the selected marker/morphometric feature matrix
+- PCA is applied after feature selection, missing-value handling, and scaling
+- The original selected features remain available for heatmaps, exports, and interpretation</p></li>
+<li><p><strong>pca_mode</strong> (default: <code class="docutils literal notranslate"><span class="pre">&quot;variance&quot;</span></code>): PCA retention mode when <code class="docutils literal notranslate"><span class="pre">use_pca</span></code> is enabled
+- <code class="docutils literal notranslate"><span class="pre">&quot;variance&quot;</span></code>: Retain PCs up to <code class="docutils literal notranslate"><span class="pre">pca_variance</span></code> cumulative variance
+- <code class="docutils literal notranslate"><span class="pre">&quot;components&quot;</span></code>: Retain a fixed <code class="docutils literal notranslate"><span class="pre">pca_n_components</span></code> PCs</p></li>
+<li><p><strong>pca_variance</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.95</span></code>): Proportion of variance to retain when <code class="docutils literal notranslate"><span class="pre">pca_mode=&quot;variance&quot;</span></code></p></li>
+<li><p><strong>pca_n_components</strong> (optional): Number of PCs to retain when <code class="docutils literal notranslate"><span class="pre">pca_mode=&quot;components&quot;</span></code></p></li>
 <li><p><strong>seed</strong> (default: <code class="docutils literal notranslate"><span class="pre">42</span></code>): Random seed for reproducibility
 - Ensures consistent results across runs
 - Change to explore different initializations</p></li>
@@ -142,6 +150,7 @@
 - Select the clustering method
 - Choose feature columns to use (or use auto-detected)
 - Select scaling method
+- Optionally enable <strong>Cluster on principal components</strong> and choose retained variance or number of PCs
 - Adjust method-specific parameters:</p>
 <blockquote>
 <div><ul class="simple">
@@ -214,6 +223,10 @@
 <span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;leiden&quot;</span>
 <span class="w">  </span><span class="nt">columns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Auto-detect</span>
 <span class="w">  </span><span class="nt">scaling</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;zscore&quot;</span>
+<span class="w">  </span><span class="nt">use_pca</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">pca_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;variance&quot;</span>
+<span class="w">  </span><span class="nt">pca_variance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.95</span>
+<span class="w">  </span><span class="nt">pca_n_components</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 <span class="w">  </span><span class="nt">resolution</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
 <span class="w">  </span><span class="nt">n_neighbors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
 <span class="w">  </span><span class="nt">metric</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;euclidean&quot;</span>

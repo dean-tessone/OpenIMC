@@ -38,6 +38,18 @@ Common Parameters
   - ``"zscore"``: Z-score normalization (mean=0, std=1)
   - ``"mad"``: Median Absolute Deviation normalization (robust to outliers)
 
+- **use_pca** (default: ``False``): Cluster on principal components instead of the selected marker/morphometric feature matrix
+  - PCA is applied after feature selection, missing-value handling, and scaling
+  - The original selected features remain available for heatmaps, exports, and interpretation
+
+- **pca_mode** (default: ``"variance"``): PCA retention mode when ``use_pca`` is enabled
+  - ``"variance"``: Retain PCs up to ``pca_variance`` cumulative variance
+  - ``"components"``: Retain a fixed ``pca_n_components`` PCs
+
+- **pca_variance** (default: ``0.95``): Proportion of variance to retain when ``pca_mode="variance"``
+
+- **pca_n_components** (optional): Number of PCs to retain when ``pca_mode="components"``
+
 - **seed** (default: ``42``): Random seed for reproducibility
   - Ensures consistent results across runs
   - Change to explore different initializations
@@ -117,6 +129,7 @@ Using Clustering in the GUI
    - Select the clustering method
    - Choose feature columns to use (or use auto-detected)
    - Select scaling method
+   - Optionally enable **Cluster on principal components** and choose retained variance or number of PCs
    - Adjust method-specific parameters:
    
      - For Leiden/Louvain: Set resolution and n_neighbors
@@ -195,6 +208,10 @@ Workflow YAML Example
      method: "leiden"
      columns: null  # Auto-detect
      scaling: "zscore"
+     use_pca: false
+     pca_mode: "variance"
+     pca_variance: 0.95
+     pca_n_components: null
      resolution: 1.0
      n_neighbors: 15
      metric: "euclidean"
