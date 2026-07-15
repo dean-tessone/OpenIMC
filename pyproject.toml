@@ -49,7 +49,7 @@ dependencies = [
     "hdbscan>=0.8.0",
     "openai>=1.42.0",
     "combat>=0.1.0",
-    "harmonypy>=0.0.9",
+    "harmonypy>=0.0.9,<1.0",
     "dask==2024.11.2",
     "pyyaml",
 ]
