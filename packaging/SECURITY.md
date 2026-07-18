@@ -13,7 +13,8 @@ credentials, and generated artifacts as separate trust boundaries.
 - GitHub Actions are pinned to full commit hashes and checkout does not retain
   repository credentials.
 - `pip-audit` blocks known vulnerable Python dependency versions and produces a
-  CycloneDX SBOM for the resolved environment.
+  CycloneDX SBOM for the resolved environment, subject only to the documented
+  Intel macOS PyTorch exception below.
 - The generated app is recursively checked for credential filenames, exact
   build-time API tokens, and OpenAI-shaped key strings.
 - Tagged Windows bundles are signed and RFC 3161 timestamped with Azure Artifact
@@ -50,13 +51,27 @@ preferences, workflow command lines, or release archives.
 - GitHub artifact attestations establish build provenance and integrity; they
   do not independently prove that software is safe.
 
+### Intel macOS legacy PyTorch boundary
+
+PyTorch 2.2.2 is the final upstream binary wheel for Intel macOS. It has known
+advisories, several without any fixed Intel-compatible release. The workflow
+therefore allowlists the exact current advisory IDs for that target only; any
+new advisory still fails the build. Apple Silicon, Windows, and Ubuntu do not
+receive this exception.
+
+The Intel build must only load the official model weights fetched by OpenIMC's
+Cellpose and CellSAM integrations. Untrusted or user-supplied PyTorch model
+files are outside this release's security boundary. Retire the exception and
+the Intel artifact when Intel macOS support is no longer required, or replace
+it if upstream resumes secure Intel wheels.
+
 ## Tagged release checklist
 
 1. Review dependency and build-tool updates, especially the pinned CellSAM
    commit.
 2. Confirm GitHub environment protection and least-privilege Azure signing
    roles are enabled.
-3. Push a `v*` tag and require both Ubuntu and Windows jobs to succeed.
+3. Push a `v*` tag and require all four platform jobs to succeed.
 4. Verify the Windows Authenticode signer, timestamp, SHA-256 checksum, SBOM,
    GitHub attestation, and both macOS notarization results before publishing.
 5. Submit the final archive to any additional antivirus services required by

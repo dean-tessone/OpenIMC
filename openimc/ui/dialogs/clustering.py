@@ -1778,14 +1778,17 @@ class CellClusteringDialog(QtWidgets.QDialog):
             self.canvas.draw()
 
             # Perform clustering in background to keep UI responsive.
-            selected_columns = list(data.columns)
+            # Freeze the exact post-validation feature set. Keeping a distinct
+            # snapshot prevents later UI refreshes from changing audit/logging
+            # metadata for the clustering operation that just ran.
+            features_used_for_clustering = list(data.columns)
             seed = self.seed_spinbox.value()
             full_data = self.feature_dataframe.loc[data.index].copy()
 
             cluster_kwargs = {
                 "features_df": full_data,
                 "method": cluster_method,
-                "columns": selected_columns,
+                "columns": list(features_used_for_clustering),
                 "scaling": scaling_method,
                 "output_path": None,
                 "seed": seed,
@@ -1831,10 +1834,10 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 self.original_cluster_assignments = self.clustered_data['cluster'].copy()
             
             # Store features used for clustering so they can be auto-selected for display
-            self.last_features_used = list(selected_columns)
+            self.last_features_used = list(features_used_for_clustering)
             
             # Auto-select these features for heatmap display
-            self.selected_display_features = list(selected_columns)
+            self.selected_display_features = list(features_used_for_clustering)
             
             # Store unscaled data with same structure as clustered_data
             if self.clustered_data is not None:
@@ -1886,7 +1889,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
                 "pca_requested_n_components": pca_metadata.get("pca_requested_n_components"),
                 "pca_n_components_retained": pca_metadata.get("pca_n_components_retained"),
                 "pca_variance_retained": pca_metadata.get("pca_variance_retained"),
-                "pca_input_feature_count": pca_metadata.get("pca_input_feature_count", len(selected_columns)),
+                "pca_input_feature_count": pca_metadata.get("pca_input_feature_count", len(features_used_for_clustering)),
                 "n_cells": int(len(self.clustered_data)) if self.clustered_data is not None else 0,
                 "source_files": self._get_source_files_for_logging(),
             }
@@ -1928,7 +1931,7 @@ class CellClusteringDialog(QtWidgets.QDialog):
             logger.log_clustering(
                 method=cluster_method,
                 parameters=params,
-                features_used=selected_columns,
+                features_used=list(features_used_for_clustering),
                 n_clusters=int(n_clusters_found),
                 acquisitions=acquisitions,
                 notes=f"Clustered {len(self.clustered_data) if self.clustered_data is not None else 0} cells into {n_clusters_found} clusters",
@@ -1939,11 +1942,12 @@ class CellClusteringDialog(QtWidgets.QDialog):
             clustering_scaling_text = self.clustering_scaling_combo.currentText()
             self.clustering_scaling_method = clustering_scaling_text
             
-            # Restore preserved view and selected features after clustering
+            # Restore the view and display scaling after clustering. The
+            # feature selection deliberately remains the exact feature set
+            # used for the new clustering result.
             if saved_view and hasattr(self, 'view_combo'):
                 # Only restore if we were viewing heatmap
                 if saved_view == 'Heatmap' and saved_selected_features:
-                    self.selected_display_features = saved_selected_features
                     # Restore heatmap scaling if it was set
                     if saved_heatmap_scaling and hasattr(self, 'heatmap_scaling_combo'):
                         self.heatmap_scaling_combo.blockSignals(True)
