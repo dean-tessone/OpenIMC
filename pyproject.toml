@@ -7,7 +7,7 @@ name = "openimc"
 version = "0.1.0"
 description = "OpenIMC - Open-source Imaging Mass Cytometry analysis platform"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 authors = [
     {name = "OpenIMC Contributors"}
@@ -16,15 +16,16 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 # Core dependencies
 dependencies = [
     "numpy>=1.26",
+    # This pair has CPython 3.12 wheels on every supported desktop target,
+    # including Intel macOS. Newer llvmlite currently requires an LLVM build.
+    "numba==0.61.2",
+    "llvmlite==0.44.0",
     "pandas>=2.0",
     "matplotlib>=3.8",
     "seaborn>=0.13.2",

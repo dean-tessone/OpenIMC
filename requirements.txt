@@ -1,5 +1,9 @@
 # core
 numpy>=1.26
+# Numba 0.66 does not publish a CPython 3.12 Intel macOS llvmlite wheel.
+# Keep this wheel-backed pair so Intel releases never compile LLVM in CI.
+numba==0.61.2
+llvmlite==0.44.0
 pandas>=2.0
 matplotlib>=3.8
 seaborn>=0.13.2

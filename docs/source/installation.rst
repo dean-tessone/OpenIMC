@@ -13,7 +13,7 @@ Prerequisites
 -------------
 
 **Python Version**
-   OpenIMC requires Python 3.11 or higher.
+   OpenIMC requires Python 3.12 or higher.
 
 **Tested System Configurations**
    OpenIMC has been tested on the following operating systems and hardware configurations:
@@ -68,7 +68,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    cd OpenIMC
 
    # Create and activate a uv-managed virtual environment
-   uv venv --python 3.11
+   uv venv --python 3.12
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
    # If datrie fails later, see the note in Prerequisites above
@@ -94,7 +94,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    cd OpenIMC
 
    # Create conda environment
-   conda create -n openimc python=3.11
+   conda create -n openimc python=3.12
    conda activate openimc
 
    # If datrie fails later, install it from conda-forge
@@ -121,7 +121,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    cd OpenIMC
 
    # Create virtual environment
-   python3.11 -m venv openimc_env
+   python3.12 -m venv openimc_env
    source openimc_env/bin/activate  # On Windows: openimc_env\Scripts\activate
 
    # Install datrie if needed (see Prerequisites above)
@@ -158,7 +158,7 @@ core requirements, but the CLI can be used without a display.
    cd OpenIMC
 
    # Create and activate a uv-managed virtual environment
-   uv venv --python 3.11
+   uv venv --python 3.12
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
    # If datrie fails later, see the note in Prerequisites above
@@ -181,7 +181,7 @@ core requirements, but the CLI can be used without a display.
    cd OpenIMC
 
    # Create conda environment
-   conda create -n openimc python=3.11
+   conda create -n openimc python=3.12
    conda activate openimc
 
    # If datrie fails later, install it from conda-forge
@@ -205,7 +205,7 @@ core requirements, but the CLI can be used without a display.
    cd OpenIMC
 
    # Create virtual environment
-   python3.11 -m venv openimc_env
+   python3.12 -m venv openimc_env
    source openimc_env/bin/activate  # On Windows: openimc_env\Scripts\activate
 
    # Install datrie if needed (see Prerequisites above)

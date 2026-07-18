@@ -49,7 +49,7 @@ git clone https://github.com/dean-tessone/OpenIMC.git
 cd OpenIMC
 
 # Create and activate a uv-managed virtual environment
-uv venv --python 3.11
+uv venv --python 3.12
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
