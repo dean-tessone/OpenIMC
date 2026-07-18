@@ -21,7 +21,7 @@ classifiers = [
 
 # Core dependencies
 dependencies = [
-    "numpy>=1.26,<2",
+    "numpy>=2.0,<2.1",
     # This pair has CPython 3.12 wheels on every supported desktop target,
     # including Intel macOS. Newer llvmlite currently requires an LLVM build.
     "numba==0.61.2",

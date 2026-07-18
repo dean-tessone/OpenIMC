@@ -51,19 +51,22 @@ preferences, workflow command lines, or release archives.
 - GitHub artifact attestations establish build provenance and integrity; they
   do not independently prove that software is safe.
 
-### Intel macOS legacy PyTorch boundary
+### Intel macOS conda-forge PyTorch boundary
 
-PyTorch 2.2.2 is the final upstream binary wheel for Intel macOS. It has known
-advisories, several without any fixed Intel-compatible release. The workflow
-therefore allowlists the exact current advisory IDs for that target only; any
-new advisory still fails the build. Apple Silicon, Windows, and Ubuntu do not
-receive this exception.
+PyPI no longer publishes current Intel macOS PyTorch wheels. The Intel workflow
+therefore uses the current conda-forge PyTorch 2.12.1 and torchvision 0.27.1
+packages instead of freezing the application on PyPI's obsolete PyTorch 2.2.2.
+PyTorch 2.12.1 has one known, low-severity local TorchScript advisory
+(`GHSA-rrmf-rvhw-rf47`) whose fix is scheduled for PyTorch 2.13.0. The workflow
+allowlists only that exact advisory on Intel macOS; any new advisory still
+fails the build. Apple Silicon, Windows, and Ubuntu receive no exception.
 
 The Intel build must only load the official model weights fetched by OpenIMC's
 Cellpose and CellSAM integrations. Untrusted or user-supplied PyTorch model
-files are outside this release's security boundary. Retire the exception and
-the Intel artifact when Intel macOS support is no longer required, or replace
-it if upstream resumes secure Intel wheels.
+files are outside this release's security boundary. OpenIMC's patched CellSAM
+route does not compile models with `torch.jit.script`. Remove the exception as
+soon as conda-forge publishes a fixed Intel package, or retire the Intel
+artifact if it can no longer meet the release security policy.
 
 ## Tagged release checklist
 

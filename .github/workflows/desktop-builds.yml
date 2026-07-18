@@ -55,6 +55,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
+        if: matrix.target != 'macos-x86_64'
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
@@ -62,6 +63,34 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-build.txt
+
+      - name: Set up current Intel macOS PyTorch environment
+        if: matrix.target == 'macos-x86_64'
+        id: micromamba
+        uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
+        with:
+          environment-name: openimc-build
+          condarc: |
+            channels:
+              - conda-forge
+            channel_priority: strict
+          create-args: >-
+            python=3.12
+            pip
+            numpy=2.0
+            pytorch=2.12.1
+            torchvision=0.27.1
+          init-shell: none
+          cache-downloads: true
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Put Intel macOS environment on PATH
+        if: matrix.target == 'macos-x86_64'
+        shell: bash
+        run: |
+          echo "${{ steps.micromamba.outputs.environment-path }}/bin" >> "$GITHUB_PATH"
+          echo "CONDA_PREFIX=${{ steps.micromamba.outputs.environment-path }}" >> "$GITHUB_ENV"
 
       - name: Determine build metadata
         id: metadata
@@ -95,6 +124,20 @@ jobs:
           python -m pip install -e . --no-deps
           python -m pip install -r requirements-build.txt
           python -m pip check
+
+      - name: Verify Intel macOS PyTorch source and versions
+        if: matrix.target == 'macos-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+
+          assert platform.machine() == "x86_64", platform.machine()
+          assert importlib.metadata.version("torch") == "2.12.1"
+          assert importlib.metadata.version("torchvision") == "0.27.1"
+          print("Verified conda-forge Intel runtime: torch 2.12.1, torchvision 0.27.1")
+          PY
 
       - name: Audit Python dependency vulnerabilities
         shell: bash

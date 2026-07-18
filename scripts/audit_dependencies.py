@@ -8,34 +8,15 @@ import subprocess
 import sys
 
 
-INTEL_MACOS_PYTORCH_EXCEPTIONS = (
-    "PYSEC-2025-41",
-    "PYSEC-2024-259",
-    "PYSEC-2025-205",
-    "PYSEC-2025-206",
-    "PYSEC-2025-207",
-    "PYSEC-2025-204",
-    "PYSEC-2026-139",
-    "PYSEC-2025-209",
-    "PYSEC-2025-208",
-    "PYSEC-2025-191",
-    "PYSEC-2025-198",
-    "PYSEC-2025-203",
-    "PYSEC-2026-1970",
-    "PYSEC-2026-2286",
-    "GHSA-c678-jfcj-6jmf",
-    "GHSA-x3gm-94wq-g975",
-    "GHSA-f4hp-rmr7-r7v8",
-    "GHSA-vgrw-7cvw-pwgx",
+INTEL_MACOS_CONDA_PYTORCH_EXCEPTIONS = (
     "GHSA-rrmf-rvhw-rf47",
-    "GHSA-qfhq-4f3w-5fph",
 )
 
 
 def build_command(target: str, output_format: str | None, output: str | None) -> list[str]:
     command = [sys.executable, "-m", "pip_audit"]
     if target == "macos-x86_64":
-        for advisory in INTEL_MACOS_PYTORCH_EXCEPTIONS:
+        for advisory in INTEL_MACOS_CONDA_PYTORCH_EXCEPTIONS:
             command.extend(["--ignore-vuln", advisory])
     if output_format:
         command.extend(["--format", output_format])

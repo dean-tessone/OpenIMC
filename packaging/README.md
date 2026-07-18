@@ -6,7 +6,9 @@ users do not need Python, Git, a virtual environment, or administrator access.
 ## Build locally
 
 Build on each operating system that you plan to support; PyInstaller does not
-cross-compile. Python 3.12 is the current release-build baseline.
+cross-compile. Python 3.12 is the current release-build baseline. The automated
+Intel macOS job obtains current PyTorch and torchvision packages from
+conda-forge because PyPI no longer publishes current Intel macOS wheels.
 
 ```bash
 python -m pip install -r requirements.txt
