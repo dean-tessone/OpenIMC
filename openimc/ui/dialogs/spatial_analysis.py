@@ -116,9 +116,14 @@ with warnings.catch_warnings():
         importlib.import_module(module_name)
 """
 
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "--openimc-squidpy-probe"]
+    else:
+        command = [sys.executable, "-c", probe_code]
+
     try:
         result = subprocess.run(
-            [sys.executable, "-c", probe_code],
+            command,
             capture_output=True,
             text=True,
             check=False,

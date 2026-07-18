@@ -138,11 +138,33 @@ def smoke_test(app_bundle: Path | None = None) -> None:
 
     environment = sanitized_environment()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
-    run(
-        [str(executable), "--openimc-bundle-smoke-test"],
-        environment=environment,
-        timeout=180,
-    )
+    checkpoint_path = PROJECT_ROOT / "build" / "bundle-smoke-checkpoint.txt"
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.unlink(missing_ok=True)
+    environment["OPENIMC_SMOKE_CHECKPOINT"] = str(checkpoint_path)
+    try:
+        run(
+            [str(executable), "--openimc-bundle-smoke-test"],
+            environment=environment,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        if checkpoint_path.exists():
+            print(
+                "Frozen smoke-test checkpoint:",
+                checkpoint_path.read_text(encoding="utf-8").strip(),
+                flush=True,
+            )
+        raise
+    else:
+        if checkpoint_path.exists():
+            print(
+                "Frozen smoke-test checkpoint:",
+                checkpoint_path.read_text(encoding="utf-8").strip(),
+                flush=True,
+            )
+    finally:
+        checkpoint_path.unlink(missing_ok=True)
 
 
 def functional_test(

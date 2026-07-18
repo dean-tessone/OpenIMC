@@ -2,8 +2,18 @@
 #
 # Thin entry script to start the OpenIMC GUI for desktop bundles.
 import multiprocessing
+import importlib
+import importlib.util
 import os
 import sys
+from pathlib import Path
+
+
+def _smoke_checkpoint(message: str) -> None:
+    """Persist frozen-startup progress for CI diagnostics."""
+    checkpoint_path = os.environ.get("OPENIMC_SMOKE_CHECKPOINT")
+    if checkpoint_path:
+        Path(checkpoint_path).write_text(message + "\n", encoding="utf-8")
 
 
 def _run_bootstrap_command() -> bool:
@@ -16,21 +26,51 @@ def _run_bootstrap_command() -> bool:
     if "--openimc-torch-probe" in sys.argv:
         import torch  # noqa: F401
 
+        if sys.platform == "win32":
+            os._exit(0)
+        return True
+
+    if "--openimc-squidpy-probe" in sys.argv:
+        for module_name in ("squidpy", "scanpy", "anndata"):
+            importlib.import_module(module_name)
+        if sys.platform == "win32":
+            os._exit(0)
         return True
 
     if "--openimc-bundle-smoke-test" in sys.argv:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-        import cellpose  # noqa: F401
-        import h5py  # noqa: F401
-        import igraph  # noqa: F401
-        import leidenalg  # noqa: F401
-        import readimc  # noqa: F401
-        import scanpy  # noqa: F401
-        import squidpy  # noqa: F401
-        import torch  # noqa: F401
+        _smoke_checkpoint("entry point reached")
+        for module_name in (
+            "cellpose",
+            "h5py",
+            "igraph",
+            "leidenalg",
+            "readimc",
+            "torch",
+        ):
+            _smoke_checkpoint(f"importing {module_name}")
+            importlib.import_module(module_name)
+            _smoke_checkpoint(f"imported {module_name}")
+
+        if sys.platform == "win32":
+            # OpenIMC intentionally probes the Squidpy stack in a disposable
+            # child process on Windows instead of importing it into the GUI
+            # process, where native-library faults could terminate the app.
+            for module_name in ("squidpy", "scanpy", "anndata"):
+                if importlib.util.find_spec(module_name) is None:
+                    raise ImportError(f"Packaged module not found: {module_name}")
+                _smoke_checkpoint(f"found packaged {module_name}")
+        else:
+            for module_name in ("scanpy", "squidpy"):
+                _smoke_checkpoint(f"importing {module_name}")
+                importlib.import_module(module_name)
+                _smoke_checkpoint(f"imported {module_name}")
+
+        _smoke_checkpoint("importing OpenIMC main window")
         from PyQt5 import QtWidgets
         from openimc.ui.main_window import MainWindow
+        _smoke_checkpoint("imported OpenIMC main window")
 
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         if sys.platform == "win32":
@@ -45,6 +85,7 @@ def _run_bootstrap_command() -> bool:
             probe_window.setWindowTitle("OpenIMC frozen bundle smoke test")
             probe_window.show()
             app.processEvents()
+            _smoke_checkpoint("Windows Qt event loop passed")
             os._exit(0)
 
         window = MainWindow()
