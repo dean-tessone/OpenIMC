@@ -33,6 +33,20 @@ def _run_bootstrap_command() -> bool:
         from openimc.ui.main_window import MainWindow
 
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        if sys.platform == "win32":
+            # Constructing and closing the complete MainWindow is already
+            # covered by the Windows pytest job. In a windowed PyInstaller
+            # process, that close path can wait indefinitely inside native Qt
+            # teardown even after all imports have succeeded. Use a real Qt
+            # top-level window here to validate the frozen Qt platform plugin
+            # and event loop, while the MainWindow import above validates the
+            # packaged OpenIMC UI module and its native dependencies.
+            probe_window = QtWidgets.QMainWindow()
+            probe_window.setWindowTitle("OpenIMC frozen bundle smoke test")
+            probe_window.show()
+            app.processEvents()
+            os._exit(0)
+
         window = MainWindow()
         window.show()
         app.processEvents()
@@ -44,12 +58,6 @@ def _run_bootstrap_command() -> bool:
             QtWidgets.QMessageBox.question = original_question
         app.processEvents()
         app.quit()
-        # Qt or imported scientific runtimes can leave non-daemon helper
-        # threads alive on Windows. The smoke-test process is disposable and
-        # has completed all checks, so terminate it without waiting for those
-        # unrelated runtime threads.
-        if sys.platform == "win32":
-            os._exit(0)
         return True
 
     if "--openimc-functional-test" in sys.argv:
