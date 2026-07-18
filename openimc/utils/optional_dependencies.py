@@ -6,6 +6,7 @@ These utilities avoid importing heavy or fragile packages at module import time.
 from __future__ import annotations
 
 import importlib
+import os
 import subprocess
 import sys
 from typing import Any, Optional
@@ -45,13 +46,25 @@ import importlib
 importlib.import_module("torch")
 """
 
+    # In a PyInstaller bundle sys.executable is the OpenIMC executable, not a
+    # Python interpreter, so ``-c`` would relaunch the GUI instead of running
+    # the probe. The frozen entry point handles this private command directly.
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "--openimc-torch-probe"]
+    else:
+        command = [sys.executable, "-c", probe_code]
+
+    child_environment = os.environ.copy()
+    child_environment["OPENIMC_TORCH_PROBE"] = "1"
+
     try:
         result = subprocess.run(
-            [sys.executable, "-c", probe_code],
+            command,
             capture_output=True,
             text=True,
             check=False,
             timeout=90,
+            env=child_environment,
         )
     except Exception as exc:
         _TORCH_PROBE_ERROR = f"Subprocess torch probe failed: {exc}"

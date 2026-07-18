@@ -24,7 +24,7 @@ This module provides the simple spatial analysis dialog without squidpy dependen
 """
 
 import os
-os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'False')
+os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'True')
 
 from typing import Optional, Dict, Any, Tuple, List
 import json

@@ -15,9 +15,31 @@ For complete documentation, installation instructions, and usage guides, please 
 
 **https://dean-tessone.github.io/OpenIMC/overview.html**
 
+## Download OpenIMC
+
+Most users should install the ready-to-run desktop application. Python, Git,
+and a virtual environment are not required.
+
+**[Download the latest OpenIMC release](https://github.com/dean-tessone/OpenIMC/releases/latest)**
+
+Choose the file for your computer:
+
+| Operating system | Release file | How to start |
+| --- | --- | --- |
+| Windows 10/11, 64-bit | `OpenIMC-*-windows-x86_64.zip` | Extract the zip and double-click `OpenIMC.exe`. |
+| Mac with Apple Silicon (M1 or newer) | `OpenIMC-*-darwin-arm64.dmg` | Open the DMG and launch `OpenIMC`. |
+| Mac with an Intel processor | `OpenIMC-*-darwin-x86_64.dmg` | Open the DMG and launch `OpenIMC`. |
+| Ubuntu 22.04 or newer, 64-bit | `OpenIMC-*-linux-x86_64.tar.gz` | Extract it and run `OpenIMC/OpenIMC`. |
+
+Each release also includes SHA-256 checksum files and a software bill of
+materials. Windows releases are code-signed. macOS releases are Developer
+ID-signed and notarized by Apple.
+
 ## Quick Start
 
-### Installation
+### Installation from source
+
+The source installation is intended for developers and advanced users.
 
 The preferred installation pattern uses `uv`:
 

@@ -30,7 +30,7 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*legacy.*Das
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*dataframe.query-planning.*')
 
 # Use direct assignment (not setdefault) to ensure it's set
-os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'False'
+os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'True'
 
 # Also configure dask directly if available (must be before any dask.dataframe import)
 # Check if dask.dataframe was already imported
@@ -38,7 +38,7 @@ dask_dataframe_imported = 'dask.dataframe' in sys.modules
 try:
     import dask
     # Configure before dask.dataframe can be imported
-    dask.config.set({'dataframe.query-planning': False})
+    dask.config.set({'dataframe.query-planning': True})
 except (ImportError, AttributeError) as e:
     pass
 
@@ -12484,9 +12484,9 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
         
         try:
-            # Try to get from pyproject.toml or setup.py
-            import pkg_resources
-            return pkg_resources.get_distribution("openimc").version
+            from importlib.metadata import version
+
+            return version("openimc")
         except:
             pass
         

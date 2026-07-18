@@ -37,7 +37,12 @@ benchmarks/
 
 
 .vscode/
+.DS_Store
+.venv*/
 build/
+dist/
+*.dmg
+*.spec.bak
 data_deposit/
 figures/
 .codex

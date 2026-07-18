@@ -33,7 +33,7 @@ dependencies = [
     "scipy",
     "statsmodels>=0.14.0",
     "h5py",
-    "lxml",
+    "lxml>=6.1.0",
     "imageio",
     "PyQt5>=5.15",
     "readimc>=0.9.0",
@@ -49,9 +49,18 @@ dependencies = [
     "hdbscan>=0.8.0",
     "openai>=1.42.0",
     "combat>=0.1.0",
-    "harmonypy>=0.0.9",
-    "dask==2024.11.2",
+    "harmonypy==0.0.10",
+    "dask==2026.7.1",
+    "distributed==2026.7.1",
+    "squidpy==1.8.3",
+    "spatialdata==0.8.0",
+    # OpenIMC's spatial workflows are release-tested with Scanpy 1.11.
+    "scanpy>=1.9.0,<1.12",
+    "anndata>=0.9.0",
     "pyyaml",
+    # SpatialData declares setuptools as a runtime dependency. Version 83 fixes
+    # the current PyPA advisory and removes the deprecated pkg_resources API.
+    "setuptools>=83",
 ]
 
 # Optional dependencies
@@ -62,8 +71,13 @@ dev = [
     "pytest-mock>=3.11.0",
     "pytest-qt>=4.2.0",
 ]
+desktop-build = [
+    "pyinstaller==6.21.0",
+    "pyinstaller-hooks-contrib==2026.6",
+    "pip-audit==2.9.0",
+]
 cellsam = [
-    "cellSAM @ git+https://github.com/vanvalenlab/cellSAM.git",
+    "cellSAM @ git+https://github.com/vanvalenlab/cellSAM.git@362a8e521bcd7313d5cb280bcd4cfc12977c1e9f",
 ]
 
 [project.scripts]
@@ -76,7 +90,7 @@ include = ["openimc*"]
 exclude = ["tests*", "docs*", "examples*", "scripts*", "third_party*", "logs*"]
 
 [tool.setuptools.package-data]
-openimc = ["ui/resources/*.png"]
+openimc = ["ui/resources/*.png", "ui/resources/*.ico", "ui/resources/*.icns"]
 
 # Pytest configuration
 [tool.pytest.ini_options]

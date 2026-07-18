@@ -11341,6 +11341,13 @@ class PhenotypeSuggestionDialog(QtWidgets.QDialog):
         self.api_key_edit.setPlaceholderText("sk-... OpenAI API Key")
         form.addRow("OpenAI API Key:", self.api_key_edit)
 
+        api_key_note = QtWidgets.QLabel(
+            "The key is used only for this dialog session and is not saved by OpenIMC."
+        )
+        api_key_note.setWordWrap(True)
+        api_key_note.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
+        form.addRow("", api_key_note)
+
         self.context_edit = QtWidgets.QLineEdit()
         self.context_edit.setPlaceholderText("e.g., human colorectal cancer (optional)")
         form.addRow("Cohort/tissue context:", self.context_edit)

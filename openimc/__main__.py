@@ -33,7 +33,7 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*legacy.*Das
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*dataframe.query-planning.*')
 
 # Set environment variable first (this is read when dask is imported)
-os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'False'
+os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'True'
 
 # Configure dask before any imports that might trigger dask.dataframe
 try:
@@ -41,7 +41,7 @@ try:
     if dask_dataframe_imported:
         pass
     import dask
-    dask.config.set({'dataframe.query-planning': False})
+    dask.config.set({'dataframe.query-planning': True})
 except (ImportError, AttributeError):
     pass
 
@@ -57,7 +57,7 @@ def run_gui():
     # CRITICAL: Configure dask BEFORE any imports that might trigger dask.dataframe
     # This must be done at the very start of the application, before importing dask itself
     # Set environment variable first (this is read when dask is imported)
-    os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'False'
+    os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'True'
     
     # Suppress warnings from dependencies
     import warnings
@@ -65,8 +65,6 @@ def run_gui():
     warnings.filterwarnings('ignore', category=FutureWarning, module='dask.dataframe')
     warnings.filterwarnings('ignore', category=FutureWarning, message='.*legacy.*Dask DataFrame.*')
     warnings.filterwarnings('ignore', category=FutureWarning, message='.*dataframe.query-planning.*')
-    # Suppress xarray_schema pkg_resources deprecation warning
-    warnings.filterwarnings('ignore', category=UserWarning, message='.*pkg_resources.*deprecated.*')
     # Suppress squidpy anndata __version__ deprecation warning
     warnings.filterwarnings('ignore', category=FutureWarning, message='.*__version__.*deprecated.*')
 
@@ -77,7 +75,7 @@ def run_gui():
             pass
         import dask
         # Configure before dask.dataframe can be imported
-        dask.config.set({'dataframe.query-planning': False})
+        dask.config.set({'dataframe.query-planning': True})
     except (ImportError, AttributeError) as e:
         pass
 
@@ -182,4 +180,3 @@ def cli():
 
 if __name__ == '__main__':
     cli()
-
