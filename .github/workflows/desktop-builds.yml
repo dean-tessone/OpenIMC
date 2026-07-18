@@ -97,41 +97,13 @@ jobs:
           python -m pip check
 
       - name: Audit Python dependency vulnerabilities
-        if: matrix.target != 'macos-x86_64'
         shell: bash
         # CellSAM is a commit-pinned VCS dependency and has no PyPI advisory
         # record. pip-audit reports that skip while still failing on any known
         # vulnerability in every index-resolved dependency.
-        run: python -m pip_audit
-
-      - name: Audit Intel macOS dependencies with legacy PyTorch exceptions
-        if: matrix.target == 'macos-x86_64'
-        shell: bash
-        # PyTorch ended Intel macOS wheels after 2.2.2. Keep every advisory
-        # explicit so pip-audit still fails if any new vulnerability appears.
-        # See packaging/SECURITY.md for the risk boundary and retirement plan.
-        run: |
-          python -m pip_audit \
-            --ignore-vuln PYSEC-2025-41 \
-            --ignore-vuln PYSEC-2024-259 \
-            --ignore-vuln PYSEC-2025-205 \
-            --ignore-vuln PYSEC-2025-206 \
-            --ignore-vuln PYSEC-2025-207 \
-            --ignore-vuln PYSEC-2025-204 \
-            --ignore-vuln PYSEC-2026-139 \
-            --ignore-vuln PYSEC-2025-209 \
-            --ignore-vuln PYSEC-2025-208 \
-            --ignore-vuln PYSEC-2025-191 \
-            --ignore-vuln PYSEC-2025-198 \
-            --ignore-vuln PYSEC-2025-203 \
-            --ignore-vuln PYSEC-2026-1970 \
-            --ignore-vuln PYSEC-2026-2286 \
-            --ignore-vuln GHSA-c678-jfcj-6jmf \
-            --ignore-vuln GHSA-x3gm-94wq-g975 \
-            --ignore-vuln GHSA-f4hp-rmr7-r7v8 \
-            --ignore-vuln GHSA-vgrw-7cvw-pwgx \
-            --ignore-vuln GHSA-rrmf-rvhw-rf47 \
-            --ignore-vuln GHSA-qfhq-4f3w-5fph
+        # The helper keeps the documented Intel macOS PyTorch exception
+        # identical for both the blocking audit and SBOM generation.
+        run: python scripts/audit_dependencies.py --target "${{ matrix.target }}"
 
       - name: Run packaging and credential-security tests
         shell: bash
@@ -356,7 +328,8 @@ jobs:
       - name: Generate CycloneDX software bill of materials
         shell: bash
         run: >-
-          python -m pip_audit
+          python scripts/audit_dependencies.py
+          --target "${{ matrix.target }}"
           --format cyclonedx-json
           --output dist/openimc-${{ matrix.target }}-sbom.cdx.json
 

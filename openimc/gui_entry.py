@@ -44,6 +44,12 @@ def _run_bootstrap_command() -> bool:
             QtWidgets.QMessageBox.question = original_question
         app.processEvents()
         app.quit()
+        # Qt or imported scientific runtimes can leave non-daemon helper
+        # threads alive on Windows. The smoke-test process is disposable and
+        # has completed all checks, so terminate it without waiting for those
+        # unrelated runtime threads.
+        if sys.platform == "win32":
+            os._exit(0)
         return True
 
     if "--openimc-functional-test" in sys.argv:

@@ -105,9 +105,20 @@ def audit_bundle_for_secrets(app_bundle: Path | None = None) -> None:
     print("Credential audit passed: no API keys or credential files were bundled.")
 
 
-def run(command: list[str], *, environment: dict[str, str] | None = None) -> None:
+def run(
+    command: list[str],
+    *,
+    environment: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> None:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=PROJECT_ROOT, env=environment, check=True)
+    subprocess.run(
+        command,
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=True,
+        timeout=timeout,
+    )
 
 
 def built_executable(app_bundle: Path | None = None) -> Path:
@@ -127,7 +138,11 @@ def smoke_test(app_bundle: Path | None = None) -> None:
 
     environment = sanitized_environment()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
-    run([str(executable), "--openimc-bundle-smoke-test"], environment=environment)
+    run(
+        [str(executable), "--openimc-bundle-smoke-test"],
+        environment=environment,
+        timeout=180,
+    )
 
 
 def functional_test(
