@@ -108,7 +108,16 @@ analysis = Analysis(
     hiddenimports=sorted(set(hiddenimports)),
     hookspath=[str(PROJECT_ROOT / "packaging" / "hooks")],
     hooksconfig={},
-    runtime_hooks=[],
+    # Project runtime hooks execute before PyInstaller's installed PyQt hook.
+    # Windows PyTorch must initialize first so Cellpose/CellSAM remain usable.
+    runtime_hooks=[
+        str(
+            PROJECT_ROOT
+            / "packaging"
+            / "runtime_hooks"
+            / "pyi_rth_torch_before_qt.py"
+        )
+    ],
     excludes=(
         "IPython",
         "notebook",

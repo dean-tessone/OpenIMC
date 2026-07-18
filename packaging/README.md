@@ -55,6 +55,9 @@ make sure the release machine has downloaded the selected models first.
   and scans the finished application for credential values and key-shaped
   strings. GUI-entered DeepCell and OpenAI keys are held in memory for the
   current session only and are not included in saved OpenIMC state.
+- The Windows bundle uses a project PyInstaller runtime hook to initialize
+  PyTorch before Qt. This ordering is required by current Windows PyTorch and
+  keeps the frozen Cellpose and CellSAM paths available.
 
 ## Why this is an application folder, not one file
 
