@@ -28,11 +28,13 @@ credentials, and generated artifacts as separate trust boundaries.
 ## Credential handling
 
 `OPENAI_API_KEY` and `DEEPCELL_ACCESS_TOKEN` are application runtime inputs, not
-compiled configuration. The GUI retains them in process memory for the current
-session. The tagged functional test may receive `DEEPCELL_ACCESS_TOKEN` through
-GitHub's masked secret environment, but the PyInstaller step cannot access it.
-Azure OIDC credentials and Artifact Signing settings are scoped to signing
-steps that run after the bundle is built.
+compiled configuration or build requirements. The GUI retains them in process
+memory for the current session. If the optional repository secret exists, the
+tagged functional test may receive `DEEPCELL_ACCESS_TOKEN` through GitHub's
+masked secret environment for a live CellSAM check, but the PyInstaller step
+cannot access it and releases do not depend on it. Azure OIDC credentials and
+Artifact Signing settings are scoped to signing steps that run after the bundle
+is built.
 
 Do not add keys to source, `.env` files, PyInstaller data files, test fixtures,
 preferences, workflow command lines, or release archives.
@@ -47,7 +49,9 @@ preferences, workflow command lines, or release archives.
   reproducible across dates.
 - CellSAM weights are downloaded at runtime from DeepCell and are outside the
   executable's code-signing boundary. CellSAM verifies its declared model hash;
-  release validation must exercise the actual download and inference path.
+  release validation exercises the actual download and inference path whenever
+  the optional CI token is configured. Otherwise the credential-dependent check
+  is explicitly recorded as skipped.
 - GitHub artifact attestations establish build provenance and integrity; they
   do not independently prove that software is safe.
 

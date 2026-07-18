@@ -19,9 +19,11 @@ python scripts/build_desktop.py --version 0.1.0 --functional-test --archive
 
 The script performs an offscreen smoke test of Qt and the major scientific
 dependencies. `--functional-test` is the release gate: it runs real OME-TIFF
-loading, CellSAM, Cellpose, watershed, feature extraction, Combat, Harmony,
-clustering, spatial graph construction, and data/state export through the
-packaged executable. Its checkpointed report is written to
+loading, Cellpose, watershed, feature extraction, Combat, Harmony, clustering,
+spatial graph construction, and data/state export through the packaged
+executable. If `DEEPCELL_ACCESS_TOKEN` is present and
+`--allow-cellsam-download` is explicitly supplied, it additionally runs a live
+CellSAM download and inference check. Its checkpointed report is written to
 `build/functional-validation/openimc-functional-validation.json`.
 
 Outputs are written to `dist/`:
@@ -32,8 +34,8 @@ Outputs are written to `dist/`:
 
 Use `--console` for a diagnostic build that shows Python output. Use
 `--skip-smoke-test` only while investigating a build failure. The functional
-test uses the repository fixture and locally cached CellSAM/Cellpose weights;
-make sure the release machine has downloaded the selected models first.
+test uses the repository fixture and locally cached Cellpose weights. CellSAM
+is reported as skipped unless its optional credentialed check is enabled.
 
 ## Important release constraints
 
@@ -76,11 +78,14 @@ tests, smoke-tests the frozen app, scans the finished folder with ClamAV or
 Microsoft Defender where applicable, generates a CycloneDX SBOM, writes a
 SHA-256 checksum, and creates a GitHub artifact attestation.
 
-Tagged releases additionally run the complete frozen functional suite. Add a
-repository secret named `DEEPCELL_ACCESS_TOKEN` so the test can download
-CellSAM weights into the runner's user cache. The token is exposed only to the
-functional-test step, never the PyInstaller build step, and the finished bundle
-is scanned for its exact value before it can be archived.
+Tagged releases additionally run the frozen functional suite. A DeepCell token
+is not required to build or publish OpenIMC. If an optional repository secret
+named `DEEPCELL_ACCESS_TOKEN` is configured, the same test also downloads the
+CellSAM weights into the runner's user cache and runs live inference. The token
+is exposed only to that functional-test process, never the PyInstaller build
+step, and the finished bundle is scanned for its exact value before it can be
+archived. End users provide their own DeepCell token in the application when
+they choose CellSAM.
 
 Tagged Windows builds fail unless Azure Artifact Signing is configured. Create
 an Artifact Signing account and certificate profile, grant the GitHub OIDC

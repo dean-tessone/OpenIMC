@@ -9,6 +9,7 @@ native libraries, model loaders, data readers, and persistence paths together.
 from __future__ import annotations
 
 import json
+import os
 import time
 import traceback
 from pathlib import Path
@@ -66,6 +67,15 @@ class ValidationRun:
         }
         self._write()
         print(f"[OpenIMC validation] {name} passed", flush=True)
+
+    def skip(self, name: str, reason: str) -> None:
+        """Record a deliberately omitted credential-dependent check."""
+        self.report["checks"][name] = {
+            "status": "skipped",
+            "reason": reason,
+        }
+        self._write()
+        print(f"[OpenIMC validation] {name} skipped: {reason}", flush=True)
 
     def finish(self) -> Path:
         self.report["status"] = "passed"
@@ -202,7 +212,14 @@ def run_release_validation(
             raise AssertionError("CellSAM TIFF did not round-trip exactly")
         return {"shape": list(mask.shape), "labels": int(mask.max())}
 
-    validation.check("cellsam_model_and_segmentation", segment_cellsam)
+    if os.environ.get("DEEPCELL_ACCESS_TOKEN", "").strip():
+        validation.check("cellsam_model_and_segmentation", segment_cellsam)
+    else:
+        validation.skip(
+            "cellsam_model_and_segmentation",
+            "DEEPCELL_ACCESS_TOKEN was not supplied; CellSAM credentials belong to "
+            "the end user and are not required to build or publish OpenIMC.",
+        )
 
     def extract_and_save_features() -> dict[str, Any]:
         from openimc.core import extract_features

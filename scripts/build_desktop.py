@@ -312,7 +312,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-cellsam-download",
         action="store_true",
-        help="Pass DEEPCELL_ACCESS_TOKEN only to the functional-test process",
+        help=(
+            "Optionally pass DEEPCELL_ACCESS_TOKEN only to the functional-test "
+            "process for a live CellSAM model check"
+        ),
     )
     parser.add_argument("--archive", action="store_true", help="Create a distributable archive")
     return parser.parse_args()

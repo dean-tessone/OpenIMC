@@ -1,5 +1,6 @@
 import json
 
+from openimc.release_validation import ValidationRun
 from openimc.ui.dialogs import segmentation_dialog
 from scripts import build_desktop
 
@@ -51,3 +52,16 @@ def test_bundle_scanner_limits_key_shape_heuristics_to_text_files(tmp_path):
         (),
         scan_key_patterns=True,
     )
+
+
+def test_credential_dependent_validation_can_be_skipped(tmp_path):
+    validation = ValidationRun(tmp_path)
+    validation.skip("cellsam_model_and_segmentation", "runtime token not supplied")
+    report_path = validation.finish()
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "passed"
+    assert report["checks"]["cellsam_model_and_segmentation"] == {
+        "status": "skipped",
+        "reason": "runtime token not supplied",
+    }
