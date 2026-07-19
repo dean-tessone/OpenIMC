@@ -63,20 +63,33 @@ def run_gui():
     app.setApplicationName("OpenIMC")
     app.setApplicationDisplayName("OpenIMC")
 
+    from openimc.ui.dialogs.display_settings_dialog import (
+        get_default_font_size,
+        get_font_size_preference,
+        get_theme_preference,
+    )
+    from openimc.ui.theme import apply_application_theme, palette_is_dark
+
+    # OpenIMC defaults to light even when the operating system is dark. Users
+    # can opt into Dark or System from Display Settings.
+    selected_theme = get_theme_preference()
+    apply_application_theme(app, selected_theme)
+    dark_startup = palette_is_dark(app.palette())
+
     # Give immediate visual feedback before importing the scientific and
     # plotting stack. This is especially important on a first frozen launch,
     # when OS verification and Matplotlib setup can otherwise look like a hang.
     splash_pixmap = QtGui.QPixmap(520, 210)
-    splash_pixmap.fill(QtGui.QColor("#18212b"))
+    splash_pixmap.fill(QtGui.QColor("#18212b" if dark_startup else "#f4f6f8"))
     painter = QtGui.QPainter(splash_pixmap)
     painter.setRenderHint(QtGui.QPainter.Antialiasing)
-    painter.setPen(QtGui.QColor("#ffffff"))
+    painter.setPen(QtGui.QColor("#ffffff" if dark_startup else "#17324d"))
     title_font = QtGui.QFont()
     title_font.setPointSize(28)
     title_font.setBold(True)
     painter.setFont(title_font)
     painter.drawText(QtCore.QRect(32, 34, 456, 54), Qt.AlignLeft | Qt.AlignVCenter, "OpenIMC")
-    painter.setPen(QtGui.QColor("#b8c5d1"))
+    painter.setPen(QtGui.QColor("#b8c5d1" if dark_startup else "#526779"))
     status_font = QtGui.QFont()
     status_font.setPointSize(13)
     painter.setFont(status_font)
@@ -85,7 +98,7 @@ def run_gui():
         Qt.AlignLeft | Qt.AlignVCenter,
         "Starting scientific analysis tools…",
     )
-    painter.setBrush(QtGui.QColor("#4fa3d1"))
+    painter.setBrush(QtGui.QColor("#4fa3d1" if dark_startup else "#2f80b8"))
     painter.setPen(QtCore.Qt.NoPen)
     painter.drawRoundedRect(QtCore.QRect(34, 158, 452, 6), 3, 3)
     painter.end()
@@ -145,11 +158,6 @@ def run_gui():
         pass
 
     # Load font size preference or use default
-    from openimc.ui.dialogs.display_settings_dialog import (
-        get_font_size_preference,
-        get_default_font_size
-    )
-    
     saved_font_size = get_font_size_preference()
     default_font_size = get_default_font_size()
     font_size = saved_font_size if saved_font_size is not None else default_font_size

@@ -26,7 +26,15 @@ import platform
 from pathlib import Path
 from typing import Optional
 from PyQt5 import QtWidgets, QtGui
-from PyQt5.QtCore import Qt
+
+from openimc.ui.theme import (
+    DEFAULT_THEME,
+    THEME_DARK,
+    THEME_LIGHT,
+    THEME_SYSTEM,
+    apply_application_theme,
+    normalize_theme,
+)
 
 
 def _get_user_config_path() -> Path:
@@ -75,6 +83,20 @@ def save_font_size_preference(font_size: int):
     _save_user_preferences({'font_size': font_size})
 
 
+def get_theme_preference() -> str:
+    """Get the saved interface theme, defaulting to light on every OS."""
+    prefs = _load_user_preferences()
+    return normalize_theme(prefs.get('theme', DEFAULT_THEME))
+
+
+def save_theme_preference(theme: str):
+    """Save a validated interface theme preference."""
+    normalized = normalize_theme(theme)
+    if normalized != theme:
+        raise ValueError(f"Unsupported interface theme: {theme!r}")
+    _save_user_preferences({'theme': normalized})
+
+
 def get_masks_directory_preference() -> Optional[str]:
     """Get the saved masks directory preference, or None if not set."""
     prefs = _load_user_preferences()
@@ -101,7 +123,7 @@ class DisplaySettingsDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Display Settings")
         self.setModal(True)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(430)
         
         self._create_ui()
         self._load_current_settings()
@@ -114,6 +136,29 @@ class DisplaySettingsDialog(QtWidgets.QDialog):
         title_label = QtWidgets.QLabel("Display Settings")
         title_label.setStyleSheet("QLabel { font-weight: bold; font-size: 12pt; }")
         layout.addWidget(title_label)
+
+        # Interface theme section
+        theme_group = QtWidgets.QGroupBox("Appearance")
+        theme_layout = QtWidgets.QVBoxLayout(theme_group)
+
+        theme_desc = QtWidgets.QLabel(
+            "Choose the colors used by the OpenIMC interface. Theme changes "
+            "are applied immediately and remembered for future launches."
+        )
+        theme_desc.setWordWrap(True)
+        theme_desc.setForegroundRole(QtGui.QPalette.PlaceholderText)
+        theme_layout.addWidget(theme_desc)
+
+        theme_control_layout = QtWidgets.QHBoxLayout()
+        theme_control_layout.addWidget(QtWidgets.QLabel("Theme:"))
+        self.theme_combo = QtWidgets.QComboBox()
+        self.theme_combo.addItem("Light (default)", THEME_LIGHT)
+        self.theme_combo.addItem("Dark", THEME_DARK)
+        self.theme_combo.addItem("Follow operating system", THEME_SYSTEM)
+        theme_control_layout.addWidget(self.theme_combo)
+        theme_control_layout.addStretch()
+        theme_layout.addLayout(theme_control_layout)
+        layout.addWidget(theme_group)
         
         # Font size section
         font_group = QtWidgets.QGroupBox("Font Size")
@@ -125,7 +170,7 @@ class DisplaySettingsDialog(QtWidgets.QDialog):
             "Changes will take effect after restarting the application."
         )
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("QLabel { color: #666; }")
+        desc_label.setForegroundRole(QtGui.QPalette.PlaceholderText)
         font_layout.addWidget(desc_label)
         
         # Font size control
@@ -179,6 +224,9 @@ class DisplaySettingsDialog(QtWidgets.QDialog):
         saved_size = get_font_size_preference()
         if saved_size is not None:
             self.font_size_spinbox.setValue(saved_size)
+        saved_theme = get_theme_preference()
+        theme_index = self.theme_combo.findData(saved_theme)
+        self.theme_combo.setCurrentIndex(max(theme_index, 0))
     
     def _reset_to_default(self):
         """Reset font size to default."""
@@ -188,13 +236,19 @@ class DisplaySettingsDialog(QtWidgets.QDialog):
     def _ok_clicked(self):
         """Handle OK button click - save settings and close."""
         font_size = self.font_size_spinbox.value()
+        theme = self.get_theme()
         save_font_size_preference(font_size)
-        
+        save_theme_preference(theme)
+
+        application = QtWidgets.QApplication.instance()
+        if application is not None:
+            apply_application_theme(application, theme)
+
         QtWidgets.QMessageBox.information(
             self,
             "Settings Saved",
-            "Font size preference has been saved.\n\n"
-            "Please restart the application for the changes to take effect."
+            "The interface theme has been applied.\n\n"
+            "Please restart OpenIMC if you changed the font size."
         )
         
         self.accept()
@@ -203,3 +257,6 @@ class DisplaySettingsDialog(QtWidgets.QDialog):
         """Get the selected font size."""
         return self.font_size_spinbox.value()
 
+    def get_theme(self) -> str:
+        """Get the selected interface theme."""
+        return self.theme_combo.currentData()

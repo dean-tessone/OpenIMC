@@ -68,11 +68,24 @@ def _run_bootstrap_command() -> bool:
                 _smoke_checkpoint(f"imported {module_name}")
 
         _smoke_checkpoint("importing OpenIMC main window")
-        from PyQt5 import QtWidgets
+        from PyQt5 import QtGui, QtWidgets
+        from openimc.ui.dialogs.display_settings_dialog import (
+            get_theme_preference,
+        )
         from openimc.ui.main_window import MainWindow
+        from openimc.ui.theme import apply_application_theme
         _smoke_checkpoint("imported OpenIMC main window")
 
         app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        selected_theme = get_theme_preference()
+        apply_application_theme(app, selected_theme)
+        if selected_theme == "light":
+            window_lightness = app.palette().color(
+                QtGui.QPalette.Window
+            ).lightness()
+            if window_lightness < 128:
+                raise AssertionError("OpenIMC did not apply its default light theme")
+        _smoke_checkpoint(f"applied {selected_theme} interface theme")
         if sys.platform == "win32":
             # Constructing and closing the complete MainWindow is already
             # covered by the Windows pytest job. In a windowed PyInstaller
