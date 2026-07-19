@@ -19,6 +19,25 @@ datas = [
 binaries = []
 hiddenimports = []
 
+# Generate a platform-native Matplotlib font cache at build time and ship it as
+# a first-launch seed. The runtime hook copies this small file to the user's
+# persistent cache before Matplotlib imports, avoiding a lengthy initial scan.
+try:
+    import matplotlib
+    from matplotlib import font_manager
+
+    font_manager._load_fontmanager(try_read_cache=False)
+    font_cache_file = (
+        Path(matplotlib.get_cachedir())
+        / f"fontlist-v{font_manager.FontManager.__version__}.json"
+    )
+    if font_cache_file.is_file():
+        datas.append((str(font_cache_file), "openimc_bootstrap/matplotlib"))
+except Exception:
+    # Cache seeding is an optimization. A locked or unusual builder cache must
+    # not prevent creation of an otherwise functional desktop application.
+    pass
+
 
 def is_runtime_module(module_name):
     """Exclude dependency test and benchmark modules from the application."""

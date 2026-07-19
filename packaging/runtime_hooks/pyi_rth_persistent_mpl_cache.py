@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,15 +24,29 @@ def _openimc_cache_root() -> Path:
 
 
 if "MPLCONFIGDIR" not in os.environ:
-    # Font entries for Matplotlib's bundled fonts contain absolute paths.
-    # Namespace the cache by the installed application location so moving a
-    # portable OpenIMC folder rebuilds once instead of reusing stale paths.
-    frozen_root = Path(getattr(sys, "_MEIPASS", sys.executable)).resolve()
-    location_key = hashlib.sha256(
-        os.fsencode(str(frozen_root))
-    ).hexdigest()[:12]
-    matplotlib_cache = _openimc_cache_root() / "matplotlib" / location_key
+    # Matplotlib stores its bundled font paths relative to mpl-data and system
+    # font paths as absolute paths. The cache therefore remains valid when an
+    # OpenIMC application folder is moved or replaced; tying it to _MEIPASS
+    # would force another expensive scan after every install-location change.
+    matplotlib_cache = _openimc_cache_root() / "matplotlib"
     matplotlib_cache.mkdir(parents=True, exist_ok=True)
+
+    # Every platform build includes a cache generated on the matching CI host.
+    # Seed a user's cache before Matplotlib imports so even the first launch
+    # avoids a long, silent font scan. Matplotlib will still repair the cache if
+    # an unusual system font is unavailable.
+    frozen_root = Path(getattr(sys, "_MEIPASS", sys.executable)).resolve()
+    seed_directory = frozen_root / "openimc_bootstrap" / "matplotlib"
+    if seed_directory.is_dir():
+        for seed_file in seed_directory.glob("fontlist-v*.json"):
+            target_file = matplotlib_cache / seed_file.name
+            if not target_file.exists():
+                try:
+                    shutil.copyfile(seed_file, target_file)
+                except OSError:
+                    # A read-only or locked cache must not prevent OpenIMC from
+                    # starting; Matplotlib will fall back to its normal path.
+                    pass
     os.environ["MPLCONFIGDIR"] = str(matplotlib_cache)
 
 del _openimc_cache_root

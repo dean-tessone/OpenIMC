@@ -76,7 +76,8 @@ from matplotlib.figure import Figure
 class CustomNavigationToolbar(NavigationToolbar):
     """Custom navigation toolbar with improved save functionality."""
 
-    ICON_SIZE = QSize(20, 20)
+    ICON_SIZE = QSize(16, 16)
+    BUTTON_SIZE = QSize(24, 24)
     
     def __init__(self, canvas, parent, main_window=None):
         super().__init__(canvas, parent)
@@ -84,6 +85,14 @@ class CustomNavigationToolbar(NavigationToolbar):
         # otherwise treat their physical pixel dimensions as the toolbar's
         # logical size in a frozen app, producing oversized controls.
         self.setIconSize(self.ICON_SIZE)
+        for button in self.findChildren(QtWidgets.QToolButton):
+            # QToolBar.iconSize is only a hint. In particular, the macOS style
+            # may still size a button from Matplotlib's Retina source pixmap.
+            # Constrain the actual rendered widgets as well as the toolbar.
+            button.setIconSize(self.ICON_SIZE)
+            button.setFixedSize(self.BUTTON_SIZE)
+        if self.layout() is not None:
+            self.layout().setSpacing(1)
         self.main_window = main_window
     
     def save_figure(self, *args):

@@ -54,7 +54,7 @@ def run_gui():
     # Suppress squidpy anndata __version__ deprecation warning
     warnings.filterwarnings('ignore', category=FutureWarning, message='.*__version__.*deprecated.*')
 
-    from PyQt5 import QtWidgets, QtGui
+    from PyQt5 import QtCore, QtWidgets, QtGui
     from PyQt5.QtCore import Qt
 
     app = QtWidgets.QApplication(sys.argv)
@@ -62,6 +62,37 @@ def run_gui():
     # Set application name and display name for system dock/taskbar
     app.setApplicationName("OpenIMC")
     app.setApplicationDisplayName("OpenIMC")
+
+    # Give immediate visual feedback before importing the scientific and
+    # plotting stack. This is especially important on a first frozen launch,
+    # when OS verification and Matplotlib setup can otherwise look like a hang.
+    splash_pixmap = QtGui.QPixmap(520, 210)
+    splash_pixmap.fill(QtGui.QColor("#18212b"))
+    painter = QtGui.QPainter(splash_pixmap)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    painter.setPen(QtGui.QColor("#ffffff"))
+    title_font = QtGui.QFont()
+    title_font.setPointSize(28)
+    title_font.setBold(True)
+    painter.setFont(title_font)
+    painter.drawText(QtCore.QRect(32, 34, 456, 54), Qt.AlignLeft | Qt.AlignVCenter, "OpenIMC")
+    painter.setPen(QtGui.QColor("#b8c5d1"))
+    status_font = QtGui.QFont()
+    status_font.setPointSize(13)
+    painter.setFont(status_font)
+    painter.drawText(
+        QtCore.QRect(34, 98, 452, 42),
+        Qt.AlignLeft | Qt.AlignVCenter,
+        "Starting scientific analysis tools…",
+    )
+    painter.setBrush(QtGui.QColor("#4fa3d1"))
+    painter.setPen(QtCore.Qt.NoPen)
+    painter.drawRoundedRect(QtCore.QRect(34, 158, 452, 6), 3, 3)
+    painter.end()
+    splash = QtWidgets.QSplashScreen(splash_pixmap)
+    splash.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    splash.show()
+    app.processEvents()
     
     # Load and set application icon
     icon = None
@@ -144,6 +175,7 @@ def run_gui():
         win.setWindowIcon(app.windowIcon())
     
     win.show()
+    splash.finish(win)
 
     sys.exit(app.exec_())
 

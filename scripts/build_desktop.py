@@ -136,35 +136,70 @@ def smoke_test(app_bundle: Path | None = None) -> None:
     if not executable.exists():
         raise FileNotFoundError(f"Packaged executable not found: {executable}")
 
-    environment = sanitized_environment()
-    environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+    application_root = (
+        (app_bundle or DIST_DIR / "OpenIMC.app")
+        if platform.system() == "Darwin"
+        else DIST_DIR / "OpenIMC"
+    )
+    seed_files = list(
+        application_root.rglob("openimc_bootstrap/matplotlib/fontlist-v*.json")
+    )
+    if not seed_files:
+        raise FileNotFoundError("Packaged Matplotlib first-launch cache seed is missing")
+
     checkpoint_path = PROJECT_ROOT / "build" / "bundle-smoke-checkpoint.txt"
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     checkpoint_path.unlink(missing_ok=True)
-    environment["OPENIMC_SMOKE_CHECKPOINT"] = str(checkpoint_path)
-    try:
-        run(
-            [str(executable), "--openimc-bundle-smoke-test"],
-            environment=environment,
-            timeout=180,
-        )
-    except subprocess.TimeoutExpired:
-        if checkpoint_path.exists():
-            print(
-                "Frozen smoke-test checkpoint:",
-                checkpoint_path.read_text(encoding="utf-8").strip(),
-                flush=True,
+    with tempfile.TemporaryDirectory(prefix="openimc-smoke-profile-") as profile:
+        profile_path = Path(profile)
+        environment = sanitized_environment()
+        environment.pop("MPLCONFIGDIR", None)
+        environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+        environment["OPENIMC_SMOKE_CHECKPOINT"] = str(checkpoint_path)
+
+        if platform.system() == "Windows":
+            local_app_data = profile_path / "LocalAppData"
+            environment["LOCALAPPDATA"] = str(local_app_data)
+            expected_cache = local_app_data / "OpenIMC" / "Cache" / "matplotlib"
+        elif platform.system() == "Darwin":
+            environment["HOME"] = str(profile_path)
+            expected_cache = profile_path / "Library" / "Caches" / "OpenIMC" / "matplotlib"
+        else:
+            xdg_cache = profile_path / "cache"
+            environment["HOME"] = str(profile_path)
+            environment["XDG_CACHE_HOME"] = str(xdg_cache)
+            expected_cache = xdg_cache / "openimc" / "matplotlib"
+
+        try:
+            run(
+                [str(executable), "--openimc-bundle-smoke-test"],
+                environment=environment,
+                timeout=180,
             )
-        raise
-    else:
-        if checkpoint_path.exists():
-            print(
-                "Frozen smoke-test checkpoint:",
-                checkpoint_path.read_text(encoding="utf-8").strip(),
-                flush=True,
-            )
-    finally:
-        checkpoint_path.unlink(missing_ok=True)
+        except subprocess.TimeoutExpired:
+            if checkpoint_path.exists():
+                print(
+                    "Frozen smoke-test checkpoint:",
+                    checkpoint_path.read_text(encoding="utf-8").strip(),
+                    flush=True,
+                )
+            raise
+        else:
+            if checkpoint_path.exists():
+                print(
+                    "Frozen smoke-test checkpoint:",
+                    checkpoint_path.read_text(encoding="utf-8").strip(),
+                    flush=True,
+                )
+            for seed_file in seed_files:
+                cached_file = expected_cache / seed_file.name
+                if not cached_file.is_file():
+                    raise FileNotFoundError(
+                        f"Matplotlib first-launch cache was not seeded: {cached_file}"
+                    )
+            print("Matplotlib first-launch cache seed passed.")
+        finally:
+            checkpoint_path.unlink(missing_ok=True)
 
 
 def functional_test(
