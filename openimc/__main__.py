@@ -24,7 +24,6 @@ Entry point for running OpenIMC CLI and GUI as a module: python -m openimc
 # CRITICAL: Configure dask at module level BEFORE any other imports
 # This must be the very first thing that happens when this module is imported
 import os
-import sys
 import warnings
 
 # Suppress dask dataframe legacy implementation warning at module level
@@ -34,19 +33,6 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*dataframe.q
 
 # Set environment variable first (this is read when dask is imported)
 os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'True'
-
-# Configure dask before any imports that might trigger dask.dataframe
-try:
-    dask_dataframe_imported = 'dask.dataframe' in sys.modules
-    if dask_dataframe_imported:
-        pass
-    import dask
-    dask.config.set({'dataframe.query-planning': True})
-except (ImportError, AttributeError):
-    pass
-
-from openimc.cli import main
-
 
 def run_gui():
     """Run the OpenIMC GUI application."""
@@ -67,17 +53,6 @@ def run_gui():
     warnings.filterwarnings('ignore', category=FutureWarning, message='.*dataframe.query-planning.*')
     # Suppress squidpy anndata __version__ deprecation warning
     warnings.filterwarnings('ignore', category=FutureWarning, message='.*__version__.*deprecated.*')
-
-    # Now configure dask - but check if dask.dataframe was already imported
-    try:
-        dask_dataframe_imported = 'dask.dataframe' in sys.modules
-        if dask_dataframe_imported:
-            pass
-        import dask
-        # Configure before dask.dataframe can be imported
-        dask.config.set({'dataframe.query-planning': True})
-    except (ImportError, AttributeError) as e:
-        pass
 
     from PyQt5 import QtWidgets, QtGui
     from PyQt5.QtCore import Qt
@@ -175,6 +150,10 @@ def run_gui():
 
 def cli():
     """Run the OpenIMC CLI application."""
+    # Keep the large CLI dependency graph out of GUI startup. The desktop
+    # entry point imports this module only to call ``run_gui``.
+    from openimc.cli import main
+
     main()
 
 

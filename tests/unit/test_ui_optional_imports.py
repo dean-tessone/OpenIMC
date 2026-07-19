@@ -1,5 +1,7 @@
 import builtins
 import importlib
+import subprocess
+import sys
 
 import pytest
 
@@ -13,7 +15,15 @@ import pytest
         ("openimc.ui.dialogs.segmentation_dialog", ("torch", "cellSAM")),
         (
             "openimc.ui.main_window",
-            ("torch", "cellSAM", "harmonypy", "openimc.processing.custom_cellsam"),
+            (
+                "torch",
+                "cellSAM",
+                "harmonypy",
+                "umap",
+                "pynndescent",
+                "openimc.processing.custom_cellsam",
+                "openimc.ui.dialogs.clustering",
+            ),
         ),
     ],
 )
@@ -35,3 +45,21 @@ def test_ui_modules_defer_optional_runtime_imports(monkeypatch, module_name, blo
     importlib.reload(module)
 
     assert attempted_imports == []
+
+
+def test_gui_module_defers_cli_import_until_cli_is_called():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import openimc.__main__; "
+                "assert 'openimc.cli' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

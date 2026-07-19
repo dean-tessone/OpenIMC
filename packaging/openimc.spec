@@ -116,7 +116,13 @@ analysis = Analysis(
             / "packaging"
             / "runtime_hooks"
             / "pyi_rth_torch_before_qt.py"
-        )
+        ),
+        str(
+            PROJECT_ROOT
+            / "packaging"
+            / "runtime_hooks"
+            / "pyi_rth_persistent_mpl_cache.py"
+        ),
     ],
     excludes=(
         "IPython",
@@ -128,6 +134,15 @@ analysis = Analysis(
     noarchive=False,
     optimize=1,
 )
+
+# PyInstaller's stock Matplotlib hook creates and removes a fresh cache on every
+# launch to support one-file bundles whose extraction path changes each time.
+# OpenIMC deliberately ships as a stable application folder, so that behavior
+# needlessly rebuilds the system font cache and adds roughly 15 seconds to every
+# startup. Replace it with our persistent, per-user cache runtime hook above.
+analysis.scripts = [
+    entry for entry in analysis.scripts if entry[0] != "pyi_rth_mplconfig"
+]
 
 pyz = PYZ(analysis.pure)
 

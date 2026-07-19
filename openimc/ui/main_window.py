@@ -55,7 +55,7 @@ import multiprocessing as mp
 from scipy import stats
 from skimage.measure import regionprops, regionprops_table
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QSize, Qt, QTimer
 
 from openimc.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openimc.data.ometiff_loader import OMETIFFLoader
@@ -75,9 +75,15 @@ from matplotlib.figure import Figure
 
 class CustomNavigationToolbar(NavigationToolbar):
     """Custom navigation toolbar with improved save functionality."""
+
+    ICON_SIZE = QSize(20, 20)
     
     def __init__(self, canvas, parent, main_window=None):
         super().__init__(canvas, parent)
+        # Matplotlib selects large source images for Retina displays. Qt can
+        # otherwise treat their physical pixel dimensions as the toolbar's
+        # logical size in a frozen app, producing oversized controls.
+        self.setIconSize(self.ICON_SIZE)
         self.main_window = main_window
     
     def save_figure(self, *args):
@@ -157,7 +163,6 @@ try:
     _HAVE_TIFFFILE = True
 except Exception:
     _HAVE_TIFFFILE = False
-from openimc.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
 from openimc.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
 # Import dialog classes directly to avoid lazy loading issues
 from openimc.ui.dialogs.simple_spatial_analysis import SimpleSpatialAnalysisDialog
@@ -8971,6 +8976,10 @@ class MainWindow(QtWidgets.QMainWindow):
             normalization_config = self.feature_extraction_config.get('normalization_config')
         
         # Create new clustering dialog with both original and batch-corrected features
+        # Importing this dialog loads UMAP/pynndescent, so defer it until the
+        # scientist actually opens clustering instead of delaying every launch.
+        from openimc.ui.dialogs.clustering import CellClusteringDialog
+
         self.clustering_dialog = CellClusteringDialog(
             self.feature_dataframe, 
             normalization_config, 

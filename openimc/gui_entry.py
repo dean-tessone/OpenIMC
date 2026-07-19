@@ -89,6 +89,13 @@ def _run_bootstrap_command() -> bool:
             os._exit(0)
 
         window = MainWindow()
+        toolbar_icon_size = window.nav_toolbar.iconSize()
+        if (toolbar_icon_size.width(), toolbar_icon_size.height()) != (20, 20):
+            raise AssertionError(
+                "Unexpected main-viewer toolbar icon size: "
+                f"{toolbar_icon_size.width()}x{toolbar_icon_size.height()}"
+            )
+        _smoke_checkpoint("main viewer toolbar uses 20x20 logical icons")
         window.show()
         app.processEvents()
         original_question = QtWidgets.QMessageBox.question
