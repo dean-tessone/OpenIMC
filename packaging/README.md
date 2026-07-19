@@ -1,7 +1,9 @@
 # OpenIMC desktop releases
 
 Desktop releases are self-contained, directory-based PyInstaller bundles. End
-users do not need Python, Git, a virtual environment, or administrator access.
+users do not need Python, Git, or a virtual environment. The macOS PKG installs
+for every user and can request administrator authorization; users without it
+can use the DMG and place OpenIMC in their personal `~/Applications` folder.
 
 ## Build locally
 
@@ -28,7 +30,8 @@ CellSAM download and inference check. Its checkpointed report is written to
 
 Outputs are written to `dist/`:
 
-- macOS: `OpenIMC.app` and, with `--archive`, a `.dmg`
+- macOS: `OpenIMC.app` and, with `--archive`, a guided `.pkg` Installer plus a
+  drag-to-Applications `.dmg`
 - Windows: `OpenIMC/OpenIMC.exe` and a `.zip`
 - Linux: `OpenIMC/OpenIMC` and a `.tar.gz`
 
@@ -43,8 +46,9 @@ is reported as skipped unless its optional credentialed check is enabled.
 - Linux bundles are compatible only with systems whose glibc is at least as new
   as the build host's; build on the oldest Linux distribution you support.
 - macOS distribution outside the development machine requires Developer ID
-  signing and Apple notarization. Set `OPENIMC_CODESIGN_IDENTITY` while building,
-  then sign/notarize the final DMG in the release pipeline.
+  signing and Apple notarization. Set `OPENIMC_CODESIGN_IDENTITY` for the app
+  and `OPENIMC_INSTALLER_SIGNING_IDENTITY` for the Installer package, then
+  notarize and staple both the DMG and PKG in the release pipeline.
 - Windows releases should be code-signed before publication to reduce
   SmartScreen warnings.
 - Ilastik remains a separate application. OpenIMC locates and invokes it at
@@ -71,12 +75,13 @@ The macOS `.app` and Windows `.exe` remain normal double-click applications.
 ## Automated Ubuntu and Windows builds
 
 `.github/workflows/desktop-builds.yml` builds an Ubuntu 22.04 tarball, a Windows
-Server 2022 zip, an Apple Silicon DMG, and an Intel Mac DMG on pushes to `main`
-or `codex/dev`, every `v*` tag, and on manual dispatch. The workflow pins every
-GitHub Action to a full commit, audits Python dependencies, runs key-security
-tests, smoke-tests the frozen app, scans the finished folder with ClamAV or
-Microsoft Defender where applicable, generates a CycloneDX SBOM, writes a
-SHA-256 checksum, and creates a GitHub artifact attestation.
+Server 2022 zip, and both PKG and DMG distributions for Apple Silicon and Intel
+Macs on pushes to `main` or `codex/dev`, every `v*` tag, and on manual dispatch.
+The workflow pins every GitHub Action to a full commit, audits Python
+dependencies, runs key-security tests, smoke-tests the frozen app, scans the
+finished folder with ClamAV or Microsoft Defender where applicable, generates
+a CycloneDX SBOM, writes SHA-256 checksums, and creates GitHub artifact
+attestations.
 
 Tagged releases additionally run the frozen functional suite. A DeepCell token
 is not required to build or publish OpenIMC. If an optional repository secret
@@ -105,12 +110,17 @@ configured. Add these repository secrets:
 - `MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application certificate
 - `MACOS_CERTIFICATE_PASSWORD`: password for the exported P12
 - `MACOS_SIGNING_IDENTITY`: full Developer ID Application identity
+- `MACOS_INSTALLER_CERTIFICATE_P12`: base64-encoded Developer ID Installer certificate
+- `MACOS_INSTALLER_CERTIFICATE_PASSWORD`: password for the Installer P12
+- `MACOS_INSTALLER_SIGNING_IDENTITY`: full Developer ID Installer identity
 - `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`: notarization
   credentials
 
-The certificate is imported into an ephemeral runner keychain after the
-unsigned build and tests complete. The final DMG is notarized, stapled, and
-assessed before its checksum is regenerated.
+The certificates are imported into an ephemeral runner keychain after the
+unsigned build and tests complete. The final DMG and PKG are notarized, stapled,
+and assessed before their checksums are regenerated. Branch builds also produce
+an unsigned PKG for testing, but it can receive a stronger Gatekeeper warning;
+the signed and notarized PKG is the public installer.
 
 When all four tagged jobs pass, the workflow verifies their checksums and
 attaches the archives, checksums, and SBOMs to the GitHub Release for the tag.

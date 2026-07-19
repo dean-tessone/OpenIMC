@@ -19,8 +19,10 @@ credentials, and generated artifacts as separate trust boundaries.
   build-time API tokens, and OpenAI-shaped key strings.
 - Tagged Windows bundles are signed and RFC 3161 timestamped with Azure Artifact
   Signing. The main executable's Authenticode status must validate afterward.
-- Tagged macOS bundles are Developer ID signed with hardened runtime, submitted
-  to Apple's notarization service, stapled, and assessed before publication.
+- Tagged macOS apps are signed with Developer ID Application, their Installer
+  packages are signed with the separate Developer ID Installer identity, and
+  both DMG and PKG distributions are notarized, stapled, and assessed before
+  publication.
 - Microsoft Defender scans Windows output; ClamAV scans Ubuntu output.
 - The archive is created only after signing and scanning, then receives a
   SHA-256 checksum and GitHub artifact/SBOM attestation.
@@ -80,6 +82,7 @@ artifact if it can no longer meet the release security policy.
    roles are enabled.
 3. Push a `v*` tag and require all four platform jobs to succeed.
 4. Verify the Windows Authenticode signer, timestamp, SHA-256 checksum, SBOM,
-   GitHub attestation, and both macOS notarization results before publishing.
+   GitHub attestation, and the DMG and PKG signatures, notarization tickets,
+   checksums, and attestations for both Mac architectures before publishing.
 5. Submit the final archive to any additional antivirus services required by
    your institution. Never upload a private or embargoed scientific dataset.

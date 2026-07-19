@@ -292,20 +292,42 @@ def make_archive(version: str, app_bundle: Path | None = None) -> Path:
         image_path = DIST_DIR / f"{base_name}.dmg"
         if image_path.exists():
             image_path.unlink()
-        run(
-            [
-                "hdiutil",
-                "create",
-                "-volname",
-                "OpenIMC",
-                "-srcfolder",
-                str(app_bundle or DIST_DIR / "OpenIMC.app"),
-                "-ov",
-                "-format",
-                "UDZO",
-                str(image_path),
-            ]
-        )
+        with tempfile.TemporaryDirectory(prefix="openimc-dmg-") as staging:
+            staging_path = Path(staging)
+            staged_app = staging_path / "OpenIMC.app"
+            run(
+                [
+                    "ditto",
+                    "--noextattr",
+                    "--noqtn",
+                    str(app_bundle or DIST_DIR / "OpenIMC.app"),
+                    str(staged_app),
+                ]
+            )
+            os.symlink("/Applications", staging_path / "Applications")
+            (staging_path / "Install OpenIMC.txt").write_text(
+                "Install OpenIMC\n"
+                "===============\n\n"
+                "Drag OpenIMC.app onto the Applications shortcut in this window.\n"
+                "Then eject the OpenIMC disk image and launch OpenIMC from Applications.\n\n"
+                "Alternatively, download the OpenIMC .pkg file to use the guided "
+                "macOS Installer.\n",
+                encoding="utf-8",
+            )
+            run(
+                [
+                    "hdiutil",
+                    "create",
+                    "-volname",
+                    "OpenIMC",
+                    "-srcfolder",
+                    str(staging_path),
+                    "-ov",
+                    "-format",
+                    "UDZO",
+                    str(image_path),
+                ]
+            )
         return image_path
 
     archive = shutil.make_archive(
@@ -315,6 +337,49 @@ def make_archive(version: str, app_bundle: Path | None = None) -> Path:
         base_dir="OpenIMC",
     )
     return Path(archive)
+
+
+def make_macos_installer(version: str, app_bundle: Path | None = None) -> Path:
+    """Create a guided Installer package that places OpenIMC in Applications."""
+    if platform.system() != "Darwin":
+        raise RuntimeError("macOS Installer packages can only be built on macOS")
+
+    machine = platform.machine().lower().replace("amd64", "x86_64")
+    package_path = DIST_DIR / f"OpenIMC-{version}-darwin-{machine}.pkg"
+    package_path.unlink(missing_ok=True)
+    application = app_bundle or DIST_DIR / "OpenIMC.app"
+    identity = os.environ.get("OPENIMC_INSTALLER_SIGNING_IDENTITY")
+
+    command = ["productbuild"]
+    if identity:
+        command.extend(["--sign", identity])
+    command.extend(
+        [
+            "--component",
+            str(application),
+            "/Applications",
+            str(package_path),
+        ]
+    )
+    run(command)
+
+    payload = subprocess.run(
+        ["pkgutil", "--payload-files", str(package_path)],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    if not any(
+        entry.lstrip("./") == "OpenIMC.app" or entry.lstrip("./").startswith("OpenIMC.app/")
+        for entry in payload
+    ):
+        raise RuntimeError("Installer package does not contain OpenIMC.app")
+
+    if identity:
+        run(["pkgutil", "--check-signature", str(package_path)])
+    print("macOS Installer payload validation passed.")
+    return package_path
 
 
 def write_sha256(path: Path) -> Path:
@@ -399,10 +464,13 @@ def main() -> int:
             allow_cellsam_download=args.allow_cellsam_download,
         )
     if args.archive:
-        archive = make_archive(args.version, signed_app_bundle)
-        checksum = write_sha256(archive)
-        print(f"Created {archive}")
-        print(f"Created {checksum}")
+        artifacts = [make_archive(args.version, signed_app_bundle)]
+        if platform.system() == "Darwin":
+            artifacts.append(make_macos_installer(args.version, signed_app_bundle))
+        for artifact in artifacts:
+            checksum = write_sha256(artifact)
+            print(f"Created {artifact}")
+            print(f"Created {checksum}")
     return 0
 
 

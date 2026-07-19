@@ -27,13 +27,16 @@ Choose the file for your computer:
 | Operating system | Release file | How to start |
 | --- | --- | --- |
 | Windows 10/11, 64-bit | `OpenIMC-*-windows-x86_64.zip` | Extract the zip and double-click `OpenIMC.exe`. |
-| Mac with Apple Silicon (M1 or newer) | `OpenIMC-*-darwin-arm64.dmg` | Open the DMG and launch `OpenIMC`. |
-| Mac with an Intel processor | `OpenIMC-*-darwin-x86_64.dmg` | Open the DMG and launch `OpenIMC`. |
+| Mac with Apple Silicon (M1 or newer) | `OpenIMC-*-darwin-arm64.pkg` | Double-click the package and follow the macOS Installer. |
+| Mac with an Intel processor | `OpenIMC-*-darwin-x86_64.pkg` | Double-click the package and follow the macOS Installer. |
 | Ubuntu 22.04 or newer, 64-bit | `OpenIMC-*-linux-x86_64.tar.gz` | Extract it and run `OpenIMC/OpenIMC`. |
 
 Each release also includes SHA-256 checksum files and a software bill of
 materials. Windows releases are code-signed. macOS releases are Developer
-ID-signed and notarized by Apple.
+ID-signed and notarized by Apple. A drag-to-Applications `.dmg` is included as
+an alternative for each Mac architecture. The guided macOS Installer may ask
+for an administrator password because it installs OpenIMC for every user in
+the system Applications folder.
 
 ## Quick Start
 
