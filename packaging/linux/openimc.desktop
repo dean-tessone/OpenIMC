@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=OpenIMC
+GenericName=Imaging Mass Cytometry Analysis
+Comment=Visualize and analyze Imaging Mass Cytometry data
+Exec=/usr/lib/openimc/OpenIMC
+TryExec=/usr/lib/openimc/OpenIMC
+Icon=openimc
+Terminal=false
+Categories=Science;Education;
+Keywords=IMC;imaging;cytometry;segmentation;spatial analysis;
+StartupNotify=true
+StartupWMClass=OpenIMC

@@ -19,6 +19,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build" / "pyinstaller"
 SPEC_FILE = PROJECT_ROOT / "packaging" / "openimc.spec"
+LINUX_DESKTOP_FILE = PROJECT_ROOT / "packaging" / "linux" / "openimc.desktop"
+LINUX_RUNTIME_DEPENDENCIES = (
+    "libegl1",
+    "libgl1",
+    "libxkbcommon-x11-0",
+    "libxcb-cursor0",
+    "libxcb-xinerama0",
+)
 SENSITIVE_ENVIRONMENT_VARIABLES = (
     "DEEPCELL_ACCESS_TOKEN",
     "OPENAI_API_KEY",
@@ -339,6 +347,175 @@ def make_archive(version: str, app_bundle: Path | None = None) -> Path:
     return Path(archive)
 
 
+def _debian_architecture(machine: str | None = None) -> str:
+    """Translate a Python machine name into a Debian architecture."""
+    normalized = (machine or platform.machine()).lower()
+    architectures = {
+        "amd64": "amd64",
+        "x86_64": "amd64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }
+    try:
+        return architectures[normalized]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"Unsupported Debian package architecture: {normalized}"
+        ) from exc
+
+
+def _validate_debian_version(version: str) -> str:
+    """Return a Debian-compatible version or fail before invoking dpkg-deb."""
+    if not re.fullmatch(r"[0-9][A-Za-z0-9.+:~\-]*", version):
+        raise ValueError(f"Invalid Debian package version: {version!r}")
+    return version
+
+
+def _hardlink_or_copy(source: str, destination: str) -> str:
+    """Hard-link large bundle files when possible to limit staging disk use."""
+    try:
+        os.link(source, destination)
+        return destination
+    except OSError:
+        return shutil.copy2(source, destination)
+
+
+def _installed_size_kib(root: Path) -> int:
+    """Calculate the Installed-Size value required by Debian package metadata."""
+    total_bytes = sum(
+        path.stat().st_size
+        for path in root.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    )
+    return max(1, (total_bytes + 1023) // 1024)
+
+
+def _validate_linux_installer(
+    package_path: Path,
+    *,
+    version: str,
+    architecture: str,
+) -> None:
+    """Validate the built Debian package's identity without installing it."""
+    if not package_path.is_file() or package_path.stat().st_size == 0:
+        raise FileNotFoundError(f"Debian installer was not created: {package_path}")
+
+    expected_fields = {
+        "Package": "openimc",
+        "Version": version,
+        "Architecture": architecture,
+    }
+    for field, expected in expected_fields.items():
+        result = subprocess.run(
+            ["dpkg-deb", "--field", str(package_path), field],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        actual = result.stdout.strip()
+        if actual != expected:
+            raise RuntimeError(
+                f"Unexpected Debian {field}: expected {expected!r}, got {actual!r}"
+            )
+    print("Debian installer metadata validation passed.")
+
+
+def make_linux_installer(version: str) -> Path:
+    """Create a double-clickable Debian installer for the frozen application."""
+    if platform.system() != "Linux":
+        raise RuntimeError("Debian installers can only be built on Linux")
+    if shutil.which("dpkg-deb") is None:
+        raise RuntimeError("dpkg-deb is required to create the Ubuntu installer")
+
+    version = _validate_debian_version(version)
+    architecture = _debian_architecture()
+    application_source = DIST_DIR / "OpenIMC"
+    executable_source = application_source / "OpenIMC"
+    if not executable_source.is_file():
+        raise FileNotFoundError(
+            f"Packaged OpenIMC executable not found: {executable_source}"
+        )
+
+    package_path = (
+        DIST_DIR / f"OpenIMC-{version}-linux-{architecture}.deb"
+    )
+    package_path.unlink(missing_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="openimc-deb-") as staging:
+        package_root = Path(staging) / "openimc"
+        control_dir = package_root / "DEBIAN"
+        application_dir = package_root / "usr" / "lib" / "openimc"
+        binary_dir = package_root / "usr" / "bin"
+        desktop_dir = package_root / "usr" / "share" / "applications"
+        icon_dir = package_root / "usr" / "share" / "pixmaps"
+        documentation_dir = package_root / "usr" / "share" / "doc" / "openimc"
+        for directory in (
+            control_dir,
+            binary_dir,
+            desktop_dir,
+            icon_dir,
+            documentation_dir,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        # The frozen application is several gigabytes on Linux. Hard links
+        # avoid duplicating it in the staging tree before dpkg-deb compresses it.
+        shutil.copytree(
+            application_source,
+            application_dir,
+            symlinks=True,
+            copy_function=_hardlink_or_copy,
+        )
+        os.symlink("/usr/lib/openimc/OpenIMC", binary_dir / "openimc")
+        shutil.copy2(LINUX_DESKTOP_FILE, desktop_dir / "openimc.desktop")
+        shutil.copy2(
+            PROJECT_ROOT / "openimc" / "ui" / "resources" / "OpenIMC_Icon.png",
+            icon_dir / "openimc.png",
+        )
+        shutil.copy2(PROJECT_ROOT / "LICENSE", documentation_dir / "copyright")
+
+        installed_size = _installed_size_kib(package_root)
+        control = (
+            "Package: openimc\n"
+            f"Version: {version}\n"
+            "Section: science\n"
+            "Priority: optional\n"
+            f"Architecture: {architecture}\n"
+            "Maintainer: OpenIMC Contributors <tessone@usc.edu>\n"
+            f"Installed-Size: {installed_size}\n"
+            f"Depends: {', '.join(LINUX_RUNTIME_DEPENDENCIES)}\n"
+            "Homepage: https://github.com/dean-tessone/OpenIMC\n"
+            "Description: Interactive analysis toolkit for IMC data\n"
+            " OpenIMC provides visualization, segmentation, feature extraction,\n"
+            " batch correction, clustering, and spatial analysis workflows for\n"
+            " Imaging Mass Cytometry data.\n"
+        )
+        control_path = control_dir / "control"
+        control_path.write_text(control, encoding="utf-8")
+        control_path.chmod(0o644)
+        (desktop_dir / "openimc.desktop").chmod(0o644)
+        (icon_dir / "openimc.png").chmod(0o644)
+        (documentation_dir / "copyright").chmod(0o644)
+
+        run(
+            [
+                "dpkg-deb",
+                "--root-owner-group",
+                "--build",
+                str(package_root),
+                str(package_path),
+            ]
+        )
+
+    _validate_linux_installer(
+        package_path,
+        version=version,
+        architecture=architecture,
+    )
+    return package_path
+
+
 def make_macos_installer(version: str, app_bundle: Path | None = None) -> Path:
     """Create a guided Installer package that places OpenIMC in Applications."""
     if platform.system() != "Darwin":
@@ -467,6 +644,8 @@ def main() -> int:
         artifacts = [make_archive(args.version, signed_app_bundle)]
         if platform.system() == "Darwin":
             artifacts.append(make_macos_installer(args.version, signed_app_bundle))
+        elif platform.system() == "Linux":
+            artifacts.append(make_linux_installer(args.version))
         for artifact in artifacts:
             checksum = write_sha256(artifact)
             print(f"Created {artifact}")

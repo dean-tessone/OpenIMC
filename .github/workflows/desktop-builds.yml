@@ -109,7 +109,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            clamav libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
+            clamav desktop-file-utils libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
             libxcb-xinerama0
           sudo systemctl stop clamav-freshclam.service || true
           sudo freshclam
@@ -151,8 +151,12 @@ jobs:
       - name: Run packaging and credential-security tests
         shell: bash
         run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            desktop-file-validate packaging/linux/openimc.desktop
+          fi
           python -m pytest \
             tests/unit/test_api_key_security.py \
+            tests/unit/test_linux_installer.py \
             --no-cov
 
       - name: Build and smoke-test application folder
@@ -411,15 +415,27 @@ jobs:
           subject-path: dist/OpenIMC-*-darwin-*.pkg
           sbom-path: dist/openimc-${{ matrix.target }}-sbom.cdx.json
 
+      - name: Attest Ubuntu installer provenance and SBOM
+        if: runner.os == 'Linux'
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.1.0
+        with:
+          subject-path: dist/OpenIMC-*-linux-*.deb
+          sbom-path: dist/openimc-${{ matrix.target }}-sbom.cdx.json
+
       - name: Upload release candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: OpenIMC-${{ matrix.target }}-${{ steps.metadata.outputs.version }}
           if-no-files-found: error
           retention-days: 14
+          # Every uploaded payload is already compressed (ZIP, TAR.GZ, DEB,
+          # DMG, or PKG), so a store-only artifact avoids lengthy recompression.
+          compression-level: 0
           path: |
             ${{ matrix.archive_glob }}
             ${{ matrix.archive_glob }}.sha256
+            dist/OpenIMC-*-linux-*.deb
+            dist/OpenIMC-*-linux-*.deb.sha256
             dist/OpenIMC-*-darwin-*.pkg
             dist/OpenIMC-*-darwin-*.pkg.sha256
             dist/openimc-${{ matrix.target }}-sbom.cdx.json
@@ -449,7 +465,7 @@ jobs:
             sha256sum -c "$checksum"
             checksum_count=$((checksum_count + 1))
           done
-          test "$checksum_count" -eq 6
+          test "$checksum_count" -eq 7
 
       - name: Create or update GitHub Release
         shell: bash
@@ -457,7 +473,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
-          test "${#assets[@]}" -ge 16
+          test "${#assets[@]}" -ge 18
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
           else

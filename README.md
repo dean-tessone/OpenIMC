@@ -29,14 +29,15 @@ Choose the file for your computer:
 | Windows 10/11, 64-bit | `OpenIMC-*-windows-x86_64.zip` | Extract the zip and double-click `OpenIMC.exe`. |
 | Mac with Apple Silicon (M1 or newer) | `OpenIMC-*-darwin-arm64.pkg` | Double-click the package and follow the macOS Installer. |
 | Mac with an Intel processor | `OpenIMC-*-darwin-x86_64.pkg` | Double-click the package and follow the macOS Installer. |
-| Ubuntu 22.04 or newer, 64-bit | `OpenIMC-*-linux-x86_64.tar.gz` | Extract it and run `OpenIMC/OpenIMC`. |
+| Ubuntu 22.04 or newer, 64-bit | `OpenIMC-*-linux-amd64.deb` | Double-click it, click **Install**, then open OpenIMC from the Applications menu. |
 
 Each release also includes SHA-256 checksum files and a software bill of
 materials. Windows releases are code-signed. macOS releases are Developer
 ID-signed and notarized by Apple. A drag-to-Applications `.dmg` is included as
 an alternative for each Mac architecture. The guided macOS Installer may ask
 for an administrator password because it installs OpenIMC for every user in
-the system Applications folder.
+the system Applications folder. Ubuntu releases retain a portable `.tar.gz`
+for advanced users who prefer not to install a system package.
 
 ## Quick Start
 

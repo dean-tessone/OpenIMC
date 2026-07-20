@@ -33,7 +33,8 @@ Outputs are written to `dist/`:
 - macOS: `OpenIMC.app` and, with `--archive`, a guided `.pkg` Installer plus a
   drag-to-Applications `.dmg`
 - Windows: `OpenIMC/OpenIMC.exe` and a `.zip`
-- Linux: `OpenIMC/OpenIMC` and a `.tar.gz`
+- Linux: `OpenIMC/OpenIMC`, a double-clickable `.deb` Installer, and a portable
+  `.tar.gz`
 
 Use `--console` for a diagnostic build that shows Python output. Use
 `--skip-smoke-test` only while investigating a build failure. The functional
@@ -74,14 +75,15 @@ The macOS `.app` and Windows `.exe` remain normal double-click applications.
 
 ## Automated Ubuntu and Windows builds
 
-`.github/workflows/desktop-builds.yml` builds an Ubuntu 22.04 tarball, a Windows
-Server 2022 zip, and both PKG and DMG distributions for Apple Silicon and Intel
-Macs on pushes to `main` or `codex/dev`, every `v*` tag, and on manual dispatch.
-The workflow pins every GitHub Action to a full commit, audits Python
-dependencies, runs key-security tests, smoke-tests the frozen app, scans the
-finished folder with ClamAV or Microsoft Defender where applicable, generates
-a CycloneDX SBOM, writes SHA-256 checksums, and creates GitHub artifact
-attestations.
+`.github/workflows/desktop-builds.yml` builds an Ubuntu 22.04 DEB Installer and
+portable tarball, a Windows Server 2022 zip, and both PKG and DMG distributions
+for Apple Silicon and Intel Macs on pushes to `main` or `codex/dev`, every `v*`
+tag, and on manual dispatch. The workflow pins every GitHub Action to a full
+commit, audits Python dependencies, runs packaging and key-security tests,
+smoke-tests the frozen app, scans the finished folder with ClamAV or Microsoft
+Defender where applicable, generates a CycloneDX SBOM, writes SHA-256
+checksums, and creates GitHub artifact attestations for both archives and
+installers.
 
 Tagged releases additionally run the frozen functional suite. A DeepCell token
 is not required to build or publish OpenIMC. If an optional repository secret
