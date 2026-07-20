@@ -25,6 +25,7 @@ This module provides batch correction implementations using Combat and Harmony.
 
 from typing import Optional, List, Dict, Callable
 import importlib.util
+import os
 import pandas as pd
 import numpy as np
 
@@ -447,6 +448,12 @@ def apply_harmony_correction(
         meta_data = pd.DataFrame({batch_var: data[batch_var].astype(str)})
         
         # Apply Harmony correction in PCA space
+        harmony_options = {}
+        if os.environ.get("OPENIMC_DISABLE_GPU", "").strip().lower() in {
+            "1", "true", "yes", "on"
+        }:
+            harmony_options["device"] = "cpu"
+
         harmony_result = harmony_runner(
             pca_data,
             meta_data,
@@ -455,7 +462,8 @@ def apply_harmony_correction(
             sigma=sigma,
             theta=theta,
             lamb=lambda_reg,
-            max_iter_harmony=max_iter
+            max_iter_harmony=max_iter,
+            **harmony_options,
         )
 
         # run_harmony returns a Harmony object with Z_corr attribute.

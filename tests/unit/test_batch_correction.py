@@ -122,6 +122,31 @@ def test_apply_harmony_correction_accepts_component_sample_orientation(monkeypat
 
 
 @pytest.mark.unit
+def test_apply_harmony_correction_honors_disable_gpu(monkeypatch, sample_batch_df):
+    """Release validation must force Harmony to CPU on GPU-disabled runners."""
+    observed = {}
+
+    def fake_run_harmony(pca_data, meta_data, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(Z_corr=pca_data.copy())
+
+    monkeypatch.setattr(bc, "_HAVE_HARMONY", True)
+    monkeypatch.setattr(bc, "run_harmony", fake_run_harmony, raising=False)
+    monkeypatch.setenv("OPENIMC_DISABLE_GPU", "1")
+
+    bc.apply_harmony_correction(
+        data=sample_batch_df,
+        batch_var="source_file",
+        features=["CD3_mean", "CD4_mean", "area_um2"],
+        n_clusters=2,
+        max_iter=3,
+        pca_variance=0.95,
+    )
+
+    assert observed["device"] == "cpu"
+
+
+@pytest.mark.unit
 def test_apply_harmony_correction_rejects_unexpected_shape(monkeypatch, sample_batch_df):
     """Unexpected Harmony output shape should raise a clear error."""
     monkeypatch.setattr(bc, "_HAVE_HARMONY", True)
