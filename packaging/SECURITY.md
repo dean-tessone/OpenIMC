@@ -24,6 +24,10 @@ credentials, and generated artifacts as separate trust boundaries.
   both DMG and PKG distributions are notarized, stapled, and assessed before
   publication.
 - Microsoft Defender scans Windows output; ClamAV scans Ubuntu output.
+- The public Ubuntu bundle uses the official CPU-only PyTorch wheel. It retains
+  the same segmentation and analysis APIs but does not ship NVIDIA CUDA or
+  Triton binaries, which keeps the installer within GitHub's release limit and
+  reduces the native-code attack surface.
 - Distributable archives and installers are created only after signing and
   scanning, then receive SHA-256 checksums and GitHub artifact/SBOM
   attestations.

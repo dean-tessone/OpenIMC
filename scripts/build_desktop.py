@@ -566,7 +566,11 @@ def write_sha256(path: Path) -> Path:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     checksum_path = path.with_name(f"{path.name}.sha256")
-    checksum_path.write_text(f"{digest.hexdigest()}  {path.name}\n", encoding="utf-8")
+    # ``Path.write_text`` uses the platform newline on Windows. GNU and BSD
+    # checksum tools can then interpret the trailing CR as part of the file
+    # name. Force LF so one generated checksum works on every release target.
+    with checksum_path.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(f"{digest.hexdigest()}  {path.name}\n")
     return checksum_path
 
 

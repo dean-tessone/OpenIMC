@@ -120,10 +120,39 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
+          if [[ "${{ matrix.target }}" == "linux-x86_64" ]]; then
+            # The default Linux PyPI wheel vendors several gigabytes of CUDA
+            # and Triton libraries. The public Ubuntu installer is CPU-only so
+            # it remains one normal GitHub Release asset; Cellpose, CellSAM,
+            # and all other scientific workflows keep the same Torch API.
+            python -m pip install \
+              --index-url https://download.pytorch.org/whl/cpu \
+              torch==2.13.0 torchvision==0.28.0
+          fi
           python -m pip install -r requirements.txt
           python -m pip install -e . --no-deps
           python -m pip install -r requirements-build.txt
           python -m pip check
+
+      - name: Verify CPU-only Ubuntu PyTorch runtime
+        if: matrix.target == 'linux-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import importlib.util
+          import torch
+
+          assert torch.version.cuda is None, torch.version.cuda
+          assert importlib.util.find_spec("triton") is None
+          distributions = {
+              distribution.metadata["Name"].lower()
+              for distribution in importlib.metadata.distributions()
+              if distribution.metadata.get("Name")
+          }
+          assert not any(name.startswith("nvidia-") for name in distributions)
+          print(f"Verified CPU-only Ubuntu runtime: torch {torch.__version__}")
+          PY
 
       - name: Verify Intel macOS PyTorch source and versions
         if: matrix.target == 'macos-x86_64'
@@ -158,6 +187,7 @@ jobs:
             tests/unit/test_api_key_security.py \
             tests/unit/test_linux_installer.py \
             tests/unit/test_methods_logger.py \
+            tests/unit/test_release_assets.py \
             --no-cov
 
       - name: Build and smoke-test application folder
@@ -167,7 +197,7 @@ jobs:
           --version "${{ steps.metadata.outputs.version }}"
 
       - name: Validate scientific workflows in the frozen application
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: matrix.target == 'linux-x86_64' || startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           DEEPCELL_ACCESS_TOKEN: ${{ secrets.DEEPCELL_ACCESS_TOKEN }}
@@ -356,6 +386,24 @@ jobs:
           --archive
           --version "${{ steps.metadata.outputs.version }}"
 
+      - name: Enforce single-file Ubuntu release installer
+        if: matrix.target == 'linux-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          installers = list(Path("dist").glob("OpenIMC-*-linux-amd64.deb"))
+          assert len(installers) == 1, installers
+          installer = installers[0]
+          limit = 2 * 1024**3
+          assert installer.stat().st_size < limit, (
+              f"{installer.name} is {installer.stat().st_size} bytes; "
+              "GitHub Release assets must remain below 2 GiB"
+          )
+          print(f"Verified single-file Ubuntu installer: {installer.stat().st_size} bytes")
+          PY
+
       - name: Sign macOS app and create release DMG and Installer package
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -449,6 +497,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout release tooling without retaining credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
       - name: Download all verified platform artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -456,26 +509,29 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Verify downloaded archive checksums
+      - name: Prepare concise verified release assets
         shell: bash
-        run: |
-          cd release-assets
-          checksum_count=0
-          for checksum in *.sha256; do
-            test -f "$checksum"
-            sha256sum -c "$checksum"
-            checksum_count=$((checksum_count + 1))
-          done
-          test "$checksum_count" -eq 7
+        run: >-
+          python scripts/prepare_release_assets.py
+          --input release-assets
+          --output publish-assets
 
       - name: Create or update GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
-          test "${#assets[@]}" -ge 18
+          mapfile -t assets < <(find publish-assets -maxdepth 1 -type f -print | sort)
+          test "${#assets[@]}" -eq 6
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            mapfile -t existing_assets < <(
+              gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name'
+            )
+            for existing_asset in "${existing_assets[@]}"; do
+              if [[ ! -f "publish-assets/$existing_asset" ]]; then
+                gh release delete-asset "$GITHUB_REF_NAME" "$existing_asset" --yes
+              fi
+            done
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \

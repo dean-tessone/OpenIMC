@@ -61,6 +61,9 @@ application bundle.
 - Build separately for Windows, Linux, macOS Intel, and macOS Apple Silicon.
 - Linux bundles are compatible only with systems whose glibc is at least as new
   as the build host's; build on the oldest Linux distribution you support.
+- Public Linux desktop bundles use CPU-only PyTorch. This preserves every
+  scientific workflow while avoiding several gigabytes of vendored CUDA and
+  Triton libraries, keeping the DEB below GitHub's 2 GiB per-asset limit.
 - macOS distribution outside the development machine requires Developer ID
   signing and Apple notarization. Set `OPENIMC_CODESIGN_IDENTITY` for the app
   and `OPENIMC_INSTALLER_SIGNING_IDENTITY` for the Installer package, then
@@ -99,6 +102,12 @@ smoke-tests the frozen app, scans the finished folder with ClamAV or Microsoft
 Defender where applicable, generates a CycloneDX SBOM, writes SHA-256
 checksums, and creates GitHub artifact attestations for both archives and
 installers.
+
+Workflow artifacts retain every advanced format for maintainers. The public
+GitHub Release is intentionally concise: one Windows ZIP, one Ubuntu DEB, one
+PKG for each Mac architecture, a consolidated `SHA256SUMS.txt`, and one zipped
+SBOM collection. The release-preparation gate verifies every original checksum
+and rejects any installer at or above GitHub's 2 GiB per-file limit.
 
 Tagged releases additionally run the frozen functional suite. A DeepCell token
 is not required to build or publish OpenIMC. If an optional repository secret
@@ -139,8 +148,8 @@ and assessed before their checksums are regenerated. Branch builds also produce
 an unsigned PKG for testing, but it can receive a stronger Gatekeeper warning;
 the signed and notarized PKG is the public installer.
 
-When all four tagged jobs pass, the workflow verifies their checksums and
-attaches the archives, checksums, and SBOMs to the GitHub Release for the tag.
+When all four tagged jobs pass, the workflow verifies all generated checksums
+and publishes the six concise assets described above to the GitHub Release.
 The stable public download page is:
 
 `https://github.com/dean-tessone/OpenIMC/releases/latest`
