@@ -127,6 +127,7 @@ jobs:
             # and all other scientific workflows keep the same Torch API.
             python -m pip install \
               --index-url https://download.pytorch.org/whl/cpu \
+              --no-deps \
               torch==2.13.0 torchvision==0.28.0
           fi
           python -m pip install -r requirements.txt
