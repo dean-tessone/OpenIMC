@@ -19,6 +19,7 @@
 
 """Unit tests for batch correction helpers and Harmony integration glue."""
 
+import importlib.metadata
 from types import SimpleNamespace
 
 import numpy as np
@@ -58,6 +59,31 @@ def test_get_feature_columns_from_dataframe_uses_table_columns(sample_batch_df):
     assert "cell_id" not in features
     assert "note" not in features
     assert "NOT_IN_TABLE_mean" not in features
+
+
+@pytest.mark.integration
+def test_real_harmony_020_batch_correction(sample_batch_df):
+    """Run OpenIMC's real Harmony path against the release-pinned backend."""
+    assert importlib.metadata.version("harmonypy") == "0.2.0"
+
+    corrected = bc.apply_harmony_correction(
+        data=sample_batch_df,
+        batch_var="source_file",
+        features=["CD3_mean", "CD4_mean", "area_um2"],
+        n_clusters=2,
+        max_iter=3,
+        pca_variance=0.95,
+    )
+
+    assert corrected.shape == sample_batch_df.shape
+    assert corrected.columns.tolist() == sample_batch_df.columns.tolist()
+    assert corrected[["cell_id", "source_file", "patient_age", "note"]].equals(
+        sample_batch_df[["cell_id", "source_file", "patient_age", "note"]]
+    )
+    corrected_values = corrected[["CD3_mean", "CD4_mean", "area_um2"]].to_numpy()
+    original_values = sample_batch_df[["CD3_mean", "CD4_mean", "area_um2"]].to_numpy()
+    assert np.isfinite(corrected_values).all()
+    assert not np.allclose(corrected_values, original_values)
 
 
 def _run_harmony_with_zcorr(monkeypatch, sample_batch_df, zcorr_builder):

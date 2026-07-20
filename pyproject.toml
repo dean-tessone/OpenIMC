@@ -50,7 +50,9 @@ dependencies = [
     "hdbscan>=0.8.0",
     "openai>=1.42.0",
     "combat>=0.1.0",
-    "harmonypy==0.0.10",
+    # Exact wheel-backed PyTorch release avoids harmonypy 2.0.0's native
+    # CMake/BLAS/Armadillo build path and keeps scientific results reproducible.
+    "harmonypy==0.2.0",
     "dask==2026.7.1",
     "distributed==2026.7.1",
     "squidpy==1.8.3",

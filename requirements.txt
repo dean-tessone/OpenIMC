@@ -43,7 +43,9 @@ openai>=1.42.0
 
 #Batch Correction
 combat>=0.1.0
-harmonypy==0.0.10
+# Exact wheel-backed PyTorch release avoids harmonypy 2.0.0's native
+# CMake/BLAS/Armadillo build path, particularly on Windows.
+harmonypy==0.2.0
 
 # Spatial Analysis
 dask==2026.7.1

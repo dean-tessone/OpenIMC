@@ -40,6 +40,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
           python -m pip install -e . --no-deps
+      - name: Run real Harmony batch-correction smoke test
+        run: >-
+          python -m pytest
+          tests/unit/test_batch_correction.py::test_real_harmony_020_batch_correction
+          --no-cov
       - name: Run fast tests
         if: runner.os != 'macOS'
         run: |
