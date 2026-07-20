@@ -26,9 +26,36 @@ designed to support creation of methods sections for scientific papers.
 
 import os
 import json
+import sys
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pathlib import Path
+
+
+def get_default_log_file_path() -> Path:
+    """Return a persistent user-writable methods log path for this platform."""
+    override = os.environ.get("OPENIMC_LOG_FILE")
+    if override:
+        return Path(override).expanduser()
+
+    if sys.platform == "darwin":
+        data_dir = Path.home() / "Library" / "Application Support" / "OpenIMC"
+    elif sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        data_dir = (
+            Path(local_app_data)
+            if local_app_data
+            else Path.home() / "AppData" / "Local"
+        ) / "OpenIMC"
+    else:
+        state_home = os.environ.get("XDG_STATE_HOME")
+        data_dir = (
+            Path(state_home).expanduser()
+            if state_home
+            else Path.home() / ".local" / "state"
+        ) / "openimc"
+
+    return data_dir / "logs" / "methods_log.jsonl"
 
 
 class MethodsLogger:
@@ -47,19 +74,12 @@ class MethodsLogger:
             log_file: Path to log file. If None, uses default location.
         """
         if log_file is None:
-            # Default to logs directory in the OpenIMC project folder
-            # Find the project root by looking for this file's location
-            current_file = Path(__file__).resolve()
-            # Navigate from openimc/utils/logger.py to project root
-            project_root = current_file.parent.parent.parent
-            log_dir = project_root / "logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = str(log_dir / "methods_log.jsonl")
-        else:
-            log_dir = Path(log_file).parent
-            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = str(get_default_log_file_path())
+
+        log_file_path = Path(log_file).expanduser()
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        self.log_file = log_file
+        self.log_file = str(log_file_path)
         self._ensure_log_file()
     
     def _ensure_log_file(self):
@@ -324,7 +344,7 @@ def get_logger(log_file: Optional[str] = None) -> MethodsLogger:
     return _logger_instance
 
 
-def set_log_file(log_file: str):
+def set_log_file(log_file: str) -> MethodsLogger:
     """
     Set a custom log file path (creates new logger instance).
     
@@ -333,4 +353,4 @@ def set_log_file(log_file: str):
     """
     global _logger_instance
     _logger_instance = MethodsLogger(log_file)
-
+    return _logger_instance

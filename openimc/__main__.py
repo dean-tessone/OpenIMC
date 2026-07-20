@@ -66,8 +66,11 @@ def run_gui():
     from openimc.ui.dialogs.display_settings_dialog import (
         get_default_font_size,
         get_font_size_preference,
+        get_methods_log_file_preference,
         get_theme_preference,
+        save_methods_log_file_preference,
     )
+    from openimc.utils.logger import get_default_log_file_path, set_log_file
     from openimc.ui.theme import apply_application_theme, palette_is_dark
 
     # OpenIMC defaults to light even when the operating system is dark. Users
@@ -106,6 +109,24 @@ def run_gui():
     splash.setWindowFlag(Qt.WindowStaysOnTopHint, True)
     splash.show()
     app.processEvents()
+
+    # Application bundles are read-only after installation. Initialize the
+    # methods logger in a per-user location, or a user-selected file remembered
+    # from an earlier session, before any analysis action tries to write to it.
+    preferred_log_file = get_methods_log_file_preference()
+    try:
+        set_log_file(preferred_log_file or str(get_default_log_file_path()))
+    except OSError as exc:
+        fallback_log_file = get_default_log_file_path()
+        set_log_file(str(fallback_log_file))
+        save_methods_log_file_preference(None)
+        QtWidgets.QMessageBox.warning(
+            None,
+            "Methods Log Location Reset",
+            "OpenIMC could not write to the selected methods log file and "
+            "has returned to the default user-writable location:\n\n"
+            f"{fallback_log_file}\n\nReason: {exc}",
+        )
     
     # Load and set application icon
     icon = None

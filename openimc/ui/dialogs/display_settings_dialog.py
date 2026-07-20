@@ -108,6 +108,17 @@ def save_masks_directory_preference(masks_directory: str):
     _save_user_preferences({'masks_directory': masks_directory})
 
 
+def get_methods_log_file_preference() -> Optional[str]:
+    """Get the custom methods-log file path, or None for the platform default."""
+    value = _load_user_preferences().get('methods_log_file')
+    return str(value) if value else None
+
+
+def save_methods_log_file_preference(log_file: Optional[str]):
+    """Persist a custom methods-log file path for future launches."""
+    _save_user_preferences({'methods_log_file': log_file})
+
+
 def get_default_font_size() -> int:
     """Get the default font size based on platform."""
     if platform.system() == 'Windows':

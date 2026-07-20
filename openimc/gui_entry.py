@@ -41,6 +41,17 @@ def _run_bootstrap_command() -> bool:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         _smoke_checkpoint("entry point reached")
+        from openimc.utils.logger import MethodsLogger
+
+        methods_logger = MethodsLogger()
+        methods_logger._write_entry(
+            "bundle_validation",
+            "methods_log_write",
+            {"status": "passed"},
+        )
+        _smoke_checkpoint(
+            f"methods log write passed: {methods_logger.get_log_file_path()}"
+        )
         for module_name in (
             "cellpose",
             "h5py",

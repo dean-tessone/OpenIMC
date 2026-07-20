@@ -41,6 +41,21 @@ Use `--console` for a diagnostic build that shows Python output. Use
 test uses the repository fixture and locally cached Cellpose weights. CellSAM
 is reported as skipped unless its optional credentialed check is enabled.
 
+## Runtime files
+
+Installed application bundles are read-only. OpenIMC therefore stores its
+methods log in a per-user writable location by default:
+
+- macOS: `~/Library/Application Support/OpenIMC/logs/methods_log.jsonl`
+- Windows: `%LOCALAPPDATA%\\OpenIMC\\logs\\methods_log.jsonl`
+- Linux: `$XDG_STATE_HOME/openimc/logs/methods_log.jsonl`, or
+  `~/.local/state/openimc/logs/methods_log.jsonl` when `XDG_STATE_HOME` is unset
+
+Users can choose a different persistent file from **File → Methods Log File…**.
+For scripted launches, `OPENIMC_LOG_FILE` overrides the default when no saved
+GUI preference exists. No runtime file is written inside the executable or
+application bundle.
+
 ## Important release constraints
 
 - Build separately for Windows, Linux, macOS Intel, and macOS Apple Silicon.

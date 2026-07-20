@@ -1105,6 +1105,8 @@ class MainWindow(QtWidgets.QMainWindow):
             act_load_state.triggered.connect(self._load_state)
             act_export_steps = file_menu.addAction("Export Analysis Steps…")
             act_export_steps.triggered.connect(self._export_analysis_steps)
+            act_methods_log = file_menu.addAction("Methods Log File…")
+            act_methods_log.triggered.connect(self._choose_methods_log_file)
             file_menu.addSeparator()
             
             # Export submenu
@@ -12490,6 +12492,41 @@ class MainWindow(QtWidgets.QMainWindow):
             dialog_title="Export Analysis Steps",
             show_success_message=True,
             show_failure_message=True
+        )
+
+    def _choose_methods_log_file(self):
+        """Let the user choose and persist a writable methods-log file."""
+        from openimc.ui.dialogs.display_settings_dialog import (
+            save_methods_log_file_preference,
+        )
+        from openimc.utils.logger import get_logger, set_log_file
+
+        current_path = get_logger().get_log_file_path()
+        selected_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Choose Methods Log File",
+            current_path,
+            "JSON Lines (*.jsonl);;All Files (*)",
+        )
+        if not selected_path:
+            return
+
+        try:
+            logger = set_log_file(selected_path)
+        except OSError as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Methods Log Not Changed",
+                f"OpenIMC could not use that log file:\n\n{exc}",
+            )
+            return
+
+        save_methods_log_file_preference(logger.get_log_file_path())
+        QtWidgets.QMessageBox.information(
+            self,
+            "Methods Log Updated",
+            "OpenIMC will record analysis operations in:\n\n"
+            f"{logger.get_log_file_path()}",
         )
     
     def _get_openimc_version(self) -> str:
