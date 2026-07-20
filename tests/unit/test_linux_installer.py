@@ -82,7 +82,11 @@ def test_make_linux_installer_stages_desktop_integration(tmp_path, monkeypatch):
     for dependency in build_desktop.LINUX_RUNTIME_DEPENDENCIES:
         assert dependency in observed["control"]
     assert "Exec=/usr/lib/openimc/OpenIMC" in observed["desktop"]
-    assert observed["executable_mode"] & 0o111
+    # Windows does not expose POSIX execute bits even though this staged
+    # package path is only used by the real builder on Linux. Ubuntu CI checks
+    # the executable mode; other platforms still validate the staged layout.
+    if os.name != "nt":
+        assert observed["executable_mode"] & 0o111
     assert observed["launcher_target"] == "/usr/lib/openimc/OpenIMC"
     assert observed["icon_exists"] is True
     assert observed["license_exists"] is True
