@@ -150,9 +150,9 @@ the signed and notarized PKG is the public installer.
 
 When all four tagged jobs pass, the workflow verifies all generated checksums
 and publishes the six concise assets described above to the GitHub Release.
-The stable public download page is:
+The public downloads page, including test pre-releases, is:
 
-`https://github.com/dean-tessone/OpenIMC/releases/latest`
+`https://github.com/dean-tessone/OpenIMC/releases`
 
 ## Antivirus and reputation expectations
 

@@ -20,7 +20,7 @@ For complete documentation, installation instructions, and usage guides, please 
 Most users should install the ready-to-run desktop application. Python, Git,
 and a virtual environment are not required.
 
-**[Download the latest OpenIMC release](https://github.com/dean-tessone/OpenIMC/releases/latest)**
+**[View OpenIMC desktop downloads](https://github.com/dean-tessone/OpenIMC/releases)**
 
 Choose the file for your computer:
 
