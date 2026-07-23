@@ -47,6 +47,8 @@ class ValidationRun:
 
     def check(self, name: str, function: Callable[[], dict[str, Any]]) -> None:
         print(f"[OpenIMC validation] {name} ...", flush=True)
+        self.report["current_check"] = name
+        self._write()
         started = time.monotonic()
         try:
             details = function()
@@ -60,6 +62,7 @@ class ValidationRun:
             }
             self._write()
             raise
+        self.report.pop("current_check", None)
         self.report["checks"][name] = {
             "status": "passed",
             "seconds": round(time.monotonic() - started, 3),
@@ -78,6 +81,7 @@ class ValidationRun:
         print(f"[OpenIMC validation] {name} skipped: {reason}", flush=True)
 
     def finish(self) -> Path:
+        self.report.pop("current_check", None)
         self.report["status"] = "passed"
         self.report["finished_at_epoch"] = time.time()
         self._write()
@@ -90,10 +94,6 @@ def run_release_validation(
     output_dir: str | Path,
 ) -> Path:
     """Run representative workflows against an installed OpenIMC runtime."""
-    import numpy as np
-    import pandas as pd
-    import tifffile
-
     input_image = Path(input_image).resolve()
     mask_path = Path(mask_path).resolve()
     output_dir = Path(output_dir).resolve()
@@ -103,6 +103,14 @@ def run_release_validation(
         raise FileNotFoundError(f"Validation mask not found: {mask_path}")
 
     validation = ValidationRun(output_dir)
+    validation.report["current_check"] = "import_scientific_dependencies"
+    validation._write()
+    import numpy as np
+    import pandas as pd
+    import tifffile
+
+    validation.report.pop("current_check", None)
+    validation._write()
     context: dict[str, Any] = {}
 
     def load_ome_tiff() -> dict[str, Any]:

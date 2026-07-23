@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import re
@@ -12,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -50,6 +52,7 @@ TEXT_FILE_SUFFIXES = {
     ".yaml",
     ".yml",
 }
+FUNCTIONAL_TEST_TIMEOUT_SECONDS = 10 * 60
 
 
 def sanitized_environment() -> dict[str, str]:
@@ -235,16 +238,60 @@ def functional_test(
             )
         environment["DEEPCELL_ACCESS_TOKEN"] = token
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
-    run(
-        [
-            str(executable),
-            "--openimc-functional-test",
-            str(input_image),
-            str(mask_path),
-            str(output_dir),
-        ],
-        environment=environment,
-    )
+    command = [
+        str(executable),
+        "--openimc-functional-test",
+        str(input_image),
+        str(mask_path),
+        str(output_dir),
+    ]
+    print("+", " ".join(command), flush=True)
+    process = subprocess.Popen(command, cwd=PROJECT_ROOT, env=environment)
+    report_path = output_dir / "openimc-functional-validation.json"
+    deadline = time.monotonic() + FUNCTIONAL_TEST_TIMEOUT_SECONDS
+    last_report_text: str | None = None
+    latest_report: dict[str, object] | None = None
+
+    while True:
+        try:
+            return_code = process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            return_code = None
+
+        try:
+            report_text = report_path.read_text(encoding="utf-8")
+            if report_text != last_report_text:
+                latest_report = json.loads(report_text)
+                last_report_text = report_text
+                current = latest_report.get("current_check", "finishing")
+                completed = len(latest_report.get("checks", {}))
+                print(
+                    "Frozen functional validation progress: "
+                    f"{completed} checks recorded; current={current}",
+                    flush=True,
+                )
+        except (OSError, json.JSONDecodeError):
+            pass
+
+        if return_code is not None:
+            break
+        if time.monotonic() >= deadline:
+            process.kill()
+            process.wait()
+            current = (
+                latest_report.get("current_check", "before report creation")
+                if latest_report
+                else "before report creation"
+            )
+            raise TimeoutError(
+                "Frozen functional validation exceeded "
+                f"{FUNCTIONAL_TEST_TIMEOUT_SECONDS} seconds during {current}"
+            )
+
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command)
+    if latest_report is None or latest_report.get("status") != "passed":
+        raise RuntimeError("Frozen functional validation exited without a passed report")
 
 
 def _codesign_macos_bundle(app_bundle: Path, identity: str) -> None:

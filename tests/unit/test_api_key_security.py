@@ -65,3 +65,19 @@ def test_credential_dependent_validation_can_be_skipped(tmp_path):
         "status": "skipped",
         "reason": "runtime token not supplied",
     }
+
+
+def test_validation_report_records_the_current_check(tmp_path):
+    validation = ValidationRun(tmp_path)
+
+    def inspect_running_report():
+        report = json.loads(validation.report_path.read_text(encoding="utf-8"))
+        assert report["current_check"] == "real_scientific_check"
+        return {"result": "ok"}
+
+    validation.check("real_scientific_check", inspect_running_report)
+    report_path = validation.finish()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert "current_check" not in report
+    assert report["checks"]["real_scientific_check"]["status"] == "passed"

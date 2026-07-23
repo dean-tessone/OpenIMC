@@ -1,4 +1,5 @@
 import hashlib
+import json
 import zipfile
 from pathlib import Path
 
@@ -135,3 +136,27 @@ def test_windows_frozen_functional_check_exits_after_report_is_written(
 
     assert exit_info.value.code == 0
     assert calls == [("input.ome.tiff", "mask.tiff", str(tmp_path))]
+
+
+def test_functional_test_requires_a_passed_report(tmp_path, monkeypatch):
+    executable = tmp_path / "OpenIMC"
+    executable.write_bytes(b"")
+    monkeypatch.setattr(build_desktop, "built_executable", lambda app=None: executable)
+
+    class CompletedValidation:
+        def __init__(self, command, **kwargs):
+            report_path = (
+                Path(command[-1]) / "openimc-functional-validation.json"
+            )
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps({"status": "passed", "checks": {"example": {}}}),
+                encoding="utf-8",
+            )
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(build_desktop.subprocess, "Popen", CompletedValidation)
+
+    build_desktop.functional_test()
