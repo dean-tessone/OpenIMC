@@ -160,3 +160,46 @@ def test_functional_test_requires_a_passed_report(tmp_path, monkeypatch):
     monkeypatch.setattr(build_desktop.subprocess, "Popen", CompletedValidation)
 
     build_desktop.functional_test()
+
+
+def test_functional_test_surfaces_a_failed_report(tmp_path, monkeypatch):
+    executable = tmp_path / "OpenIMC"
+    executable.write_bytes(b"")
+    monkeypatch.setattr(build_desktop, "built_executable", lambda app=None: executable)
+
+    class FailedValidation:
+        def __init__(self, command, **kwargs):
+            self.command = command
+            report_path = (
+                Path(command[-1]) / "openimc-functional-validation.json"
+            )
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "current_check": "ome_tiff_loading",
+                        "checks": {
+                            "ome_tiff_loading": {
+                                "status": "failed",
+                                "error": "ImportError: missing frozen parser",
+                                "traceback": "diagnostic traceback",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def wait(self, timeout=None):
+            if timeout is not None:
+                raise build_desktop.subprocess.TimeoutExpired(self.command, timeout)
+            return -9
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr(build_desktop.subprocess, "Popen", FailedValidation)
+
+    with pytest.raises(RuntimeError, match="missing frozen parser"):
+        build_desktop.functional_test()

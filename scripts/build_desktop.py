@@ -273,6 +273,28 @@ def functional_test(
         except (OSError, json.JSONDecodeError):
             pass
 
+        if latest_report and latest_report.get("status") == "failed":
+            try:
+                process.kill()
+            except OSError:
+                pass
+            process.wait()
+            failed_checks = [
+                (name, details)
+                for name, details in latest_report.get("checks", {}).items()
+                if details.get("status") == "failed"
+            ]
+            if failed_checks:
+                failed_name, failed_details = failed_checks[0]
+                traceback_text = failed_details.get("traceback", "")
+                if traceback_text:
+                    print(traceback_text, flush=True)
+                raise RuntimeError(
+                    f"Frozen functional validation failed during {failed_name}: "
+                    f"{failed_details.get('error', 'unknown error')}"
+                )
+            raise RuntimeError("Frozen functional validation reported failure")
+
         if return_code is not None:
             break
         if time.monotonic() >= deadline:
