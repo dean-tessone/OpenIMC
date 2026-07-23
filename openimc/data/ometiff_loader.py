@@ -33,6 +33,18 @@ except Exception:
     _HAVE_TIFFFILE = False
 
 
+def _deduplicate_file_paths(paths: List[str]) -> List[str]:
+    """Return one deterministic entry per physical path on this platform."""
+    unique_paths: Dict[str, str] = {}
+    for path in paths:
+        key = os.path.normcase(os.path.abspath(path))
+        unique_paths.setdefault(key, path)
+    return sorted(
+        unique_paths.values(),
+        key=lambda path: os.path.normcase(os.path.abspath(path)),
+    )
+
+
 class OMETIFFLoader:
     """Loader for OME-TIFF files in a directory, treating each file as an acquisition."""
 
@@ -94,8 +106,10 @@ class OMETIFFLoader:
             tiff_files.extend(glob.glob(pattern))
             tiff_files.extend(glob.glob(pattern.upper()))
 
-        # Remove duplicates and sort
-        tiff_files = sorted(list(set(tiff_files)))
+        # A file such as sample.ome.tiff matches both *.ome.tiff and *.tiff.
+        # Windows globbing may return those matches with different casing, so
+        # a normal case-sensitive set can index one physical file twice.
+        tiff_files = _deduplicate_file_paths(tiff_files)
 
         if not tiff_files:
             raise RuntimeError(f"No OME-TIFF files found in directory: {self.folder_path}")
@@ -472,4 +486,3 @@ class OMETIFFLoader:
         """Close the loader and clear cache."""
         self._image_cache.clear()
         self.folder_path = None
-

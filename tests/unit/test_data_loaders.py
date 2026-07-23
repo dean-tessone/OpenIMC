@@ -87,6 +87,24 @@ class TestOMETIFFLoader:
             assert len(channels) > 0
 
 
+def test_ometiff_loader_deduplicates_windows_paths_case_insensitively(
+    monkeypatch,
+):
+    from openimc.data import ometiff_loader
+
+    monkeypatch.setattr(
+        ometiff_loader.os.path,
+        "normcase",
+        lambda path: str(path).lower(),
+    )
+    paths = [
+        "C:/Data/Patient1_pos1_1.ome.tiff",
+        "C:/DATA/PATIENT1_POS1_1.OME.TIFF",
+    ]
+
+    assert ometiff_loader._deduplicate_file_paths(paths) == [paths[0]]
+
+
 @pytest.mark.unit
 @pytest.mark.requires_readimc
 class TestMCDLoader:
@@ -141,4 +159,3 @@ class TestAcquisitionInfo:
         assert acq.well == 'A1'
         assert acq.size == (100, 100)
         assert len(acq.channels) == 2
-

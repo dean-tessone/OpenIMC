@@ -204,6 +204,7 @@ jobs:
           fi
           python -m pytest \
             tests/unit/test_api_key_security.py \
+            tests/unit/test_data_loaders.py \
             tests/unit/test_gpu_runtime.py \
             tests/unit/test_linux_installer.py \
             tests/unit/test_methods_logger.py \
