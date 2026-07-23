@@ -66,6 +66,7 @@ COLLECT_PACKAGES = (
     "imagecodecs",
     "kornia",
     "leidenalg",
+    "pip",
     "readimc",
     "scanpy",
     "segment_anything",
@@ -101,6 +102,7 @@ for distribution_name in (
     "leidenalg",
     "matplotlib",
     "openai",
+    "pip",
     "python-igraph",
     "readimc",
     "scanpy",
@@ -130,6 +132,12 @@ analysis = Analysis(
     # Project runtime hooks execute before PyInstaller's installed PyQt hook.
     # Windows PyTorch must initialize first so Cellpose/CellSAM remain usable.
     runtime_hooks=[
+        str(
+            PROJECT_ROOT
+            / "packaging"
+            / "runtime_hooks"
+            / "pyi_rth_gpu_runtime.py"
+        ),
         str(
             PROJECT_ROOT
             / "packaging"

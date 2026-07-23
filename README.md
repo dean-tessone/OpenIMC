@@ -37,7 +37,10 @@ Developer ID-signed and notarized by Apple. The guided macOS Installer may ask
 for an administrator password because it installs OpenIMC for every user in
 the system Applications folder. The Ubuntu desktop installer uses CPU-only
 PyTorch so it remains a single, double-clickable GitHub download; it does not
-include NVIDIA CUDA acceleration.
+include NVIDIA CUDA acceleration. The compact Windows ZIP also uses CPU-only
+PyTorch. On an NVIDIA-enabled Ubuntu or Windows PC, OpenIMC offers a
+**Download CUDA support** button at startup and keeps offering it until the
+optional packages have downloaded and passed a real GPU check.
 
 ## Quick Start
 

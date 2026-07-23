@@ -30,6 +30,19 @@ def _run_bootstrap_command() -> bool:
             os._exit(0)
         return True
 
+    if "--openimc-install-gpu-runtime" in sys.argv:
+        from openimc.utils.gpu_runtime import install_gpu_runtime
+
+        raise SystemExit(install_gpu_runtime())
+
+    if "--openimc-gpu-runtime-probe" in sys.argv:
+        from openimc.utils.gpu_runtime import probe_gpu_runtime
+
+        result_path = os.environ.get("OPENIMC_GPU_PROBE_RESULT")
+        if not result_path:
+            raise SystemExit("OPENIMC_GPU_PROBE_RESULT is required")
+        raise SystemExit(probe_gpu_runtime(Path(result_path)))
+
     if "--openimc-squidpy-probe" in sys.argv:
         for module_name in ("squidpy", "scanpy", "anndata"):
             importlib.import_module(module_name)
@@ -57,6 +70,7 @@ def _run_bootstrap_command() -> bool:
             "h5py",
             "igraph",
             "leidenalg",
+            "pip",
             "readimc",
             "torch",
         ):

@@ -206,6 +206,13 @@ def run_gui():
     win.show()
     splash.finish(win)
 
+    # The public Ubuntu and Windows bundles deliberately ship a compact
+    # CPU-only Torch runtime. If the machine has an NVIDIA driver, offer the
+    # separately downloaded, per-user CUDA runtime after the window responds.
+    from openimc.ui.gpu_setup import maybe_offer_cuda_setup
+
+    QtCore.QTimer.singleShot(0, lambda: maybe_offer_cuda_setup(win))
+
     sys.exit(app.exec_())
 
 

@@ -2,6 +2,12 @@ name: desktop-builds
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: Publish the four tested desktop packages as a GitHub pre-release
+        required: true
+        default: true
+        type: boolean
   push:
     branches: [main, codex/dev]
     tags: ["v*"]
@@ -155,6 +161,18 @@ jobs:
           print(f"Verified CPU-only Ubuntu runtime: torch {torch.__version__}")
           PY
 
+      - name: Verify CPU-only Windows PyTorch runtime
+        if: matrix.target == 'windows-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import torch
+
+          assert torch.version.cuda is None, torch.version.cuda
+          assert torch.__version__.endswith("+cpu"), torch.__version__
+          print(f"Verified CPU-only Windows runtime: torch {torch.__version__}")
+          PY
+
       - name: Verify Intel macOS PyTorch source and versions
         if: matrix.target == 'macos-x86_64'
         shell: bash
@@ -186,6 +204,7 @@ jobs:
           fi
           python -m pytest \
             tests/unit/test_api_key_security.py \
+            tests/unit/test_gpu_runtime.py \
             tests/unit/test_linux_installer.py \
             tests/unit/test_methods_logger.py \
             tests/unit/test_release_assets.py \
@@ -198,7 +217,10 @@ jobs:
           --version "${{ steps.metadata.outputs.version }}"
 
       - name: Validate scientific workflows in the frozen application
-        if: matrix.target == 'linux-x86_64' || startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          matrix.target == 'linux-x86_64' ||
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease)
         shell: bash
         env:
           DEEPCELL_ACCESS_TOKEN: ${{ secrets.DEEPCELL_ACCESS_TOKEN }}
@@ -491,8 +513,10 @@ jobs:
             dist/openimc-${{ matrix.target }}-sbom.cdx.json
 
   release:
-    name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish GitHub Release or pre-release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease)
     needs: build
     runs-on: ubuntu-22.04
     permissions:
@@ -517,26 +541,62 @@ jobs:
           --input release-assets
           --output publish-assets
 
+      - name: Choose release name and type
+        id: publication
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "title=OpenIMC $GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "test_build=false" >> "$GITHUB_OUTPUT"
+          else
+            short_sha="${GITHUB_SHA:0:7}"
+            echo "tag=desktop-test-$short_sha" >> "$GITHUB_OUTPUT"
+            echo "title=OpenIMC Desktop Test Build $short_sha" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "test_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create or update GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.publication.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.publication.outputs.title }}
+          IS_PRERELEASE: ${{ steps.publication.outputs.prerelease }}
+          IS_TEST_BUILD: ${{ steps.publication.outputs.test_build }}
         run: |
           mapfile -t assets < <(find publish-assets -maxdepth 1 -type f -print | sort)
           test "${#assets[@]}" -eq 6
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             mapfile -t existing_assets < <(
-              gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name'
+              gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name'
             )
             for existing_asset in "${existing_assets[@]}"; do
               if [[ ! -f "publish-assets/$existing_asset" ]]; then
-                gh release delete-asset "$GITHUB_REF_NAME" "$existing_asset" --yes
+                gh release delete-asset "$RELEASE_TAG" "$existing_asset" --yes
               fi
             done
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --prerelease="$IS_PRERELEASE"
+          elif [[ "$IS_TEST_BUILD" == true ]]; then
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --title "$RELEASE_TITLE" \
+              --notes "Unsigned test packages from commit $GITHUB_SHA. The Windows, Ubuntu, Apple Silicon Mac, and Intel Mac builds all passed their frozen application checks before publication."
           else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --verify-tag \
-              --generate-notes \
-              --title "OpenIMC ${{ github.ref_name }}"
+            release_options=(--verify-tag --generate-notes --title "$RELEASE_TITLE")
+            if [[ "$IS_PRERELEASE" == true ]]; then
+              release_options+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              "${release_options[@]}"
           fi

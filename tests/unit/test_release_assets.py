@@ -86,3 +86,16 @@ def test_prepare_release_assets_rejects_oversized_installer(tmp_path, monkeypatc
             input_dir,
             tmp_path / "publish",
         )
+
+
+def test_manual_desktop_build_publishes_a_test_prerelease():
+    project_root = Path(__file__).resolve().parents[2]
+    workflow = (project_root / ".github/workflows/desktop-builds.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "publish_prerelease:" in workflow
+    assert "desktop-test-$short_sha" in workflow
+    assert "--prerelease" in workflow
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert "inputs.publish_prerelease" in workflow

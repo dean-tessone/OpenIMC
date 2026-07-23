@@ -61,9 +61,18 @@ application bundle.
 - Build separately for Windows, Linux, macOS Intel, and macOS Apple Silicon.
 - Linux bundles are compatible only with systems whose glibc is at least as new
   as the build host's; build on the oldest Linux distribution you support.
-- Public Linux desktop bundles use CPU-only PyTorch. This preserves every
-  scientific workflow while avoiding several gigabytes of vendored CUDA and
-  Triton libraries, keeping the DEB below GitHub's 2 GiB per-asset limit.
+- Public Linux and Windows desktop bundles use CPU-only PyTorch. This preserves
+  every scientific workflow while avoiding several gigabytes of vendored CUDA
+  libraries and keeps each installer comfortably below GitHub's 2 GiB asset
+  limit. On a frozen x86_64 installation, OpenIMC uses `nvidia-smi` to detect
+  an NVIDIA GPU and offers a startup button that downloads the release-tested
+  CUDA 12.6 PyTorch runtime from PyTorch's official wheel index. The prompt is
+  shown on every launch until the download and a real CUDA device probe both
+  succeed. The verified runtime takes effect after restart and is stored under:
+
+  - Linux: `$XDG_DATA_HOME/openimc/gpu-runtime`, or
+    `~/.local/share/openimc/gpu-runtime`
+  - Windows: `%LOCALAPPDATA%\\OpenIMC\\gpu-runtime`
 - macOS distribution outside the development machine requires Developer ID
   signing and Apple notarization. Set `OPENIMC_CODESIGN_IDENTITY` for the app
   and `OPENIMC_INSTALLER_SIGNING_IDENTITY` for the Installer package, then
@@ -109,14 +118,19 @@ PKG for each Mac architecture, a consolidated `SHA256SUMS.txt`, and one zipped
 SBOM collection. The release-preparation gate verifies every original checksum
 and rejects any installer at or above GitHub's 2 GiB per-file limit.
 
-Tagged releases additionally run the frozen functional suite. A DeepCell token
-is not required to build or publish OpenIMC. If an optional repository secret
-named `DEEPCELL_ACCESS_TOKEN` is configured, the same test also downloads the
-CellSAM weights into the runner's user cache and runs live inference. The token
-is exposed only to that functional-test process, never the PyInstaller build
-step, and the finished bundle is scanned for its exact value before it can be
-archived. End users provide their own DeepCell token in the application when
-they choose CellSAM.
+Tagged releases and manually requested pre-releases run the frozen functional
+suite on all four platforms. A manual workflow run publishes a pre-release by
+default after every platform succeeds. It contains the four end-user packages,
+`SHA256SUMS.txt`, and the zipped software inventory. Its tag is
+`desktop-test-<commit>` so each test build is tied to the exact source used.
+
+A DeepCell token is not required to build or publish OpenIMC. If an optional
+repository secret named `DEEPCELL_ACCESS_TOKEN` is configured, the same test
+also downloads the CellSAM weights into the runner's user cache and runs live
+inference. The token is exposed only to that functional-test process, never the
+PyInstaller build step, and the finished bundle is scanned for its exact value
+before it can be archived. End users provide their own DeepCell token in the
+application when they choose CellSAM.
 
 Tagged Windows builds fail unless Azure Artifact Signing is configured. Create
 an Artifact Signing account and certificate profile, grant the GitHub OIDC
@@ -126,9 +140,9 @@ identity the required signing role, then configure:
 - variables: `AZURE_ARTIFACT_SIGNING_ENDPOINT`,
   `AZURE_ARTIFACT_SIGNING_ACCOUNT`, `AZURE_ARTIFACT_SIGNING_PROFILE`
 
-Branch and manually dispatched Windows builds are allowed to remain unsigned
-so contributors can exercise the pipeline. Do not distribute those CI builds
-as releases.
+Branch and manually dispatched Windows builds are allowed to remain unsigned.
+Manually dispatched packages are published only as clearly labeled test
+pre-releases and may show a Windows SmartScreen warning.
 
 Tagged macOS builds fail unless Developer ID signing and Apple notarization are
 configured. Add these repository secrets:
@@ -148,9 +162,9 @@ and assessed before their checksums are regenerated. Branch builds also produce
 an unsigned PKG for testing, but it can receive a stronger Gatekeeper warning;
 the signed and notarized PKG is the public installer.
 
-When all four tagged jobs pass, the workflow verifies all generated checksums
-and publishes the six concise assets described above to the GitHub Release.
-The public downloads page, including test pre-releases, is:
+When all four jobs pass, tagged builds publish a release and manual builds
+publish a test pre-release. Ordinary branch pushes never publish a release.
+The public downloads page is:
 
 `https://github.com/dean-tessone/OpenIMC/releases`
 

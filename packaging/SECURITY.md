@@ -28,6 +28,14 @@ credentials, and generated artifacts as separate trust boundaries.
   the same segmentation and analysis APIs but does not ship NVIDIA CUDA or
   Triton binaries, which keeps the installer within GitHub's release limit and
   reduces the native-code attack surface.
+- On an NVIDIA-enabled Linux or Windows system, the user may explicitly
+  download the pinned CUDA PyTorch and torchvision runtime from PyTorch's HTTPS
+  wheel index.
+  It is installed into a per-user directory, verified in a clean OpenIMC child
+  process against a real CUDA device, and activated only after that probe
+  succeeds. These post-install native packages are outside the signed release
+  artifact and should be treated like any other runtime model or plugin
+  download.
 - Distributable archives and installers are created only after signing and
   scanning, then receive SHA-256 checksums and GitHub artifact/SBOM
   attestations.
@@ -61,6 +69,11 @@ preferences, workflow command lines, or release archives.
   is explicitly recorded as skipped.
 - GitHub artifact attestations establish build provenance and integrity; they
   do not independently prove that software is safe.
+- The optional Linux/Windows CUDA runtime is downloaded after release and is
+  therefore outside the bundle's antivirus scan, SBOM, checksum, and
+  attestation. OpenIMC pins its top-level Torch versions and official index,
+  but PyTorch's transitive CUDA packages remain a separate upstream trust
+  boundary.
 
 ### Intel macOS conda-forge PyTorch boundary
 
@@ -81,14 +94,17 @@ artifact if it can no longer meet the release security policy.
 
 ## Tagged release checklist
 
-1. Review dependency and build-tool updates, especially the pinned CellSAM
+1. Manually run `desktop-builds` with **Publish the four tested desktop
+   packages as a GitHub pre-release** enabled. Test the resulting Windows,
+   Ubuntu, Apple Silicon Mac, and Intel Mac packages on real machines.
+2. Review dependency and build-tool updates, especially the pinned CellSAM
    commit.
-2. Confirm GitHub environment protection and least-privilege Azure signing
+3. Confirm GitHub environment protection and least-privilege Azure signing
    roles are enabled.
-3. Push a `v*` tag and require all four platform jobs to succeed.
-4. Verify the Windows Authenticode signer, timestamp, SHA-256 checksum, SBOM,
+4. Push a `v*` tag and require all four platform jobs to succeed.
+5. Verify the Windows Authenticode signer, timestamp, SHA-256 checksum, SBOM,
    GitHub attestation, the Ubuntu DEB metadata, checksum, and attestation, and
    the DMG and PKG signatures, notarization tickets, checksums, and attestations
    for both Mac architectures before publishing.
-5. Submit the final archive to any additional antivirus services required by
+6. Submit the final archive to any additional antivirus services required by
    your institution. Never upload a private or embargoed scientific dataset.
