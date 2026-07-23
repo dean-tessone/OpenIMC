@@ -99,3 +99,39 @@ def test_manual_desktop_build_publishes_a_test_prerelease():
     assert "--prerelease" in workflow
     assert "github.event_name == 'workflow_dispatch'" in workflow
     assert "inputs.publish_prerelease" in workflow
+
+
+def test_windows_frozen_functional_check_exits_after_report_is_written(
+    tmp_path, monkeypatch
+):
+    from openimc import gui_entry, release_validation
+
+    calls = []
+    monkeypatch.setattr(gui_entry.sys, "platform", "win32")
+    monkeypatch.setattr(
+        gui_entry.sys,
+        "argv",
+        [
+            "OpenIMC.exe",
+            "--openimc-functional-test",
+            "input.ome.tiff",
+            "mask.tiff",
+            str(tmp_path),
+        ],
+    )
+    monkeypatch.setattr(
+        release_validation,
+        "run_release_validation",
+        lambda *arguments: calls.append(arguments),
+    )
+
+    def completed_exit(status):
+        raise SystemExit(status)
+
+    monkeypatch.setattr(gui_entry.os, "_exit", completed_exit)
+
+    with pytest.raises(SystemExit) as exit_info:
+        gui_entry._run_bootstrap_command()
+
+    assert exit_info.value.code == 0
+    assert calls == [("input.ome.tiff", "mask.tiff", str(tmp_path))]

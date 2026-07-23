@@ -164,6 +164,12 @@ def _run_bootstrap_command() -> bool:
         from openimc.release_validation import run_release_validation
 
         run_release_validation(*arguments)
+        if sys.platform == "win32":
+            # Some imported native scientific runtimes keep background state
+            # alive during Windows interpreter teardown. The completed report
+            # is already flushed atomically, so exit without letting teardown
+            # turn a successful release check into an indefinite CI hang.
+            os._exit(0)
         return True
 
     return False
