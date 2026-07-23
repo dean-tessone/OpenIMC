@@ -203,3 +203,17 @@ def test_functional_test_surfaces_a_failed_report(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="missing frozen parser"):
         build_desktop.functional_test()
+
+
+def test_windowed_entry_provides_streams_for_download_progress(monkeypatch):
+    from openimc import gui_entry
+
+    monkeypatch.setattr(gui_entry.sys, "stdout", None)
+    monkeypatch.setattr(gui_entry.sys, "stderr", None)
+
+    gui_entry._ensure_standard_streams()
+
+    gui_entry.sys.stdout.write("download output")
+    gui_entry.sys.stderr.write("download progress")
+    assert gui_entry.sys.stdout is not None
+    assert gui_entry.sys.stderr is not None

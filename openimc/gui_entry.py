@@ -9,6 +9,18 @@ import sys
 from pathlib import Path
 
 
+_NULL_STANDARD_STREAMS = []
+
+
+def _ensure_standard_streams() -> None:
+    """Give console-oriented dependencies writable streams in windowed builds."""
+    for stream_name in ("stdout", "stderr"):
+        if getattr(sys, stream_name) is None:
+            stream = open(os.devnull, "w", encoding="utf-8")
+            setattr(sys, stream_name, stream)
+            _NULL_STANDARD_STREAMS.append(stream)
+
+
 def _smoke_checkpoint(message: str) -> None:
     """Persist frozen-startup progress for CI diagnostics."""
     checkpoint_path = os.environ.get("OPENIMC_SMOKE_CHECKPOINT")
@@ -175,6 +187,7 @@ def _run_bootstrap_command() -> bool:
     return False
 
 if __name__ == "__main__":
+    _ensure_standard_streams()
     # Required for multiprocessing workers spawned from PyInstaller bundles.
     multiprocessing.freeze_support()
 
