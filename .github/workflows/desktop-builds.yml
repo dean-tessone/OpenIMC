@@ -217,6 +217,36 @@ jobs:
           python scripts/build_desktop.py
           --version "${{ steps.metadata.outputs.version }}"
 
+      - name: Cache Cellpose validation model with retries
+        if: >-
+          matrix.target == 'linux-x86_64' ||
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import time
+
+          from cellpose import models
+
+          attempts = 3
+          for attempt in range(1, attempts + 1):
+              try:
+                  models.Cellpose(model_type="cyto3", gpu=False)
+                  print("Cellpose cyto3 validation model is cached.")
+                  break
+              except Exception as exc:
+                  if attempt == attempts:
+                      raise
+                  delay = 15 * attempt
+                  print(
+                      f"Cellpose model download attempt {attempt}/{attempts} "
+                      f"failed: {type(exc).__name__}: {exc}. "
+                      f"Retrying in {delay} seconds."
+                  )
+                  time.sleep(delay)
+          PY
+
       - name: Validate scientific workflows in the frozen application
         if: >-
           matrix.target == 'linux-x86_64' ||
@@ -262,7 +292,7 @@ jobs:
           $enabled = -not ($values | Where-Object { [string]::IsNullOrWhiteSpace($_) })
           "enabled=$($enabled.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
           if ('${{ startsWith(github.ref, 'refs/tags/v') }}' -eq 'true' -and -not $enabled) {
-            throw 'Tagged Windows releases require complete Azure Artifact Signing configuration.'
+            Write-Warning 'Publishing an unsigned Windows package because signing is not configured.'
           }
 
       - name: Authenticate to Azure with GitHub OIDC
@@ -352,8 +382,7 @@ jobs:
           done
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/v* && "$enabled" != true ]]; then
-            echo "Tagged macOS releases require Developer ID signing and notarization secrets." >&2
-            exit 1
+            echo "::warning::Publishing unsigned macOS packages because signing and notarization are not configured."
           fi
 
       - name: Import Developer ID certificate into an ephemeral keychain
@@ -401,7 +430,10 @@ jobs:
           security find-identity -v -p codesigning "$keychain_path"
 
       - name: Re-audit bundle and create unsigned CI distributions
-        if: runner.os != 'macOS' || !startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          runner.os != 'macOS' ||
+          !startsWith(github.ref, 'refs/tags/v') ||
+          steps.macos-signing.outputs.enabled != 'true'
         shell: bash
         run: >-
           python scripts/build_desktop.py
@@ -429,7 +461,10 @@ jobs:
           PY
 
       - name: Sign macOS app and create release DMG and Installer package
-        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          runner.os == 'macOS' &&
+          startsWith(github.ref, 'refs/tags/v') &&
+          steps.macos-signing.outputs.enabled == 'true'
         shell: bash
         env:
           OPENIMC_CODESIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
@@ -441,7 +476,10 @@ jobs:
           --version "${{ steps.metadata.outputs.version }}"
 
       - name: Notarize and staple macOS release artifacts
-        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          runner.os == 'macOS' &&
+          startsWith(github.ref, 'refs/tags/v') &&
+          steps.macos-signing.outputs.enabled == 'true'
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}

@@ -102,6 +102,34 @@ def test_manual_desktop_build_publishes_a_test_prerelease():
     assert "inputs.publish_prerelease" in workflow
 
 
+def test_tagged_release_can_publish_transparently_unsigned_packages():
+    project_root = Path(__file__).resolve().parents[2]
+    workflow = (project_root / ".github/workflows/desktop-builds.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Publishing an unsigned Windows package" in workflow
+    assert "Publishing unsigned macOS packages" in workflow
+    assert "steps.macos-signing.outputs.enabled != 'true'" in workflow
+    assert "Tagged Windows releases require" not in workflow
+    assert "Tagged macOS releases require" not in workflow
+
+
+def test_release_validation_precaches_cellpose_model_with_retries():
+    project_root = Path(__file__).resolve().parents[2]
+    workflow = (project_root / ".github/workflows/desktop-builds.yml").read_text(
+        encoding="utf-8"
+    )
+
+    cache_step = workflow.index("Cache Cellpose validation model with retries")
+    validation_step = workflow.index(
+        "Validate scientific workflows in the frozen application"
+    )
+    assert cache_step < validation_step
+    assert 'models.Cellpose(model_type="cyto3", gpu=False)' in workflow
+    assert "attempts = 3" in workflow
+
+
 def test_windows_frozen_functional_check_exits_after_report_is_written(
     tmp_path, monkeypatch
 ):
