@@ -18,29 +18,62 @@ For complete documentation, installation instructions, and usage guides, please 
 ## Download OpenIMC
 
 Most users should install the ready-to-run desktop application. Python, Git,
-and a virtual environment are not required.
+or a virtual environment are not required. Download OpenIMC 1.1.0 for your
+computer:
 
-**[View OpenIMC desktop downloads](https://github.com/dean-tessone/OpenIMC/releases)**
+| Operating system | Download |
+| --- | --- |
+| Windows 10/11, 64-bit | **[Windows ZIP](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-windows-x86_64.zip)** |
+| Mac with Apple Silicon (M1 or newer) | **[Apple Silicon Mac installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-arm64.pkg)** |
+| Mac with an Intel processor | **[Intel Mac installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-x86_64.pkg)** |
+| Ubuntu 22.04 or newer, 64-bit | **[Ubuntu installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-linux-amd64.deb)** |
 
-Choose the file for your computer:
+Not sure which Mac you have? Choose **Apple menu → About This Mac**. Download
+the Apple Silicon installer if the **Chip** line says Apple M1, M2, M3, M4, or
+newer. Download the Intel installer if it shows an Intel **Processor**.
 
-| Operating system | Release file | How to start |
-| --- | --- | --- |
-| Windows 10/11, 64-bit | `OpenIMC-*-windows-x86_64.zip` | Extract the zip and double-click `OpenIMC.exe`. |
-| Mac with Apple Silicon (M1 or newer) | `OpenIMC-*-darwin-arm64.pkg` | Double-click the package and follow the macOS Installer. |
-| Mac with an Intel processor | `OpenIMC-*-darwin-x86_64.pkg` | Double-click the package and follow the macOS Installer. |
-| Ubuntu 22.04 or newer, 64-bit | `OpenIMC-*-linux-amd64.deb` | Double-click it, click **Install**, then open OpenIMC from the Applications menu. |
+### Windows installation
 
-Each release also includes one `SHA256SUMS.txt` file and one zipped software
-bill of materials. Windows releases are code-signed. macOS releases are
-Developer ID-signed and notarized by Apple. The guided macOS Installer may ask
-for an administrator password because it installs OpenIMC for every user in
-the system Applications folder. The Ubuntu desktop installer uses CPU-only
-PyTorch so it remains a single, double-clickable GitHub download; it does not
-include NVIDIA CUDA acceleration. The compact Windows ZIP also uses CPU-only
-PyTorch. On an NVIDIA-enabled Ubuntu or Windows PC, OpenIMC offers a
-**Download CUDA support** button at startup and keeps offering it until the
-optional packages have downloaded and passed a real GPU check.
+1. Download the Windows ZIP and choose **Extract all** in File Explorer.
+2. Open the extracted folder and double-click `OpenIMC.exe`.
+3. Windows may show **Windows protected your PC** for a new or unsigned
+   download. Confirm that the file came from this official repository, click
+   **More info**, then click **Run anyway**. Do not disable SmartScreen.
+
+### macOS installation
+
+1. Download the installer for your Mac and double-click the `.pkg` file.
+2. If macOS blocks it, close the warning and open **Apple menu → System
+   Settings → Privacy & Security**.
+3. Scroll to **Security**, click **Open Anyway**, authenticate, and confirm.
+   Re-open the installer if it does not resume automatically.
+4. Complete the installer, then open **OpenIMC** from Applications. If macOS
+   blocks the app itself on first launch, use **Open Anyway** once more.
+
+The installer may request an administrator password because it places OpenIMC
+in the system Applications folder.
+
+### Ubuntu installation
+
+1. Download the Ubuntu `.deb` file.
+2. Double-click it, click **Install**, and authenticate when Ubuntu asks.
+3. Open **OpenIMC** from the Applications menu.
+
+If the graphical installer does not open, open a terminal in the Downloads
+folder and run:
+
+```bash
+sudo apt install ./OpenIMC-1.1.0-linux-amd64.deb
+```
+
+The Windows and Ubuntu downloads use the CPU by default. On a compatible
+NVIDIA computer, OpenIMC offers a **Download CUDA support** button at startup
+until the optional GPU packages are installed and verified. Apple Silicon Macs
+use Apple's built-in GPU support; Intel Macs use the CPU.
+
+The [release page](https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.0)
+also provides download fingerprints (`SHA256SUMS.txt`) and a zipped software
+inventory for security review.
 
 ## Quick Start
 

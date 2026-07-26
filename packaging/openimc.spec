@@ -9,7 +9,7 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 
 PROJECT_ROOT = Path(SPECPATH).parent
-APP_VERSION = os.environ.get("OPENIMC_VERSION", "0.1.0")
+APP_VERSION = os.environ.get("OPENIMC_VERSION", "1.1.0")
 CONSOLE = os.environ.get("OPENIMC_CONSOLE", "0") == "1"
 
 datas = [
