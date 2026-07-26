@@ -5,11 +5,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &#8212; OpenIMC 0.1.0 documentation</title>
+    <title>Installation &#8212; OpenIMC 1.1.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
-    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/documentation_options.js?v=fc837d61"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -35,16 +35,108 @@
             
   <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h1>
-<p>This guide covers installation of OpenIMC for different use cases. Choose the
-installation method that best fits your needs: full installation (all features),
-GUI-only installation, or CLI-only installation.</p>
-<p>OpenIMC supports both <code class="docutils literal notranslate"><span class="pre">uv</span></code> and Conda-based workflows. <code class="docutils literal notranslate"><span class="pre">uv</span></code> is the preferred
-option for most users because it provides a fast, lightweight virtual
-environment and package management workflow.</p>
-<section id="prerequisites">
-<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
+<p>Most users should use the ready-to-run desktop application. It already includes
+Python and the packages OpenIMC needs. The source installation sections are
+available below for developers, command-line users, and advanced environments.</p>
+<section id="desktop-application-recommended">
+<h2>Desktop application (recommended)<a class="headerlink" href="#desktop-application-recommended" title="Link to this heading">¶</a></h2>
+<p>Download OpenIMC 1.1.0 for your computer:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-windows-x86_64.zip">Windows 10/11, 64-bit ZIP</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-arm64.pkg">Mac installer for Apple Silicon</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-x86_64.pkg">Mac installer for Intel processors</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-linux-amd64.deb">Ubuntu 22.04 or newer, 64-bit installer</a></p></li>
+</ul>
+<p>You do not need to install Python, Git, Conda, or a virtual environment when
+using these downloads.</p>
+<section id="windows-10-or-11">
+<h3>Windows 10 or 11<a class="headerlink" href="#windows-10-or-11" title="Link to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p>Download the Windows ZIP.</p></li>
+<li><p>In File Explorer, right-click the ZIP and choose <strong>Extract All</strong>. Do not run
+OpenIMC from inside the compressed ZIP.</p></li>
+<li><p>Open the extracted folder and double-click <code class="docutils literal notranslate"><span class="pre">OpenIMC.exe</span></code>.</p></li>
+<li><p>Microsoft Defender SmartScreen may display <strong>Windows protected your PC</strong> for
+a new or unsigned download. Confirm that you downloaded the file from this
+official OpenIMC repository, click <strong>More info</strong>, and then click <strong>Run
+anyway</strong>.</p></li>
+</ol>
+<p>Do not turn off SmartScreen. Approving only this OpenIMC file preserves the
+rest of Windows’ protection. A computer managed by an employer or university
+may prevent unsigned applications entirely; in that case, contact its IT
+administrator.</p>
+<p>For more context, see Microsoft’s explanation of
+<a class="reference external" href="https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation">SmartScreen warnings for unsigned applications</a>.</p>
+</section>
+<section id="macos">
+<h3>macOS<a class="headerlink" href="#macos" title="Link to this heading">¶</a></h3>
+<p>First choose the correct installer:</p>
+<ul class="simple">
+<li><p>Open <strong>Apple menu → About This Mac</strong>.</p></li>
+<li><p>If the <strong>Chip</strong> line says Apple M1, M2, M3, M4, or newer, use the Apple
+Silicon installer.</p></li>
+<li><p>If the Mac shows an Intel <strong>Processor</strong>, use the Intel installer.</p></li>
+</ul>
+<p>Then install OpenIMC:</p>
+<ol class="arabic simple">
+<li><p>Download and double-click the appropriate <code class="docutils literal notranslate"><span class="pre">.pkg</span></code> file.</p></li>
+<li><p>If macOS says that it cannot verify or open the installer, close the
+warning.</p></li>
+<li><p>Open <strong>Apple menu → System Settings → Privacy &amp; Security</strong>.</p></li>
+<li><p>Scroll to <strong>Security</strong>, click <strong>Open Anyway</strong>, authenticate with your Mac
+login, and confirm that you want to open it.</p></li>
+<li><p>Re-open the <code class="docutils literal notranslate"><span class="pre">.pkg</span></code> installer if it does not resume automatically, then
+complete the guided installation. An administrator password may be required
+because OpenIMC is installed in the system Applications folder.</p></li>
+<li><p>Open <strong>OpenIMC</strong> from Applications. If macOS separately blocks the
+application on its first launch, repeat the <strong>Open Anyway</strong> step for the app.</p></li>
+</ol>
+<p>The <strong>Open Anyway</strong> button is available for about one hour after the blocked
+attempt. Approve OpenIMC only when it came from this repository. See Apple’s
+official <a class="reference external" href="https://support.apple.com/guide/mac-help/mh40616/mac">instructions for opening an app from an unknown developer</a> for the current macOS
+wording and security guidance.</p>
+</section>
+<section id="ubuntu">
+<h3>Ubuntu<a class="headerlink" href="#ubuntu" title="Link to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p>Download the Ubuntu <code class="docutils literal notranslate"><span class="pre">.deb</span></code> file.</p></li>
+<li><p>Double-click the file, click <strong>Install</strong>, and authenticate when Ubuntu asks.</p></li>
+<li><p>Open <strong>OpenIMC</strong> from the Applications menu.</p></li>
+</ol>
+<p>If Ubuntu’s graphical installer does not open, open a terminal in the folder
+containing the download and run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>./OpenIMC-1.1.0-linux-amd64.deb
+</pre></div>
+</div>
+</section>
+<section id="gpu-acceleration">
+<h3>GPU acceleration<a class="headerlink" href="#gpu-acceleration" title="Link to this heading">¶</a></h3>
+<p>The Windows and Ubuntu downloads use the CPU by default. If OpenIMC detects a
+compatible NVIDIA CUDA system, it offers a <strong>Download CUDA support</strong> button
+when it starts. The prompt returns at each startup until the optional packages
+finish downloading and pass a real GPU check. Internet access and several
+gigabytes of free disk space may be required.</p>
+<p>Apple Silicon Macs use Apple’s built-in GPU support and do not use CUDA. Intel
+Macs use the CPU.</p>
+</section>
+<section id="download-verification">
+<h3>Download verification<a class="headerlink" href="#download-verification" title="Link to this heading">¶</a></h3>
+<p>The <a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.0">OpenIMC 1.1.0 release page</a> also contains:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">SHA256SUMS.txt</span></code>, which lists fingerprints for confirming that downloads
+arrived unchanged.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">openimc-sboms.zip</span></code>, a software inventory intended mainly for security
+review. It is not needed to run OpenIMC.</p></li>
+</ul>
+</section>
+</section>
+<section id="source-installation-prerequisites">
+<h2>Source installation prerequisites<a class="headerlink" href="#source-installation-prerequisites" title="Link to this heading">¶</a></h2>
+<p>OpenIMC supports both <code class="docutils literal notranslate"><span class="pre">uv</span></code> and Conda-based source workflows. <code class="docutils literal notranslate"><span class="pre">uv</span></code> is the
+preferred option because it provides a fast, lightweight virtual environment
+and package-management workflow.</p>
 <dl>
-<dt><strong>Python Version</strong></dt><dd><p>OpenIMC requires Python 3.11 or higher.</p>
+<dt><strong>Python Version</strong></dt><dd><p>OpenIMC requires Python 3.12 or higher.</p>
 </dd>
 <dt><strong>Tested System Configurations</strong></dt><dd><p>OpenIMC has been tested on the following operating systems and hardware configurations:</p>
 <dl class="simple">
@@ -95,7 +187,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
 
 <span class="c1"># Create and activate a uv-managed virtual environment</span>
-uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.11
+uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12
 <span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: .venv\Scripts\activate</span>
 
 <span class="c1"># If datrie fails later, see the note in Prerequisites above</span>
@@ -119,7 +211,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
 
 <span class="c1"># Create conda environment</span>
-conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>openimc<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
+conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>openimc<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.12
 conda<span class="w"> </span>activate<span class="w"> </span>openimc
 
 <span class="c1"># If datrie fails later, install it from conda-forge</span>
@@ -144,7 +236,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
 
 <span class="c1"># Create virtual environment</span>
-python3.11<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>openimc_env
+python3.12<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>openimc_env
 <span class="nb">source</span><span class="w"> </span>openimc_env/bin/activate<span class="w">  </span><span class="c1"># On Windows: openimc_env\Scripts\activate</span>
 
 <span class="c1"># Install datrie if needed (see Prerequisites above)</span>
@@ -177,7 +269,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
 
 <span class="c1"># Create and activate a uv-managed virtual environment</span>
-uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.11
+uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12
 <span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">  </span><span class="c1"># On Windows: .venv\Scripts\activate</span>
 
 <span class="c1"># If datrie fails later, see the note in Prerequisites above</span>
@@ -198,7 +290,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
 
 <span class="c1"># Create conda environment</span>
-conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>openimc<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
+conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>openimc<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.12
 conda<span class="w"> </span>activate<span class="w"> </span>openimc
 
 <span class="c1"># If datrie fails later, install it from conda-forge</span>
@@ -220,7 +312,7 @@ git<span class="w"> </span>clone<span class="w"> </span>https://github.com/dean-
 <span class="nb">cd</span><span class="w"> </span>OpenIMC
 
 <span class="c1"># Create virtual environment</span>
-python3.11<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>openimc_env
+python3.12<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>openimc_env
 <span class="nb">source</span><span class="w"> </span>openimc_env/bin/activate<span class="w">  </span><span class="c1"># On Windows: openimc_env\Scripts\activate</span>
 
 <span class="c1"># Install datrie if needed (see Prerequisites above)</span>
@@ -464,7 +556,7 @@ active environment:</p>
       &#169;2025, Dean Tessone.
       
       |
-      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
       
       |

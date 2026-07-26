@@ -1,19 +1,119 @@
 Installation
 ============
 
-This guide covers installation of OpenIMC for different use cases. Choose the
-installation method that best fits your needs: full installation (all features),
-GUI-only installation, or CLI-only installation.
+Most users should use the ready-to-run desktop application. It already includes
+Python and the packages OpenIMC needs. The source installation sections are
+available below for developers, command-line users, and advanced environments.
 
-OpenIMC supports both ``uv`` and Conda-based workflows. ``uv`` is the preferred
-option for most users because it provides a fast, lightweight virtual
-environment and package management workflow.
+Desktop application (recommended)
+---------------------------------
 
-Prerequisites
--------------
+Download OpenIMC 1.1.0 for your computer:
+
+* `Windows 10/11, 64-bit ZIP <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-windows-x86_64.zip>`_
+* `Mac installer for Apple Silicon <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-arm64.pkg>`_
+* `Mac installer for Intel processors <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-x86_64.pkg>`_
+* `Ubuntu 22.04 or newer, 64-bit installer <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-linux-amd64.deb>`_
+
+You do not need to install Python, Git, Conda, or a virtual environment when
+using these downloads.
+
+Windows 10 or 11
+~~~~~~~~~~~~~~~~
+
+#. Download the Windows ZIP.
+#. In File Explorer, right-click the ZIP and choose **Extract All**. Do not run
+   OpenIMC from inside the compressed ZIP.
+#. Open the extracted folder and double-click ``OpenIMC.exe``.
+#. Microsoft Defender SmartScreen may display **Windows protected your PC** for
+   a new or unsigned download. Confirm that you downloaded the file from this
+   official OpenIMC repository, click **More info**, and then click **Run
+   anyway**.
+
+Do not turn off SmartScreen. Approving only this OpenIMC file preserves the
+rest of Windows' protection. A computer managed by an employer or university
+may prevent unsigned applications entirely; in that case, contact its IT
+administrator.
+
+For more context, see Microsoft's explanation of
+`SmartScreen warnings for unsigned applications <https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation>`_.
+
+macOS
+~~~~~
+
+First choose the correct installer:
+
+* Open **Apple menu → About This Mac**.
+* If the **Chip** line says Apple M1, M2, M3, M4, or newer, use the Apple
+  Silicon installer.
+* If the Mac shows an Intel **Processor**, use the Intel installer.
+
+Then install OpenIMC:
+
+#. Download and double-click the appropriate ``.pkg`` file.
+#. If macOS says that it cannot verify or open the installer, close the
+   warning.
+#. Open **Apple menu → System Settings → Privacy & Security**.
+#. Scroll to **Security**, click **Open Anyway**, authenticate with your Mac
+   login, and confirm that you want to open it.
+#. Re-open the ``.pkg`` installer if it does not resume automatically, then
+   complete the guided installation. An administrator password may be required
+   because OpenIMC is installed in the system Applications folder.
+#. Open **OpenIMC** from Applications. If macOS separately blocks the
+   application on its first launch, repeat the **Open Anyway** step for the app.
+
+The **Open Anyway** button is available for about one hour after the blocked
+attempt. Approve OpenIMC only when it came from this repository. See Apple's
+official `instructions for opening an app from an unknown developer
+<https://support.apple.com/guide/mac-help/mh40616/mac>`_ for the current macOS
+wording and security guidance.
+
+Ubuntu
+~~~~~~
+
+#. Download the Ubuntu ``.deb`` file.
+#. Double-click the file, click **Install**, and authenticate when Ubuntu asks.
+#. Open **OpenIMC** from the Applications menu.
+
+If Ubuntu's graphical installer does not open, open a terminal in the folder
+containing the download and run:
+
+.. code-block:: bash
+
+   sudo apt install ./OpenIMC-1.1.0-linux-amd64.deb
+
+GPU acceleration
+~~~~~~~~~~~~~~~~
+
+The Windows and Ubuntu downloads use the CPU by default. If OpenIMC detects a
+compatible NVIDIA CUDA system, it offers a **Download CUDA support** button
+when it starts. The prompt returns at each startup until the optional packages
+finish downloading and pass a real GPU check. Internet access and several
+gigabytes of free disk space may be required.
+
+Apple Silicon Macs use Apple's built-in GPU support and do not use CUDA. Intel
+Macs use the CPU.
+
+Download verification
+~~~~~~~~~~~~~~~~~~~~~
+
+The `OpenIMC 1.1.0 release page
+<https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.0>`_ also contains:
+
+* ``SHA256SUMS.txt``, which lists fingerprints for confirming that downloads
+  arrived unchanged.
+* ``openimc-sboms.zip``, a software inventory intended mainly for security
+  review. It is not needed to run OpenIMC.
+
+Source installation prerequisites
+---------------------------------
+
+OpenIMC supports both ``uv`` and Conda-based source workflows. ``uv`` is the
+preferred option because it provides a fast, lightweight virtual environment
+and package-management workflow.
 
 **Python Version**
-   OpenIMC requires Python 3.11 or higher.
+   OpenIMC requires Python 3.12 or higher.
 
 **Tested System Configurations**
    OpenIMC has been tested on the following operating systems and hardware configurations:
@@ -68,7 +168,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    cd OpenIMC
 
    # Create and activate a uv-managed virtual environment
-   uv venv --python 3.11
+   uv venv --python 3.12
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
    # If datrie fails later, see the note in Prerequisites above
@@ -94,7 +194,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    cd OpenIMC
 
    # Create conda environment
-   conda create -n openimc python=3.11
+   conda create -n openimc python=3.12
    conda activate openimc
 
    # If datrie fails later, install it from conda-forge
@@ -121,7 +221,7 @@ optional dependencies for segmentation, clustering, and spatial analysis.
    cd OpenIMC
 
    # Create virtual environment
-   python3.11 -m venv openimc_env
+   python3.12 -m venv openimc_env
    source openimc_env/bin/activate  # On Windows: openimc_env\Scripts\activate
 
    # Install datrie if needed (see Prerequisites above)
@@ -158,7 +258,7 @@ core requirements, but the CLI can be used without a display.
    cd OpenIMC
 
    # Create and activate a uv-managed virtual environment
-   uv venv --python 3.11
+   uv venv --python 3.12
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
    # If datrie fails later, see the note in Prerequisites above
@@ -181,7 +281,7 @@ core requirements, but the CLI can be used without a display.
    cd OpenIMC
 
    # Create conda environment
-   conda create -n openimc python=3.11
+   conda create -n openimc python=3.12
    conda activate openimc
 
    # If datrie fails later, install it from conda-forge
@@ -205,7 +305,7 @@ core requirements, but the CLI can be used without a display.
    cd OpenIMC
 
    # Create virtual environment
-   python3.11 -m venv openimc_env
+   python3.12 -m venv openimc_env
    source openimc_env/bin/activate  # On Windows: openimc_env\Scripts\activate
 
    # Install datrie if needed (see Prerequisites above)
