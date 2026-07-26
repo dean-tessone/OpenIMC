@@ -63,10 +63,10 @@ class CUDAMemoryError(Exception):
 
 # CRITICAL: Configure dask BEFORE any dask imports
 # This ensures compatibility with squidpy/spatialdata
-os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'False')
+os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'True')
 try:
     import dask
-    dask.config.set({'dataframe.query-planning': False})
+    dask.config.set({'dataframe.query-planning': True})
 except (ImportError, AttributeError):
     pass
 

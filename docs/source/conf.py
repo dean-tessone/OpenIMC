@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath("../.."))
 project = "OpenIMC"
 copyright = "2025, Dean Tessone"
 author = "Dean Tessone"
-release = "0.1.0"  # or import from openimc.__version__ if you have it
+release = "1.1.0"
 
 # -- General configuration ---------------------------------------------------
 

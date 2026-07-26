@@ -7,7 +7,7 @@ This directory contains the test suite for OpenIMC, including unit tests and int
 The preferred setup uses `uv`:
 
 ```bash
-uv venv --python 3.11
+uv venv --python 3.12
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -r requirements.txt
 uv pip install -e ".[dev]"

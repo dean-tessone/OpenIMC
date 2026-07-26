@@ -111,3 +111,23 @@ def test_squidpy_available_keeps_windows_imports_out_of_process(monkeypatch):
     assert spatial_analysis_module.squidpy_available() is False
     assert spatial_analysis_module._HAVE_SQUIDPY is False
     assert "disabled in-process" in str(spatial_analysis_module._SQUIDPY_IMPORT_ERROR)
+
+
+@pytest.mark.unit
+def test_frozen_squidpy_probe_uses_bootstrap_command(monkeypatch):
+    importlib.reload(spatial_analysis_module)
+    commands = []
+
+    monkeypatch.setattr(spatial_analysis_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(spatial_analysis_module.sys, "executable", "OpenIMC.exe")
+    monkeypatch.setattr(
+        spatial_analysis_module.subprocess,
+        "run",
+        lambda command, **kwargs: (
+            commands.append(command)
+            or SimpleNamespace(returncode=0, stderr="", stdout="")
+        ),
+    )
+
+    assert spatial_analysis_module._probe_squidpy_import_in_subprocess() is True
+    assert commands == [["OpenIMC.exe", "--openimc-squidpy-probe"]]

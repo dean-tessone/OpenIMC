@@ -35,13 +35,13 @@ import subprocess
 import sys
 import warnings
 # Set environment variable before importing dask
-os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'False')
+os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'True')
 
 # Also try direct config if dask is available
 try:
     import dask
     # Set configuration before dask.dataframe is imported
-    dask.config.set({'dataframe.query-planning': False})
+    dask.config.set({'dataframe.query-planning': True})
 except (ImportError, AttributeError):
     pass
 
@@ -116,9 +116,14 @@ with warnings.catch_warnings():
         importlib.import_module(module_name)
 """
 
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "--openimc-squidpy-probe"]
+    else:
+        command = [sys.executable, "-c", probe_code]
+
     try:
         result = subprocess.run(
-            [sys.executable, "-c", probe_code],
+            command,
             capture_output=True,
             text=True,
             check=False,

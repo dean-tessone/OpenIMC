@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openimc"
-version = "0.1.0"
+version = "1.1.0"
 description = "OpenIMC - Open-source Imaging Mass Cytometry analysis platform"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 authors = [
     {name = "OpenIMC Contributors"}
@@ -16,24 +16,26 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 # Core dependencies
 dependencies = [
-    "numpy>=1.26",
+    "numpy>=2.0,<2.1",
+    # This pair has CPython 3.12 wheels on every supported desktop target,
+    # including Intel macOS. Newer llvmlite currently requires an LLVM build.
+    "numba==0.61.2",
+    "llvmlite==0.44.0",
     "pandas>=2.0",
     "matplotlib>=3.8",
     "seaborn>=0.13.2",
-    "pillow",
+    # Pillow 12.3 fixes the current image-decoder security advisories.
+    "pillow>=12.3.0",
     "tifffile>=2021.7.2",
     "scipy",
     "statsmodels>=0.14.0",
     "h5py",
-    "lxml",
+    "lxml>=6.1.0",
     "imageio",
     "PyQt5>=5.15",
     "readimc>=0.9.0",
@@ -49,9 +51,20 @@ dependencies = [
     "hdbscan>=0.8.0",
     "openai>=1.42.0",
     "combat>=0.1.0",
-    "harmonypy>=0.0.9",
-    "dask==2024.11.2",
+    # Exact wheel-backed PyTorch release avoids harmonypy 2.0.0's native
+    # CMake/BLAS/Armadillo build path and keeps scientific results reproducible.
+    "harmonypy==0.2.0",
+    "dask==2026.7.1",
+    "distributed==2026.7.1",
+    "squidpy==1.8.3",
+    "spatialdata==0.8.0",
+    # OpenIMC's spatial workflows are release-tested with Scanpy 1.11.
+    "scanpy>=1.9.0,<1.12",
+    "anndata>=0.9.0",
     "pyyaml",
+    # SpatialData declares setuptools as a runtime dependency. Version 83 fixes
+    # the current PyPA advisory and removes the deprecated pkg_resources API.
+    "setuptools>=83",
 ]
 
 # Optional dependencies
@@ -62,8 +75,13 @@ dev = [
     "pytest-mock>=3.11.0",
     "pytest-qt>=4.2.0",
 ]
+desktop-build = [
+    "pyinstaller==6.21.0",
+    "pyinstaller-hooks-contrib==2026.6",
+    "pip-audit==2.9.0",
+]
 cellsam = [
-    "cellSAM @ git+https://github.com/vanvalenlab/cellSAM.git",
+    "cellSAM @ git+https://github.com/vanvalenlab/cellSAM.git@362a8e521bcd7313d5cb280bcd4cfc12977c1e9f",
 ]
 
 [project.scripts]
@@ -76,7 +94,7 @@ include = ["openimc*"]
 exclude = ["tests*", "docs*", "examples*", "scripts*", "third_party*", "logs*"]
 
 [tool.setuptools.package-data]
-openimc = ["ui/resources/*.png"]
+openimc = ["ui/resources/*.png", "ui/resources/*.ico", "ui/resources/*.icns"]
 
 # Pytest configuration
 [tool.pytest.ini_options]

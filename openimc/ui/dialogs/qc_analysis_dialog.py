@@ -51,6 +51,14 @@ except ImportError:
     _HAVE_SCIKIT_IMAGE = False
 
 
+def _boxplot_with_labels(ax, values, labels):
+    """Use the Matplotlib 3.9+ name with a 3.8 compatibility fallback."""
+    try:
+        return ax.boxplot(values, tick_labels=labels, patch_artist=True)
+    except TypeError:
+        return ax.boxplot(values, labels=labels, patch_artist=True)
+
+
 def _calculate_snr(signal_mean: float, background_mean: float, background_std: float, 
                     img_min: Optional[float] = None, img_max: Optional[float] = None) -> float:
     """
@@ -2126,7 +2134,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             coverage_data.append(valid_coverage if len(valid_coverage) > 0 else [0])
         
         # SNR boxplot
-        bp1 = ax1.boxplot(snr_data, labels=channels, patch_artist=True)
+        bp1 = _boxplot_with_labels(ax1, snr_data, channels)
         for patch in bp1['boxes']:
             patch.set_facecolor('lightblue')
         snr_values = np.concatenate([np.asarray(values, dtype=float) for values in snr_data]) if snr_data else np.array([])
@@ -2153,7 +2161,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         ax1.legend(fontsize=8, loc='best')
         
         # Intensity boxplot
-        bp2 = ax2.boxplot(intensity_data, labels=channels, patch_artist=True)
+        bp2 = _boxplot_with_labels(ax2, intensity_data, channels)
         for patch in bp2['boxes']:
             patch.set_facecolor('lightgreen')
         ax2.set_yscale('log')
@@ -2163,7 +2171,7 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         ax2.grid(True, alpha=0.3, axis='y')
         
         # Coverage boxplot
-        bp3 = ax3.boxplot(coverage_data, labels=channels, patch_artist=True)
+        bp3 = _boxplot_with_labels(ax3, coverage_data, channels)
         for patch in bp3['boxes']:
             patch.set_facecolor('lightcoral')
         ax3.set_ylabel('% Coverage', fontsize=10)

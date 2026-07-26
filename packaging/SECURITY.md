@@ -1,0 +1,110 @@
+# Desktop build security review
+
+## Release security boundary
+
+The release pipeline treats source, Python packages, model downloads, signing
+credentials, and generated artifacts as separate trust boundaries.
+
+- PyInstaller runs without API or signing credentials in its environment.
+- CellSAM is fetched from one reviewed, full Git commit rather than a moving
+  branch.
+- PyInstaller and its hooks are exact-version build inputs; UPX and one-file
+  extraction are disabled.
+- GitHub Actions are pinned to full commit hashes and checkout does not retain
+  repository credentials.
+- `pip-audit` blocks known vulnerable Python dependency versions and produces a
+  CycloneDX SBOM for the resolved environment, subject only to the documented
+  Intel macOS PyTorch exception below.
+- The generated app is recursively checked for credential filenames, exact
+  build-time API tokens, and OpenAI-shaped key strings.
+- Tagged Windows bundles are signed and RFC 3161 timestamped with Azure Artifact
+  Signing. The main executable's Authenticode status must validate afterward.
+- Tagged macOS apps are signed with Developer ID Application, their Installer
+  packages are signed with the separate Developer ID Installer identity, and
+  both DMG and PKG distributions are notarized, stapled, and assessed before
+  publication.
+- Microsoft Defender scans Windows output; ClamAV scans Ubuntu output.
+- The public Ubuntu bundle uses the official CPU-only PyTorch wheel. It retains
+  the same segmentation and analysis APIs but does not ship NVIDIA CUDA or
+  Triton binaries, which keeps the installer within GitHub's release limit and
+  reduces the native-code attack surface.
+- On an NVIDIA-enabled Linux or Windows system, the user may explicitly
+  download the pinned CUDA PyTorch and torchvision runtime from PyTorch's HTTPS
+  wheel index.
+  It is installed into a per-user directory, verified in a clean OpenIMC child
+  process against a real CUDA device, and activated only after that probe
+  succeeds. These post-install native packages are outside the signed release
+  artifact and should be treated like any other runtime model or plugin
+  download.
+- Distributable archives and installers are created only after signing and
+  scanning, then receive SHA-256 checksums and GitHub artifact/SBOM
+  attestations.
+
+## Credential handling
+
+`OPENAI_API_KEY` and `DEEPCELL_ACCESS_TOKEN` are application runtime inputs, not
+compiled configuration or build requirements. The GUI retains them in process
+memory for the current session. If the optional repository secret exists, the
+tagged functional test may receive `DEEPCELL_ACCESS_TOKEN` through GitHub's
+masked secret environment for a live CellSAM check, but the PyInstaller step
+cannot access it and releases do not depend on it. Azure OIDC credentials and
+Artifact Signing settings are scoped to signing steps that run after the bundle
+is built.
+
+Do not add keys to source, `.env` files, PyInstaller data files, test fixtures,
+preferences, workflow command lines, or release archives.
+
+## Residual risks
+
+- Antivirus signatures and reputation systems change after release; a clean
+  scan is evidence, not a permanent guarantee.
+- GitHub-hosted Windows and Ubuntu scanners are two engines, not every vendor.
+- Most scientific Python dependencies resolve within declared version ranges.
+  Each build is audited and recorded in its SBOM, but it is not bit-for-bit
+  reproducible across dates.
+- CellSAM weights are downloaded at runtime from DeepCell and are outside the
+  executable's code-signing boundary. CellSAM verifies its declared model hash;
+  release validation exercises the actual download and inference path whenever
+  the optional CI token is configured. Otherwise the credential-dependent check
+  is explicitly recorded as skipped.
+- GitHub artifact attestations establish build provenance and integrity; they
+  do not independently prove that software is safe.
+- The optional Linux/Windows CUDA runtime is downloaded after release and is
+  therefore outside the bundle's antivirus scan, SBOM, checksum, and
+  attestation. OpenIMC pins its top-level Torch versions and official index,
+  but PyTorch's transitive CUDA packages remain a separate upstream trust
+  boundary.
+
+### Intel macOS conda-forge PyTorch boundary
+
+PyPI no longer publishes current Intel macOS PyTorch wheels. The Intel workflow
+therefore uses the current conda-forge PyTorch 2.12.1 and torchvision 0.27.1
+packages instead of freezing the application on PyPI's obsolete PyTorch 2.2.2.
+PyTorch 2.12.1 has one known, low-severity local TorchScript advisory
+(`GHSA-rrmf-rvhw-rf47`) whose fix is scheduled for PyTorch 2.13.0. The workflow
+allowlists only that exact advisory on Intel macOS; any new advisory still
+fails the build. Apple Silicon, Windows, and Ubuntu receive no exception.
+
+The Intel build must only load the official model weights fetched by OpenIMC's
+Cellpose and CellSAM integrations. Untrusted or user-supplied PyTorch model
+files are outside this release's security boundary. OpenIMC's patched CellSAM
+route does not compile models with `torch.jit.script`. Remove the exception as
+soon as conda-forge publishes a fixed Intel package, or retire the Intel
+artifact if it can no longer meet the release security policy.
+
+## Tagged release checklist
+
+1. Manually run `desktop-builds` with **Publish the four tested desktop
+   packages as a GitHub pre-release** enabled. Test the resulting Windows,
+   Ubuntu, Apple Silicon Mac, and Intel Mac packages on real machines.
+2. Review dependency and build-tool updates, especially the pinned CellSAM
+   commit.
+3. Confirm GitHub environment protection and least-privilege Azure signing
+   roles are enabled.
+4. Push a `v*` tag and require all four platform jobs to succeed.
+5. Verify the Windows Authenticode signer, timestamp, SHA-256 checksum, SBOM,
+   GitHub attestation, the Ubuntu DEB metadata, checksum, and attestation, and
+   the DMG and PKG signatures, notarization tickets, checksums, and attestations
+   for both Mac architectures before publishing.
+6. Submit the final archive to any additional antivirus services required by
+   your institution. Never upload a private or embargoed scientific dataset.

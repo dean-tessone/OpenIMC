@@ -1,14 +1,19 @@
 # core
-numpy>=1.26
+numpy>=2.0,<2.1
+# Numba 0.66 does not publish a CPython 3.12 Intel macOS llvmlite wheel.
+# Keep this wheel-backed pair so Intel releases never compile LLVM in CI.
+numba==0.61.2
+llvmlite==0.44.0
 pandas>=2.0
 matplotlib>=3.8
 seaborn>=0.13.2
-pillow
+# Pillow 12.3 fixes the current image-decoder security advisories.
+pillow>=12.3.0
 tifffile>=2021.7.2
 scipy
 statsmodels>=0.14.0
 h5py
-lxml
+lxml>=6.1.0
 imageio
 pyyaml
 
@@ -25,7 +30,7 @@ torchvision>=0.10.0
 scikit-image>=0.25.0
 scikit-learn>=1.0.0
 psutil>=5.8.0
-git+https://github.com/vanvalenlab/cellSAM.git
+git+https://github.com/vanvalenlab/cellSAM.git@362a8e521bcd7313d5cb280bcd4cfc12977c1e9f
 # Ilastik integration (uses headless mode via command-line)
 # Ilastik must be installed separately - see https://www.ilastik.org/download
 # Required dependencies (tifffile, h5py) are already listed above
@@ -39,13 +44,19 @@ openai>=1.42.0
 
 #Batch Correction
 combat>=0.1.0
-harmonypy>=0.0.9
+# Exact wheel-backed PyTorch release avoids harmonypy 2.0.0's native
+# CMake/BLAS/Armadillo build path, particularly on Windows.
+harmonypy==0.2.0
 
 # Spatial Analysis
-dask==2024.11.2
-squidpy>=1.3.0
-scanpy>=1.9.0
+dask==2026.7.1
+distributed==2026.7.1
+squidpy==1.8.3
+spatialdata==0.8.0
+# OpenIMC's spatial workflows are release-tested with Scanpy 1.11.
+scanpy>=1.9.0,<1.12
 anndata>=0.9.0
+setuptools>=83
 
 # Testing
 pytest>=7.4.0

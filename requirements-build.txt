@@ -1,0 +1,5 @@
+# Exact release-tool versions are kept separate from application dependencies.
+# Update them deliberately and review their changelogs before publishing.
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6
+pip-audit==2.9.0

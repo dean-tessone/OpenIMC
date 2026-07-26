@@ -1,0 +1,603 @@
+name: desktop-builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: Publish the four tested desktop packages as a GitHub pre-release
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches: [main, codex/dev]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: desktop-builds-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04 x86_64
+            os: ubuntu-22.04
+            target: linux-x86_64
+            archive_glob: dist/OpenIMC-*-linux-x86_64.tar.gz
+          - name: Windows 2022 x86_64
+            os: windows-2022
+            target: windows-x86_64
+            archive_glob: dist/OpenIMC-*-windows-x86_64.zip
+          - name: macOS 15 Apple Silicon
+            os: macos-15
+            target: macos-arm64
+            archive_glob: dist/OpenIMC-*-darwin-arm64.dmg
+          - name: macOS 15 Intel
+            os: macos-15-intel
+            target: macos-x86_64
+            archive_glob: dist/OpenIMC-*-darwin-x86_64.dmg
+    env:
+      OPENIMC_DISABLE_GPU: "1"
+      OPENIMC_DISABLE_LLM: "1"
+      OPENIMC_DISABLE_ILASTIK: "1"
+      CUDA_VISIBLE_DEVICES: ""
+      TORCH_USE_CUDA_DSA: "0"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Checkout source without retaining credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        if: matrix.target != 'macos-x86_64'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Set up current Intel macOS PyTorch environment
+        if: matrix.target == 'macos-x86_64'
+        id: micromamba
+        uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
+        with:
+          environment-name: openimc-build
+          condarc: |
+            channels:
+              - conda-forge
+            channel_priority: strict
+          create-args: >-
+            python=3.12
+            pip
+            numpy=2.0
+            pytorch=2.12.1
+            torchvision=0.27.1
+          init-shell: none
+          cache-downloads: true
+          cache-environment: true
+          post-cleanup: all
+
+      - name: Put Intel macOS environment on PATH
+        if: matrix.target == 'macos-x86_64'
+        shell: bash
+        run: |
+          echo "${{ steps.micromamba.outputs.environment-path }}/bin" >> "$GITHUB_PATH"
+          echo "CONDA_PREFIX=${{ steps.micromamba.outputs.environment-path }}" >> "$GITHUB_ENV"
+
+      - name: Determine build metadata
+        id: metadata
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="1.1.0+${GITHUB_SHA:0:7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux runtime and malware scanner
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            clamav desktop-file-utils libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-xinerama0
+          sudo systemctl stop clamav-freshclam.service || true
+          sudo freshclam
+          echo "QT_QPA_PLATFORM=offscreen" >> "$GITHUB_ENV"
+          echo "QT_QUICK_BACKEND=software" >> "$GITHUB_ENV"
+
+      - name: Install audited application and build dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [[ "${{ matrix.target }}" == "linux-x86_64" ]]; then
+            # The default Linux PyPI wheel vendors several gigabytes of CUDA
+            # and Triton libraries. The public Ubuntu installer is CPU-only so
+            # it remains one normal GitHub Release asset; Cellpose, CellSAM,
+            # and all other scientific workflows keep the same Torch API.
+            python -m pip install \
+              --index-url https://download.pytorch.org/whl/cpu \
+              --no-deps \
+              torch==2.13.0 torchvision==0.28.0
+          fi
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+          python -m pip install -r requirements-build.txt
+          python -m pip check
+
+      - name: Verify CPU-only Ubuntu PyTorch runtime
+        if: matrix.target == 'linux-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import importlib.util
+          import torch
+
+          assert torch.version.cuda is None, torch.version.cuda
+          assert importlib.util.find_spec("triton") is None
+          distributions = {
+              distribution.metadata["Name"].lower()
+              for distribution in importlib.metadata.distributions()
+              if distribution.metadata.get("Name")
+          }
+          assert not any(name.startswith("nvidia-") for name in distributions)
+          print(f"Verified CPU-only Ubuntu runtime: torch {torch.__version__}")
+          PY
+
+      - name: Verify CPU-only Windows PyTorch runtime
+        if: matrix.target == 'windows-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import torch
+
+          assert torch.version.cuda is None, torch.version.cuda
+          assert torch.__version__.endswith("+cpu"), torch.__version__
+          print(f"Verified CPU-only Windows runtime: torch {torch.__version__}")
+          PY
+
+      - name: Verify Intel macOS PyTorch source and versions
+        if: matrix.target == 'macos-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import platform
+
+          assert platform.machine() == "x86_64", platform.machine()
+          assert importlib.metadata.version("torch") == "2.12.1"
+          assert importlib.metadata.version("torchvision") == "0.27.1"
+          print("Verified conda-forge Intel runtime: torch 2.12.1, torchvision 0.27.1")
+          PY
+
+      - name: Audit Python dependency vulnerabilities
+        shell: bash
+        # CellSAM is a commit-pinned VCS dependency and has no PyPI advisory
+        # record. pip-audit reports that skip while still failing on any known
+        # vulnerability in every index-resolved dependency.
+        # The helper keeps the documented Intel macOS PyTorch exception
+        # identical for both the blocking audit and SBOM generation.
+        run: python scripts/audit_dependencies.py --target "${{ matrix.target }}"
+
+      - name: Run packaging and credential-security tests
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            desktop-file-validate packaging/linux/openimc.desktop
+          fi
+          python -m pytest \
+            tests/unit/test_api_key_security.py \
+            tests/unit/test_data_loaders.py \
+            tests/unit/test_gpu_runtime.py \
+            tests/unit/test_linux_installer.py \
+            tests/unit/test_methods_logger.py \
+            tests/unit/test_release_assets.py \
+            --no-cov
+
+      - name: Build and smoke-test application folder
+        shell: bash
+        run: >-
+          python scripts/build_desktop.py
+          --version "${{ steps.metadata.outputs.version }}"
+
+      - name: Validate scientific workflows in the frozen application
+        if: >-
+          matrix.target == 'linux-x86_64' ||
+          startsWith(github.ref, 'refs/tags/v') ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease)
+        shell: bash
+        env:
+          DEEPCELL_ACCESS_TOKEN: ${{ secrets.DEEPCELL_ACCESS_TOKEN }}
+        run: |
+          functional_test_args=(
+            --skip-build
+            --functional-test
+            --version "${{ steps.metadata.outputs.version }}"
+          )
+          if [[ -n "$DEEPCELL_ACCESS_TOKEN" ]]; then
+            echo "Running the optional credentialed CellSAM download check."
+            functional_test_args+=(--allow-cellsam-download)
+          else
+            echo "No CI CellSAM token configured; validating all credential-free workflows."
+          fi
+          python scripts/build_desktop.py "${functional_test_args[@]}"
+
+      - name: Detect Windows signing configuration
+        if: runner.os == 'Windows'
+        id: signing
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID_VALUE: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID_VALUE: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID_VALUE: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          SIGNING_ENDPOINT_VALUE: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT_VALUE: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          SIGNING_PROFILE_VALUE: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $values = @(
+            $env:AZURE_CLIENT_ID_VALUE,
+            $env:AZURE_TENANT_ID_VALUE,
+            $env:AZURE_SUBSCRIPTION_ID_VALUE,
+            $env:SIGNING_ENDPOINT_VALUE,
+            $env:SIGNING_ACCOUNT_VALUE,
+            $env:SIGNING_PROFILE_VALUE
+          )
+          $enabled = -not ($values | Where-Object { [string]::IsNullOrWhiteSpace($_) })
+          "enabled=$($enabled.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_OUTPUT -Append
+          if ('${{ startsWith(github.ref, 'refs/tags/v') }}' -eq 'true' -and -not $enabled) {
+            throw 'Tagged Windows releases require complete Azure Artifact Signing configuration.'
+          }
+
+      - name: Authenticate to Azure with GitHub OIDC
+        if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows executables and native libraries
+        if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist\OpenIMC
+          files-folder-filter: exe,dll,pyd
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify Windows application signature
+        if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature 'dist\OpenIMC\OpenIMC.exe'
+          $signature | Format-List Status, StatusMessage, SignerCertificate
+          if ($signature.Status -ne 'Valid') {
+            throw "OpenIMC.exe signature is not valid: $($signature.Status)"
+          }
+
+      - name: Scan Windows bundle with Microsoft Defender
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = (Resolve-Path 'dist\OpenIMC').Path
+          $status = Get-MpComputerStatus
+          if (-not $status.AntivirusEnabled) {
+            throw 'Microsoft Defender antivirus is not enabled on the runner.'
+          }
+          Start-MpScan -ScanType CustomScan -ScanPath $bundle
+          $detections = Get-MpThreatDetection | Where-Object {
+            ($_.Resources -join "`n") -like "*$bundle*"
+          }
+          if ($detections) {
+            $detections | Format-List
+            throw 'Microsoft Defender detected a threat in the OpenIMC bundle.'
+          }
+
+      - name: Scan Linux bundle with ClamAV
+        if: runner.os == 'Linux'
+        shell: bash
+        run: clamscan --recursive --infected dist/OpenIMC
+
+      - name: Detect macOS release-signing configuration
+        if: runner.os == 'macOS'
+        id: macos-signing
+        shell: bash
+        env:
+          CERTIFICATE_VALUE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD_VALUE: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY_VALUE: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          INSTALLER_CERTIFICATE_VALUE: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12 }}
+          INSTALLER_CERTIFICATE_PASSWORD_VALUE: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+          INSTALLER_SIGNING_IDENTITY_VALUE: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
+          APPLE_ID_VALUE: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID_VALUE: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD_VALUE: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          enabled=true
+          for value in \
+            "$CERTIFICATE_VALUE" \
+            "$CERTIFICATE_PASSWORD_VALUE" \
+            "$SIGNING_IDENTITY_VALUE" \
+            "$INSTALLER_CERTIFICATE_VALUE" \
+            "$INSTALLER_CERTIFICATE_PASSWORD_VALUE" \
+            "$INSTALLER_SIGNING_IDENTITY_VALUE" \
+            "$APPLE_ID_VALUE" \
+            "$APPLE_TEAM_ID_VALUE" \
+            "$APPLE_PASSWORD_VALUE"; do
+            if [[ -z "$value" ]]; then
+              enabled=false
+            fi
+          done
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$enabled" != true ]]; then
+            echo "Tagged macOS releases require Developer ID signing and notarization secrets." >&2
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate into an ephemeral keychain
+        if: >-
+          runner.os == 'macOS' &&
+          startsWith(github.ref, 'refs/tags/v') &&
+          steps.macos-signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_INSTALLER_CERTIFICATE_P12: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_P12 }}
+          MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain_path="$RUNNER_TEMP/openimc-signing.keychain-db"
+          certificate_path="$RUNNER_TEMP/openimc-developer-id.p12"
+          installer_certificate_path="$RUNNER_TEMP/openimc-developer-id-installer.p12"
+          keychain_password="$(uuidgen)$(uuidgen)"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 -D > "$certificate_path"
+          printf '%s' "$MACOS_INSTALLER_CERTIFICATE_P12" | base64 -D > "$installer_certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security import "$installer_certificate_path" \
+            -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path" \
+            -T /usr/bin/productbuild \
+            -T /usr/bin/productsign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path"
+
+      - name: Re-audit bundle and create unsigned CI distributions
+        if: runner.os != 'macOS' || !startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: >-
+          python scripts/build_desktop.py
+          --skip-build
+          --skip-smoke-test
+          --archive
+          --version "${{ steps.metadata.outputs.version }}"
+
+      - name: Enforce single-file Ubuntu release installer
+        if: matrix.target == 'linux-x86_64'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          installers = list(Path("dist").glob("OpenIMC-*-linux-amd64.deb"))
+          assert len(installers) == 1, installers
+          installer = installers[0]
+          limit = 2 * 1024**3
+          assert installer.stat().st_size < limit, (
+              f"{installer.name} is {installer.stat().st_size} bytes; "
+              "GitHub Release assets must remain below 2 GiB"
+          )
+          print(f"Verified single-file Ubuntu installer: {installer.stat().st_size} bytes")
+          PY
+
+      - name: Sign macOS app and create release DMG and Installer package
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          OPENIMC_CODESIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          OPENIMC_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
+        run: >-
+          python scripts/build_desktop.py
+          --skip-build
+          --archive
+          --version "${{ steps.metadata.outputs.version }}"
+
+      - name: Notarize and staple macOS release artifacts
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          archives=(dist/OpenIMC-*.dmg dist/OpenIMC-*.pkg)
+          test "${#archives[@]}" -eq 2
+          for archive in "${archives[@]}"; do
+            test -f "$archive"
+            xcrun notarytool submit "$archive" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --wait
+            xcrun stapler staple "$archive"
+            xcrun stapler validate "$archive"
+            if [[ "$archive" == *.pkg ]]; then
+              spctl --assess --type install -v "$archive"
+            else
+              spctl --assess --type open --context context:primary-signature -v "$archive"
+            fi
+            (cd dist && shasum -a 256 "$(basename "$archive")" > "$(basename "$archive").sha256")
+          done
+
+      - name: Generate CycloneDX software bill of materials
+        shell: bash
+        run: >-
+          python scripts/audit_dependencies.py
+          --target "${{ matrix.target }}"
+          --format cyclonedx-json
+          --output dist/openimc-${{ matrix.target }}-sbom.cdx.json
+
+      - name: Attest archive provenance and SBOM
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.1.0
+        with:
+          subject-path: ${{ matrix.archive_glob }}
+          sbom-path: dist/openimc-${{ matrix.target }}-sbom.cdx.json
+
+      - name: Attest macOS Installer provenance and SBOM
+        if: runner.os == 'macOS'
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.1.0
+        with:
+          subject-path: dist/OpenIMC-*-darwin-*.pkg
+          sbom-path: dist/openimc-${{ matrix.target }}-sbom.cdx.json
+
+      - name: Attest Ubuntu installer provenance and SBOM
+        if: runner.os == 'Linux'
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.1.0
+        with:
+          subject-path: dist/OpenIMC-*-linux-*.deb
+          sbom-path: dist/openimc-${{ matrix.target }}-sbom.cdx.json
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: OpenIMC-${{ matrix.target }}-${{ steps.metadata.outputs.version }}
+          if-no-files-found: error
+          retention-days: 14
+          # Every uploaded payload is already compressed (ZIP, TAR.GZ, DEB,
+          # DMG, or PKG), so a store-only artifact avoids lengthy recompression.
+          compression-level: 0
+          path: |
+            ${{ matrix.archive_glob }}
+            ${{ matrix.archive_glob }}.sha256
+            dist/OpenIMC-*-linux-*.deb
+            dist/OpenIMC-*-linux-*.deb.sha256
+            dist/OpenIMC-*-darwin-*.pkg
+            dist/OpenIMC-*-darwin-*.pkg.sha256
+            dist/openimc-${{ matrix.target }}-sbom.cdx.json
+
+  release:
+    name: Publish GitHub Release or pre-release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease)
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tooling without retaining credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Download all verified platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: OpenIMC-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Prepare concise verified release assets
+        shell: bash
+        run: >-
+          python scripts/prepare_release_assets.py
+          --input release-assets
+          --output publish-assets
+
+      - name: Choose release name and type
+        id: publication
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "title=OpenIMC $GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "test_build=false" >> "$GITHUB_OUTPUT"
+          else
+            short_sha="${GITHUB_SHA:0:7}"
+            echo "tag=desktop-test-$short_sha" >> "$GITHUB_OUTPUT"
+            echo "title=OpenIMC Desktop Test Build $short_sha" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "test_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.publication.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.publication.outputs.title }}
+          IS_PRERELEASE: ${{ steps.publication.outputs.prerelease }}
+          IS_TEST_BUILD: ${{ steps.publication.outputs.test_build }}
+        run: |
+          mapfile -t assets < <(find publish-assets -maxdepth 1 -type f -print | sort)
+          test "${#assets[@]}" -eq 6
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            mapfile -t existing_assets < <(
+              gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name'
+            )
+            for existing_asset in "${existing_assets[@]}"; do
+              if [[ ! -f "publish-assets/$existing_asset" ]]; then
+                gh release delete-asset "$RELEASE_TAG" "$existing_asset" --yes
+              fi
+            done
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --prerelease="$IS_PRERELEASE"
+          elif [[ "$IS_TEST_BUILD" == true ]]; then
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --title "$RELEASE_TITLE" \
+              --notes "Unsigned test packages from commit $GITHUB_SHA. The Windows, Ubuntu, Apple Silicon Mac, and Intel Mac builds all passed their frozen application checks before publication."
+          else
+            release_options=(--verify-tag --generate-notes --title "$RELEASE_TITLE")
+            if [[ "$IS_PRERELEASE" == true ]]; then
+              release_options+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              "${release_options[@]}"
+          fi

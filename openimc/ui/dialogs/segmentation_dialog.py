@@ -82,6 +82,20 @@ def _save_user_preferences(prefs: dict):
         pass
 
 
+def _remove_legacy_saved_api_key() -> bool:
+    """Delete API keys written by older OpenIMC releases.
+
+    Credentials are intentionally session-only. This migration preserves all
+    unrelated preferences while removing the former plaintext key field.
+    """
+    preferences = _load_user_preferences()
+    if "deepcell_api_key" not in preferences:
+        return False
+    preferences.pop("deepcell_api_key", None)
+    _save_user_preferences(preferences)
+    return True
+
+
 
 class SegmentationDialog(QtWidgets.QDialog):
     def __init__(self, channels: List[str], parent=None):
@@ -104,6 +118,9 @@ class SegmentationDialog(QtWidgets.QDialog):
         self._per_file_channel_prefs = {}
         self.segmentation_result = None
         self.preprocessing_config = None
+
+        # Older releases stored this credential in plaintext user preferences.
+        _remove_legacy_saved_api_key()
         
         # Create UI
         self._create_ui()
@@ -153,15 +170,10 @@ class SegmentationDialog(QtWidgets.QDialog):
     def accept(self):
         """Override accept to save selections before closing."""
         self._save_persisted_selections()
-        # Save API key to user preferences if DeepCell CellSAM is selected and key is provided
+        # Keep the API key in this process only for the current app session.
         if self.model_combo.currentText() == "DeepCell CellSAM":
             api_key = self.api_key_edit.text().strip()
             if api_key:
-                # Save to user preferences
-                user_prefs = _load_user_preferences()
-                user_prefs["deepcell_api_key"] = api_key
-                _save_user_preferences(user_prefs)
-                # Also set in environment for current session
                 os.environ["DEEPCELL_ACCESS_TOKEN"] = api_key
         super().accept()
         
@@ -605,7 +617,8 @@ class SegmentationDialog(QtWidgets.QDialog):
         api_key_info = QtWidgets.QLabel(
             "Get your API key from https://users.deepcell.org/login/\n"
             "Your username is your registration email without the domain suffix.\n"
-            "The API key is used to download the most up-to-date model weights."
+            "The API key downloads model weights and is kept only for this app session; "
+            "OpenIMC does not save it."
         )
         api_key_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
         api_key_info.setWordWrap(True)
@@ -613,21 +626,12 @@ class SegmentationDialog(QtWidgets.QDialog):
         
         api_key_input_layout = QtWidgets.QHBoxLayout()
         self.api_key_edit = QtWidgets.QLineEdit()
-        # Check for API key in environment variable first, then user preferences
+        # An environment value may be supplied at launch; never load credentials
+        # from disk or application state.
         existing_key = os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
-        key_source = None
-        if existing_key:
-            key_source = "environment variable"
-        else:
-            # Try loading from user preferences
-            user_prefs = _load_user_preferences()
-            existing_key = user_prefs.get("deepcell_api_key", "")
-            if existing_key:
-                key_source = "saved preferences"
-        
         if existing_key:
             self.api_key_edit.setText(existing_key)
-            self.api_key_edit.setPlaceholderText(f"API key loaded from {key_source}")
+            self.api_key_edit.setPlaceholderText("API key loaded from environment variable")
         else:
             self.api_key_edit.setPlaceholderText("Enter DeepCell API key...")
         self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
@@ -1475,15 +1479,10 @@ class SegmentationDialog(QtWidgets.QDialog):
     
     # CellSAM parameter getters
     def get_cellsam_api_key(self):
-        """Get the DeepCell API key from the field, environment variable, or saved preferences."""
+        """Get the session-only DeepCell key from the field or environment."""
         api_key = self.api_key_edit.text().strip()
-        # If field is empty, check environment variable
         if not api_key:
             api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
-        # If still empty, check saved preferences
-        if not api_key:
-            user_prefs = _load_user_preferences()
-            api_key = user_prefs.get("deepcell_api_key", "")
         return api_key
     
     def get_cellsam_bbox_threshold(self):

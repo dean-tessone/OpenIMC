@@ -30,7 +30,7 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*legacy.*Das
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*dataframe.query-planning.*')
 
 # Use direct assignment (not setdefault) to ensure it's set
-os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'False'
+os.environ['DASK_DATAFRAME__QUERY_PLANNING'] = 'True'
 
 # Also configure dask directly if available (must be before any dask.dataframe import)
 # Check if dask.dataframe was already imported
@@ -38,7 +38,7 @@ dask_dataframe_imported = 'dask.dataframe' in sys.modules
 try:
     import dask
     # Configure before dask.dataframe can be imported
-    dask.config.set({'dataframe.query-planning': False})
+    dask.config.set({'dataframe.query-planning': True})
 except (ImportError, AttributeError) as e:
     pass
 
@@ -55,7 +55,7 @@ import multiprocessing as mp
 from scipy import stats
 from skimage.measure import regionprops, regionprops_table
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QSize, Qt, QTimer
 
 from openimc.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openimc.data.ometiff_loader import OMETIFFLoader
@@ -75,9 +75,24 @@ from matplotlib.figure import Figure
 
 class CustomNavigationToolbar(NavigationToolbar):
     """Custom navigation toolbar with improved save functionality."""
+
+    ICON_SIZE = QSize(16, 16)
+    BUTTON_SIZE = QSize(24, 24)
     
     def __init__(self, canvas, parent, main_window=None):
         super().__init__(canvas, parent)
+        # Matplotlib selects large source images for Retina displays. Qt can
+        # otherwise treat their physical pixel dimensions as the toolbar's
+        # logical size in a frozen app, producing oversized controls.
+        self.setIconSize(self.ICON_SIZE)
+        for button in self.findChildren(QtWidgets.QToolButton):
+            # QToolBar.iconSize is only a hint. In particular, the macOS style
+            # may still size a button from Matplotlib's Retina source pixmap.
+            # Constrain the actual rendered widgets as well as the toolbar.
+            button.setIconSize(self.ICON_SIZE)
+            button.setFixedSize(self.BUTTON_SIZE)
+        if self.layout() is not None:
+            self.layout().setSpacing(1)
         self.main_window = main_window
     
     def save_figure(self, *args):
@@ -157,7 +172,6 @@ try:
     _HAVE_TIFFFILE = True
 except Exception:
     _HAVE_TIFFFILE = False
-from openimc.ui.dialogs.clustering import CellClusteringDialog, ClusterExplorerDialog
 from openimc.ui.dialogs.spatial_analysis import SpatialAnalysisDialog
 # Import dialog classes directly to avoid lazy loading issues
 from openimc.ui.dialogs.simple_spatial_analysis import SimpleSpatialAnalysisDialog
@@ -1091,6 +1105,8 @@ class MainWindow(QtWidgets.QMainWindow):
             act_load_state.triggered.connect(self._load_state)
             act_export_steps = file_menu.addAction("Export Analysis Steps…")
             act_export_steps.triggered.connect(self._export_analysis_steps)
+            act_methods_log = file_menu.addAction("Methods Log File…")
+            act_methods_log.triggered.connect(self._choose_methods_log_file)
             file_menu.addSeparator()
             
             # Export submenu
@@ -8971,6 +8987,10 @@ class MainWindow(QtWidgets.QMainWindow):
             normalization_config = self.feature_extraction_config.get('normalization_config')
         
         # Create new clustering dialog with both original and batch-corrected features
+        # Importing this dialog loads UMAP/pynndescent, so defer it until the
+        # scientist actually opens clustering instead of delaying every launch.
+        from openimc.ui.dialogs.clustering import CellClusteringDialog
+
         self.clustering_dialog = CellClusteringDialog(
             self.feature_dataframe, 
             normalization_config, 
@@ -12473,6 +12493,41 @@ class MainWindow(QtWidgets.QMainWindow):
             show_success_message=True,
             show_failure_message=True
         )
+
+    def _choose_methods_log_file(self):
+        """Let the user choose and persist a writable methods-log file."""
+        from openimc.ui.dialogs.display_settings_dialog import (
+            save_methods_log_file_preference,
+        )
+        from openimc.utils.logger import get_logger, set_log_file
+
+        current_path = get_logger().get_log_file_path()
+        selected_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Choose Methods Log File",
+            current_path,
+            "JSON Lines (*.jsonl);;All Files (*)",
+        )
+        if not selected_path:
+            return
+
+        try:
+            logger = set_log_file(selected_path)
+        except OSError as exc:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Methods Log Not Changed",
+                f"OpenIMC could not use that log file:\n\n{exc}",
+            )
+            return
+
+        save_methods_log_file_preference(logger.get_log_file_path())
+        QtWidgets.QMessageBox.information(
+            self,
+            "Methods Log Updated",
+            "OpenIMC will record analysis operations in:\n\n"
+            f"{logger.get_log_file_path()}",
+        )
     
     def _get_openimc_version(self) -> str:
         """Get OpenIMC version information."""
@@ -12484,9 +12539,9 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
         
         try:
-            # Try to get from pyproject.toml or setup.py
-            import pkg_resources
-            return pkg_resources.get_distribution("openimc").version
+            from importlib.metadata import version
+
+            return version("openimc")
         except:
             pass
         

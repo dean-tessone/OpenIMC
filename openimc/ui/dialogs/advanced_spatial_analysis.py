@@ -27,7 +27,7 @@ import os
 import sys
 # CRITICAL: Configure dask BEFORE any imports that might trigger dask.dataframe import
 # This must be done at the very top, before any other imports
-os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'False')
+os.environ.setdefault('DASK_DATAFRAME__QUERY_PLANNING', 'True')
 
 # Also try direct config if dask is available (must be before squidpy import)
 try:
@@ -35,7 +35,7 @@ try:
     # Check if dask.dataframe has already been imported (too late to configure)
     dask_dataframe_imported = 'dask.dataframe' in sys.modules
     # Set configuration before dask.dataframe is imported
-    dask.config.set({'dataframe.query-planning': False})
+    dask.config.set({'dataframe.query-planning': True})
 except (ImportError, AttributeError) as e:
     pass
 except Exception as e:
