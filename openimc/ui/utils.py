@@ -33,13 +33,14 @@ except Exception:
 
 
 def robust_percentile_scale(arr: np.ndarray, low: float = 1.0, high: float = 99.0) -> np.ndarray:
+    if not (0.0 <= low < high <= 100.0):
+        raise ValueError("Percentiles must satisfy 0 <= low < high <= 100")
     a = arr.astype(np.float32, copy=False)
     lo = np.percentile(a, low)
     hi = np.percentile(a, high)
     if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        hi = lo + 1e-6
-    a = np.clip((a - lo) / (hi - lo), 0.0, 1.0)
-    return a
+        return np.zeros_like(a, dtype=np.float32)
+    return np.clip((a - lo) / (hi - lo), 0.0, 1.0)
 
 
 def arcsinh_normalize(arr: np.ndarray, cofactor: float = 1.0) -> np.ndarray:
@@ -48,11 +49,15 @@ def arcsinh_normalize(arr: np.ndarray, cofactor: float = 1.0) -> np.ndarray:
     Note: For segmentation, normalization to 0-1 is handled separately
     in the preprocessing pipeline after this transformation.
     """
+    if not np.isfinite(cofactor) or cofactor <= 0:
+        raise ValueError("cofactor must be a positive finite value")
     a = arr.astype(np.float32, copy=False)
     return np.arcsinh(a / cofactor)
 
 
 def percentile_clip_normalize(arr: np.ndarray, p_low: float = 1.0, p_high: float = 99.0) -> np.ndarray:
+    if not (0.0 <= p_low < p_high <= 100.0):
+        raise ValueError("Percentiles must satisfy 0 <= p_low < p_high <= 100")
     a = arr.astype(np.float32, copy=False)
     vmin = np.percentile(a, p_low)
     vmax = np.percentile(a, p_high)
@@ -150,8 +155,10 @@ def combine_channels(images: List[np.ndarray], method: str, weights: List[float]
     if method == "weighted":
         if weights is None or len(weights) != len(images):
             raise ValueError("Weights must be provided and match number of images")
-        w = np.array(weights, dtype=np.float32)
-        w = w / (np.sum(w) + 1e-8)
+        w = np.asarray(weights, dtype=np.float32)
+        if not np.all(np.isfinite(w)) or np.any(w < 0) or float(np.sum(w)) <= 0:
+            raise ValueError("Weights must be finite, non-negative, and have a positive sum")
+        w = w / np.sum(w)
         stack = np.stack(images, axis=0)
         return np.tensordot(w, stack, axes=(0, 0))
 

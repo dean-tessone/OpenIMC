@@ -63,6 +63,7 @@ Using Quality Control Analysis in the GUI
    
      - **Pixel-level**: Uses Otsu thresholding (no mask required)
      - **Cell-level**: Uses segmentation masks (requires masks to be loaded)
+
    - In cell-level mode, choose the **Cell Signal Definition**:
 
      - **Positive pixels above background**: Best default for sparse markers
@@ -78,7 +79,10 @@ Using Quality Control Analysis in the GUI
    - **SNR vs Intensity**: Scatter plot showing SNR vs mean intensity
    - **Distribution Plots**: Boxplots showing distributions across ROIs
 
-5. Export results using the **Export Results** button
+5. Export results using the **Export Results** button. OpenIMC writes both:
+
+   - A pooled channel summary (the selected filename)
+   - A companion ``*_per_roi.csv`` file containing every ROI-level metric used in the summary
 
 Using Quality Control Analysis in the CLI
 -------------------------------------------
@@ -151,6 +155,10 @@ Signal-to-Noise Ratio (SNR)
 
 SNR measures the strength of the signal relative to background noise. Higher SNR indicates better image quality.
 
+OpenIMC reports a **background-referenced SNR**. This definition is also
+sometimes called contrast-to-noise ratio in the imaging literature. The exact
+equation is shown below so exported values are unambiguous.
+
 **SNR Equation:**
 
 .. math::
@@ -176,6 +184,22 @@ Where:
 - :math:`\text{range}` = Image intensity range (max - min)
 
 This ensures SNR values remain reasonable even for very uniform backgrounds or very low-intensity channels.
+
+**Multiple-ROI summaries:**
+
+OpenIMC pools signal and background pixel counts, means, and population
+variances across ROIs before calculating the channel-level SNR. It does not
+average ROI-level ratios. Consequently, the SNR in an exported channel summary
+can be reproduced directly from that row's ``signal_mean``,
+``background_mean``, and ``background_std`` values. Use the companion
+``*_per_roi.csv`` export to inspect ROI heterogeneity.
+
+SNR is a relative quality metric, not an absolute brightness score. A dim but
+clean channel can have a higher SNR than a bright channel with strong
+background variation. The summary therefore also reports
+``signal_minus_background`` and ``background_std``. IMC hot pixels and speckles
+can legitimately increase the background SD; inspect those columns and use the
+pre-QC denoising controls when artifacts are present.
 
 **Pixel-level Mode:**
 - Uses Otsu thresholding to separate foreground (signal) from background
@@ -240,6 +264,8 @@ The following metrics are computed for each channel:
 
 **Quality Metrics:**
 - **snr**: Signal-to-Noise Ratio (see equation above)
+- **signal_minus_background**: Absolute foreground-background intensity difference (channel summary)
+- **signal_to_background_ratio**: Foreground mean divided by background mean (channel summary)
 - **coverage_pct**: Percentage of pixels covered by signal/cells
 - **cell_density** (cell mode only): Number of cells per unit area
 - **cell_signal_method** (cell mode only): Signal definition used for the reported SNR
@@ -262,10 +288,10 @@ Tips and Best Practices
    - For sparse markers, prefer **positive_pixels** or **upper_quantile** over legacy all-cell averaging
 
 2. **SNR Interpretation**:
-   - **SNR > 10**: Excellent signal quality
-   - **SNR 5-10**: Good signal quality
-   - **SNR 2-5**: Acceptable but may need optimization
-   - **SNR < 2**: Poor signal quality, consider excluding or optimizing
+   - Treat the configurable SNR threshold as a study-specific reference, not a universal pass/fail cutoff
+   - Compare like-for-like signal definitions, preprocessing settings, and tissue types
+   - Review ``signal_minus_background`` and ``background_std`` before concluding that a visually bright channel is low quality
+   - Investigate hot pixels, speckles, segmentation leakage, and ROI outliers in the per-ROI export
 
 3. **Coverage Interpretation**:
    - Low coverage may indicate:

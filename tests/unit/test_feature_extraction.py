@@ -396,3 +396,24 @@ class TestFeatureExtraction:
         assert 'CD4_p90' not in out.columns
         assert 'CD3_mean' in out.columns
         assert 'area_um2' in out.columns
+
+    def test_feature_percentiles_use_numpy_linear_interpolation(self):
+        mask = np.ones((2, 5), dtype=np.uint16)
+        marker = np.arange(10, dtype=np.float32).reshape(2, 5)
+
+        result = extract_features_for_acquisition(
+            acq_id='test_1',
+            mask=mask,
+            selected_features={'p10': True, 'p90': True},
+            acq_info={'channels': ['Marker1'], 'well': 'A1'},
+            acq_label='Test',
+            img_stack=marker[..., np.newaxis],
+            arcsinh_enabled=False,
+            cofactor=10.0,
+            source_file='synthetic.ome.tif',
+        )
+
+        assert result.loc[0, 'Marker1_p10'] == pytest.approx(np.percentile(marker, 10))
+        assert result.loc[0, 'Marker1_p90'] == pytest.approx(np.percentile(marker, 90))
+        assert result.loc[0, 'Marker1_p10'] == pytest.approx(0.9)
+        assert result.loc[0, 'Marker1_p90'] == pytest.approx(8.1)

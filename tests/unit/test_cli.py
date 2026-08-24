@@ -322,3 +322,38 @@ def test_workflow_clustering_passes_pca_config(tmp_path, monkeypatch):
     assert captured["pca_n_components"] == 2
     assert captured["n_neighbors"] == 15
     assert captured["hdbscan_metric"] == "euclidean"
+
+
+def test_workflow_harmony_uses_documented_default_iteration_count(tmp_path, monkeypatch):
+    features_path = tmp_path / "features.csv"
+    output_dir = tmp_path / "workflow_output"
+    config_path = tmp_path / "workflow.yaml"
+    features = pd.DataFrame(
+        {
+            "batch": ["A", "A", "B", "B"],
+            "marker_mean": [0.1, 0.2, 1.0, 1.1],
+        }
+    )
+    features.to_csv(features_path, index=False)
+    config_path.write_text(
+        f"output: {output_dir}\n"
+        "batch_correction:\n"
+        "  enabled: true\n"
+        f"  input_features: {features_path}\n"
+        "  method: harmony\n"
+        "  batch_variable: batch\n"
+        "  features: [marker_mean]\n"
+    )
+    captured = {}
+
+    def fake_harmony(data, batch_var, feature_columns, **kwargs):
+        captured.update(kwargs)
+        return data.copy()
+
+    monkeypatch.setattr(cli_module, "apply_harmony_correction", fake_harmony)
+
+    cli_module.workflow_command(
+        SimpleNamespace(config=str(config_path), output_dir=str(output_dir))
+    )
+
+    assert captured["max_iter"] == 20

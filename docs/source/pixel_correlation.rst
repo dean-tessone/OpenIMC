@@ -3,6 +3,10 @@ Pixel Correlation Analysis
 
 Pixel correlation analysis computes pairwise correlations between markers at the pixel level, helping identify co-expression patterns, spatial co-localization, and potential spillover effects.
 
+If an image contains non-finite values, each marker pair uses its own
+pairwise-complete pixels. Missing values in an unrelated third channel do not
+change another pair's coefficient or reported ``n_pixels``.
+
 Overview
 --------
 
@@ -175,4 +179,3 @@ Tips and Best Practices
    - Compare correlations across different ROIs or conditions
    - Check for consistency in expected relationships
    - Use spatial visualization to confirm co-localization
-

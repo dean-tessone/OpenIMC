@@ -131,6 +131,161 @@ def _calculate_qc_snr(
     return signal_diff / min_std
 
 
+def _pool_population_statistics(
+    means: pd.Series,
+    standard_deviations: pd.Series,
+    counts: pd.Series,
+) -> Tuple[float, float, int]:
+    """Pool population means and SDs from disjoint pixel groups."""
+    mean_values = pd.to_numeric(means, errors="coerce").to_numpy(dtype=float)
+    std_values = pd.to_numeric(standard_deviations, errors="coerce").to_numpy(dtype=float)
+    count_values = pd.to_numeric(counts, errors="coerce").to_numpy(dtype=float)
+    valid = (
+        np.isfinite(mean_values)
+        & np.isfinite(std_values)
+        & np.isfinite(count_values)
+        & (count_values > 0)
+    )
+    if not np.any(valid):
+        return np.nan, np.nan, 0
+
+    mean_values = mean_values[valid]
+    std_values = std_values[valid]
+    count_values = count_values[valid]
+    total_count = float(np.sum(count_values))
+    pooled_mean = float(np.sum(count_values * mean_values) / total_count)
+    second_moment = float(
+        np.sum(count_values * (np.square(std_values) + np.square(mean_values)))
+        / total_count
+    )
+    pooled_variance = max(second_moment - pooled_mean ** 2, 0.0)
+    return pooled_mean, float(np.sqrt(pooled_variance)), int(total_count)
+
+
+def aggregate_qc_results(results: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate per-ROI QC results with pixel-weighted sufficient statistics.
+
+    Averaging ROI-level ratios independently produces a summary row whose SNR
+    cannot be reproduced from its displayed signal and background columns. This
+    function pools the underlying means, population SDs, and pixel counts first,
+    then calculates the background-referenced SNR once from the pooled values.
+    """
+    if results is None or results.empty:
+        return pd.DataFrame()
+    if "channel" not in results.columns:
+        raise ValueError("QC results must contain a 'channel' column")
+
+    intensity_mean_col = "mean_intensity" if "mean_intensity" in results.columns else "intensity_mean"
+    intensity_std_col = "std_intensity" if "std_intensity" in results.columns else "intensity_std"
+    intensity_median_col = "median_intensity" if "median_intensity" in results.columns else "intensity_median"
+    intensity_min_col = "min_intensity" if "min_intensity" in results.columns else "intensity_min"
+    intensity_max_col = "max_intensity" if "max_intensity" in results.columns else "intensity_max"
+
+    summary_rows = []
+    for channel, group in results.groupby("channel", sort=False, dropna=False):
+        row: Dict[str, Any] = {
+            "channel": channel,
+            "n_rois": int(len(group)),
+        }
+        if "mode" in group.columns:
+            modes = group["mode"].dropna().astype(str).unique().tolist()
+            row["mode"] = modes[0] if len(modes) == 1 else "mixed"
+
+        for categorical_column in ("cell_signal_method",):
+            if categorical_column in group.columns:
+                values = group[categorical_column].dropna().unique().tolist()
+                row[categorical_column] = values[0] if len(values) == 1 else "mixed"
+
+        count_columns = (
+            "n_total_pixels",
+            "n_signal_pixels",
+            "n_background_pixels",
+            "n_cell_pixels",
+            "n_signal_cells",
+            "n_cells",
+            "num_cells",
+        )
+        for count_column in count_columns:
+            if count_column in group.columns:
+                row[count_column] = int(
+                    pd.to_numeric(group[count_column], errors="coerce").fillna(0).sum()
+                )
+
+        signal_mean, signal_std, pooled_signal_count = _pool_population_statistics(
+            group["signal_mean"],
+            group["signal_std"] if "signal_std" in group.columns else pd.Series(0.0, index=group.index),
+            group["n_signal_pixels"] if "n_signal_pixels" in group.columns else pd.Series(1.0, index=group.index),
+        )
+        background_mean, background_std, pooled_background_count = _pool_population_statistics(
+            group["background_mean"],
+            group["background_std"],
+            group["n_background_pixels"] if "n_background_pixels" in group.columns else pd.Series(1.0, index=group.index),
+        )
+        intensity_mean, intensity_std, _ = _pool_population_statistics(
+            group[intensity_mean_col],
+            group[intensity_std_col],
+            group["n_total_pixels"] if "n_total_pixels" in group.columns else pd.Series(1.0, index=group.index),
+        )
+
+        row.update({
+            "signal_mean": signal_mean,
+            "signal_std": signal_std,
+            "background_mean": background_mean,
+            "background_std": background_std,
+            intensity_mean_col: intensity_mean,
+            intensity_std_col: intensity_std,
+        })
+        row["signal_minus_background"] = float(signal_mean - background_mean)
+        row["signal_to_background_ratio"] = (
+            float(signal_mean / background_mean)
+            if np.isfinite(background_mean) and background_mean > 0
+            else np.nan
+        )
+
+        if intensity_min_col in group.columns:
+            row[intensity_min_col] = float(pd.to_numeric(group[intensity_min_col], errors="coerce").min())
+        if intensity_max_col in group.columns:
+            row[intensity_max_col] = float(pd.to_numeric(group[intensity_max_col], errors="coerce").max())
+        if intensity_median_col in group.columns:
+            row[intensity_median_col] = float(pd.to_numeric(group[intensity_median_col], errors="coerce").mean())
+
+        if pooled_signal_count == 0:
+            row["snr"] = 0.0
+        elif pooled_background_count == 0:
+            row["snr"] = np.nan
+        else:
+            row["snr"] = _calculate_qc_snr(
+                signal_mean,
+                background_mean,
+                background_std,
+                row.get(intensity_min_col),
+                row.get(intensity_max_col),
+            )
+
+        total_pixels = int(row.get("n_total_pixels", 0))
+        mode = row.get("mode")
+        if total_pixels > 0:
+            coverage_count = row.get("n_cell_pixels", 0) if mode == "cell" else row.get("n_signal_pixels", 0)
+            row["coverage_pct"] = float(100.0 * coverage_count / total_pixels)
+            row["signal_coverage_pct"] = float(100.0 * row.get("n_signal_pixels", 0) / total_pixels)
+            if mode == "cell":
+                row["cell_density"] = float(row.get("n_cells", row.get("num_cells", 0)) / total_pixels)
+        elif "coverage_pct" in group.columns:
+            row["coverage_pct"] = float(pd.to_numeric(group["coverage_pct"], errors="coerce").mean())
+
+        n_cell_pixels = int(row.get("n_cell_pixels", 0))
+        if n_cell_pixels > 0:
+            row["signal_fraction"] = float(row.get("n_signal_pixels", 0) / n_cell_pixels)
+
+        for averaged_column in ("threshold", "signal_threshold", "signal_quantile", "p1", "p25", "p75", "p99", "mean_cell_intensity", "median_cell_intensity"):
+            if averaged_column in group.columns:
+                row[averaged_column] = float(pd.to_numeric(group[averaged_column], errors="coerce").mean())
+
+        summary_rows.append(row)
+
+    return pd.DataFrame(summary_rows)
+
+
 def _compute_cell_signal_metrics(
     img: np.ndarray,
     mask: np.ndarray,
@@ -2194,50 +2349,73 @@ def pixel_correlation(
     if pixel_matrix.size == 0:
         return pd.DataFrame(columns=['marker1', 'marker2', 'correlation', 'p_value', 'n_pixels'])
 
-    valid_rows = np.all(np.isfinite(pixel_matrix), axis=1)
-    pixel_matrix = pixel_matrix[valid_rows]
-    n_pixels = int(pixel_matrix.shape[0])
-    if n_pixels < 3:
-        return pd.DataFrame(columns=['marker1', 'marker2', 'correlation', 'p_value', 'n_pixels'])
-
-    # Compute correlations for all marker pairs in a single vectorized call.
-    corr_result = spearmanr(pixel_matrix, axis=0)
-    corr_matrix = getattr(corr_result, 'statistic', corr_result[0] if isinstance(corr_result, tuple) else corr_result)
-    p_matrix = getattr(corr_result, 'pvalue', corr_result[1] if isinstance(corr_result, tuple) else None)
-    corr_matrix = np.asarray(corr_matrix, dtype=float)
-    p_matrix = np.asarray(p_matrix, dtype=float) if p_matrix is not None else np.full_like(corr_matrix, np.nan, dtype=float)
-
-    if corr_matrix.ndim == 0 and len(selected_channels) == 2:
-        corr_value = float(corr_matrix)
-        p_value = float(p_matrix) if np.ndim(p_matrix) == 0 else np.nan
-        correlations = [{
-            'marker1': selected_channels[0],
-            'marker2': selected_channels[1],
-            'correlation': corr_value,
-            'p_value': p_value,
-            'n_pixels': n_pixels,
-        }] if np.isfinite(corr_value) else []
-    else:
+    finite_matrix = np.isfinite(pixel_matrix)
+    if not np.all(finite_matrix):
+        # Preserve all valid observations for each marker pair. Requiring rows
+        # to be finite in every selected channel lets an unrelated channel's
+        # missing value change another pair's coefficient and sample size.
         correlations = []
-        if corr_matrix.ndim != 2:
-            return pd.DataFrame(columns=['marker1', 'marker2', 'correlation', 'p_value', 'n_pixels'])
-        # Compute pairwise correlations
-        channel_list = list(selected_channels)
-        for i, ch1 in enumerate(channel_list):
-            for j, ch2 in enumerate(channel_list):
-                if i >= j:  # Only compute upper triangle
+        for i, ch1 in enumerate(selected_channels):
+            for j in range(i + 1, len(selected_channels)):
+                ch2 = selected_channels[j]
+                pair_valid = finite_matrix[:, i] & finite_matrix[:, j]
+                n_pair_pixels = int(np.count_nonzero(pair_valid))
+                if n_pair_pixels < 3:
                     continue
-                corr_coef = corr_matrix[i, j]
-                p_value = p_matrix[i, j] if p_matrix.ndim == 2 else np.nan
-                if np.isnan(corr_coef) or np.isinf(corr_coef):
+                pair_result = spearmanr(
+                    pixel_matrix[pair_valid, i],
+                    pixel_matrix[pair_valid, j],
+                )
+                corr_value = float(getattr(pair_result, 'statistic', pair_result[0]))
+                p_value = float(getattr(pair_result, 'pvalue', pair_result[1]))
+                if not np.isfinite(corr_value):
                     continue
                 correlations.append({
                     'marker1': ch1,
                     'marker2': ch2,
-                    'correlation': float(corr_coef),
-                    'p_value': float(p_value),
-                    'n_pixels': n_pixels,
+                    'correlation': corr_value,
+                    'p_value': p_value,
+                    'n_pixels': n_pair_pixels,
                 })
+    else:
+        n_pixels = int(pixel_matrix.shape[0])
+        if n_pixels < 3:
+            return pd.DataFrame(columns=['marker1', 'marker2', 'correlation', 'p_value', 'n_pixels'])
+
+        # Compute correlations for complete data in one vectorized call.
+        corr_result = spearmanr(pixel_matrix, axis=0)
+        corr_matrix = getattr(corr_result, 'statistic', corr_result[0] if isinstance(corr_result, tuple) else corr_result)
+        p_matrix = getattr(corr_result, 'pvalue', corr_result[1] if isinstance(corr_result, tuple) else None)
+        corr_matrix = np.asarray(corr_matrix, dtype=float)
+        p_matrix = np.asarray(p_matrix, dtype=float) if p_matrix is not None else np.full_like(corr_matrix, np.nan, dtype=float)
+
+        if corr_matrix.ndim == 0 and len(selected_channels) == 2:
+            corr_value = float(corr_matrix)
+            p_value = float(p_matrix) if np.ndim(p_matrix) == 0 else np.nan
+            correlations = [{
+                'marker1': selected_channels[0],
+                'marker2': selected_channels[1],
+                'correlation': corr_value,
+                'p_value': p_value,
+                'n_pixels': n_pixels,
+            }] if np.isfinite(corr_value) else []
+        else:
+            correlations = []
+            if corr_matrix.ndim != 2:
+                return pd.DataFrame(columns=['marker1', 'marker2', 'correlation', 'p_value', 'n_pixels'])
+            for i, ch1 in enumerate(selected_channels):
+                for j in range(i + 1, len(selected_channels)):
+                    corr_coef = corr_matrix[i, j]
+                    p_value = p_matrix[i, j] if p_matrix.ndim == 2 else np.nan
+                    if not np.isfinite(corr_coef):
+                        continue
+                    correlations.append({
+                        'marker1': ch1,
+                        'marker2': selected_channels[j],
+                        'correlation': float(corr_coef),
+                        'p_value': float(p_value),
+                        'n_pixels': n_pixels,
+                    })
 
     # Create results dataframe
     if not correlations:
@@ -2300,7 +2478,18 @@ def qc_analysis(
     except ImportError:
         _HAVE_SCIKIT_IMAGE = False
     
+    if mode not in {"pixel", "cell"}:
+        raise ValueError("mode must be either 'pixel' or 'cell'")
     cell_signal_method = _validate_qc_cell_signal_method(cell_signal_method)
+    if mode == "cell":
+        if mask is None:
+            raise ValueError("mask is required for cell-level QC")
+        if np.asarray(mask).ndim != 2:
+            raise ValueError("mask must be a two-dimensional label image")
+        if not np.any(mask > 0):
+            raise ValueError("mask must contain at least one labeled cell")
+        if not np.any(mask == 0):
+            raise ValueError("cell-level QC requires non-cell pixels for background estimation")
     
     results = []
     
@@ -2340,6 +2529,11 @@ def qc_analysis(
         img_stack = None
         channel_indices = None
         n_channels_total = None
+
+    if mode == "cell" and img_stack is not None and mask.shape != img_stack.shape[:2]:
+        raise ValueError(
+            f"mask shape {mask.shape} does not match image shape {img_stack.shape[:2]}"
+        )
     
     for channel in channels:
         try:
@@ -2404,8 +2598,10 @@ def qc_analysis(
                         
                         if len(signal_pixels) > 0:
                             signal_mean = float(np.mean(signal_pixels))
+                            signal_std = float(np.std(signal_pixels))
                         else:
                             signal_mean = img_mean
+                            signal_std = 0.0
                         
                         if len(background_pixels) > 0:
                             background_mean = float(np.mean(background_pixels))
@@ -2418,16 +2614,24 @@ def qc_analysis(
                         coverage = float(len(signal_pixels) / img.size) if img.size > 0 else 0.0
                     except Exception:
                         # Fallback if Otsu fails
+                        threshold = np.nan
                         signal_mean = img_mean
+                        signal_std = 0.0
                         background_mean = img_mean
                         background_std = img_std
+                        signal_pixels = np.empty(0, dtype=img.dtype)
+                        background_pixels = img.reshape(-1)
                         snr = 0.0
                         coverage = 0.0
                 else:
                     # No scikit-image, use simple statistics
+                    threshold = np.nan
                     signal_mean = img_mean
+                    signal_std = 0.0
                     background_mean = img_mean
                     background_std = img_std
+                    signal_pixels = np.empty(0, dtype=img.dtype)
+                    background_pixels = img.reshape(-1)
                     snr = 0.0
                     coverage = 0.0
                 
@@ -2438,8 +2642,13 @@ def qc_analysis(
                     'mode': 'pixel',
                     'snr': snr,
                     'signal_mean': signal_mean,
+                    'signal_std': signal_std,
                     'background_mean': background_mean,
                     'background_std': background_std,
+                    'threshold': float(threshold),
+                    'n_total_pixels': int(img.size),
+                    'n_signal_pixels': int(len(signal_pixels)),
+                    'n_background_pixels': int(len(background_pixels)),
                     'intensity_mean': img_mean,
                     'intensity_std': img_std,
                     'intensity_median': img_median,
@@ -2511,6 +2720,9 @@ def qc_analysis(
                     'n_signal_cells': signal_metrics['n_signal_cells'],
                     'signal_fraction': signal_metrics['signal_fraction'],
                     'signal_coverage_pct': signal_metrics['signal_coverage_pct'],
+                    'n_total_pixels': int(mask.size),
+                    'n_cell_pixels': int(n_cell_pixels),
+                    'n_background_pixels': int(np.count_nonzero(background_mask)),
                     'intensity_mean': img_mean,
                     'intensity_std': img_std,
                     'intensity_median': img_median,
@@ -2564,7 +2776,7 @@ def spillover_correction(
     # Auto-detect intensity columns if not all columns are features
     intensity_cols = []
     for col in features_df.columns:
-        if col in S.columns or (channel_map and col in channel_map.values()):
+        if col in S.columns or (channel_map and col in channel_map):
             intensity_cols.append(col)
     
     if not intensity_cols:
@@ -2845,6 +3057,9 @@ def spatial_enrichment(
         DataFrame with enrichment results (cluster_A, cluster_B, observed, expected, p_value, z_score, etc.)
     """
     import random
+
+    if int(n_permutations) < 1:
+        raise ValueError("n_permutations must be at least 1")
     
     # Auto-detect ROI column
     if roi_column is None:

@@ -38,7 +38,12 @@ from openimc.utils.logger import get_logger
 from openimc.ui.dialogs.figure_save_dialog import save_figure_with_options
 from openimc.ui.dialogs.progress_dialog import run_blocking_task_with_progress_then_finalize
 from openimc.data.mcd_loader import AcquisitionInfo
-from openimc.core import _compute_cell_signal_metrics, qc_analysis
+from openimc.core import (
+    _calculate_qc_snr,
+    _compute_cell_signal_metrics,
+    aggregate_qc_results,
+    qc_analysis,
+)
 import multiprocessing as mp
 import traceback
 
@@ -61,58 +66,14 @@ def _boxplot_with_labels(ax, values, labels):
 
 def _calculate_snr(signal_mean: float, background_mean: float, background_std: float, 
                     img_min: Optional[float] = None, img_max: Optional[float] = None) -> float:
-    """
-    Calculate Signal-to-Noise Ratio (SNR) with robust handling of very small background_std.
-    
-    The SNR formula is: (signal_mean - background_mean) / background_std
-    
-    To prevent inflated SNR values when background_std is extremely small (which can happen
-    with very uniform backgrounds or very low-intensity channels), we use a minimum background_std
-    that is the maximum of:
-    - The actual background_std
-    - 0.1% of the background_mean (to handle relative scale)
-    - 0.01% of the image range if provided (to handle absolute scale)
-    - A small absolute minimum (1e-6) to prevent division by zero
-    
-    This ensures that SNR values remain reasonable even for very uniform backgrounds or
-    very low-intensity channels where background_std might be extremely small.
-    
-    Args:
-        signal_mean: Mean intensity of signal (foreground) pixels
-        background_mean: Mean intensity of background pixels
-        background_std: Standard deviation of background pixels
-        img_min: Optional minimum value in the image (for range-based minimum)
-        img_max: Optional maximum value in the image (for range-based minimum)
-    
-    Returns:
-        SNR value (can be negative if signal_mean < background_mean)
-    """
-    # Calculate signal difference
-    signal_diff = signal_mean - background_mean
-    
-    # Determine minimum background_std to prevent inflated SNR
-    # Use 0.1% of background_mean as a relative minimum (handles relative scale)
-    min_std_relative = abs(background_mean) * 0.001
-    
-    # Use a small absolute minimum to prevent division by zero
-    min_std_absolute = 1e-6
-    
-    # Optionally use a range-based minimum if image range is provided (handles absolute scale)
-    min_std_range = 0.0
-    if img_min is not None and img_max is not None:
-        img_range = img_max - img_min
-        if img_range > 0:
-            # Use 0.01% of image range as minimum
-            min_std_range = img_range * 0.0001
-    
-    # Use the maximum of all minimums to ensure robustness
-    # This prevents extremely small denominators that would inflate SNR
-    min_std = max(background_std, min_std_relative, min_std_absolute, min_std_range)
-    
-    # Calculate SNR
-    snr = signal_diff / min_std
-    
-    return snr
+    """Compatibility wrapper for the single canonical QC SNR calculation."""
+    return _calculate_qc_snr(
+        signal_mean,
+        background_mean,
+        background_std,
+        img_min,
+        img_max,
+    )
 
 
 CELL_SIGNAL_METHOD_OPTIONS = [
@@ -393,7 +354,8 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         # Add explanation text
         explanation_text = QtWidgets.QLabel(
             "<b>Pixel-level:</b> Uses Otsu thresholding to automatically separate signal (foreground) "
-            "from background pixels. SNR is calculated as (signal_mean - background_mean) / background_std. "
+            "from background pixels. Background-referenced SNR is calculated as "
+            "(signal_mean - background_mean) / background_std. "
             "QC intensity plots use the foreground-only mean intensity, not the whole-image mean. "
             "This works on any image without requiring segmentation.<br>"
             "<b>Cell-level:</b> Uses segmentation masks to separate cell pixels from background pixels. "
@@ -431,14 +393,14 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         options_layout.addLayout(workers_layout)
 
         snr_threshold_layout = QtWidgets.QHBoxLayout()
-        snr_threshold_layout.addWidget(QtWidgets.QLabel("SNR threshold:"))
+        snr_threshold_layout.addWidget(QtWidgets.QLabel("Background-referenced SNR threshold:"))
         self.snr_threshold_spin = QtWidgets.QDoubleSpinBox()
         self.snr_threshold_spin.setRange(0.1, 100.0)
         self.snr_threshold_spin.setSingleStep(0.5)
         self.snr_threshold_spin.setDecimals(1)
         self.snr_threshold_spin.setValue(DEFAULT_QC_SNR_THRESHOLD)
         self.snr_threshold_spin.setToolTip(
-            "Reference line used in QC SNR plots. "
+            "Reference line used in background-referenced QC SNR plots. "
             "A value above 1.0 is typically more conservative than signal=noise."
         )
         snr_threshold_layout.addWidget(self.snr_threshold_spin)
@@ -1751,52 +1713,10 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             return None
     
     def _aggregate_results_by_channel(self):
-        """Aggregate results per channel across all ROIs."""
+        """Pool per-ROI sufficient statistics into reproducible channel summaries."""
         if self.qc_results is None or self.qc_results.empty:
             return
-        
-        # Group by channel and compute mean across ROIs
-        agg_dict = {
-            'snr': 'mean',
-            'mean_intensity': 'mean',
-            'coverage_pct': 'mean',
-            'signal_mean': 'mean',
-            'signal_std': 'mean',
-            'background_mean': 'mean',
-            'background_std': 'mean',
-            'median_intensity': 'mean',
-            'max_intensity': 'mean',
-            'min_intensity': 'mean',
-            'p1': 'mean',
-            'p25': 'mean',
-            'p75': 'mean',
-            'p99': 'mean',
-            'signal_threshold': 'mean',
-            'signal_quantile': 'mean',
-            'n_signal_pixels': 'mean',
-            'n_signal_cells': 'mean',
-            'signal_fraction': 'mean',
-            'signal_coverage_pct': 'mean',
-            'cell_signal_method': 'first',
-        }
-        
-        # Add cell-specific metrics if available
-        if 'cell_density' in self.qc_results.columns:
-            agg_dict['cell_density'] = 'mean'
-        if 'num_cells' in self.qc_results.columns:
-            agg_dict['num_cells'] = 'mean'
-        if 'mean_cell_intensity' in self.qc_results.columns:
-            agg_dict['mean_cell_intensity'] = 'mean'
-        
-        # Only aggregate columns that exist
-        available_agg = {k: v for k, v in agg_dict.items() if k in self.qc_results.columns}
-        
-        # Aggregate by channel
-        self.qc_results_aggregated = self.qc_results.groupby('channel').agg(available_agg).reset_index()
-        
-        # Add count of ROIs per channel
-        roi_counts = self.qc_results.groupby('channel').size().reset_index(name='n_rois')
-        self.qc_results_aggregated = self.qc_results_aggregated.merge(roi_counts, on='channel')
+        self.qc_results_aggregated = aggregate_qc_results(self.qc_results)
     
     def _save_results_to_cache(self):
         """Save current QC results to the parent window's cache for persistence."""
@@ -1846,7 +1766,9 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         if cached and cached.get('qc_results') is not None:
             # Restore results
             self.qc_results = cached['qc_results'].copy()
-            self.qc_results_aggregated = cached['qc_results_aggregated'].copy() if cached.get('qc_results_aggregated') is not None else None
+            # Recompute summaries so legacy caches cannot restore the old
+            # mean-of-ratios aggregation.
+            self._aggregate_results_by_channel()
             
             # Update UI
             self._update_summary_table()
@@ -1919,7 +1841,15 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             coverage_col = 'signal_coverage_pct'
 
         # Select relevant columns for display
-        display_cols = ['channel', 'n_rois', 'snr', 'mean_intensity', coverage_col]
+        display_cols = [
+            'channel',
+            'n_rois',
+            'snr',
+            'signal_minus_background',
+            'background_std',
+            'mean_intensity',
+            coverage_col,
+        ]
         if 'cell_density' in self.qc_results_aggregated.columns:
             display_cols.append('cell_density')
         
@@ -2012,10 +1942,10 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         if np.any(snr_values <= 0):
             ax.set_yscale('symlog', linthresh=1.0)
             ax.axhline(y=0.0, color='lightgray', linestyle=':', linewidth=1, alpha=0.6)
-            y_axis_label = 'SNR (Signal-to-Noise Ratio, symlog scale, averaged across ROIs)'
+            y_axis_label = 'Background-referenced SNR (symlog scale, pooled across ROIs)'
         else:
             ax.set_yscale('log')
-            y_axis_label = 'SNR (Signal-to-Noise Ratio, log scale, averaged across ROIs)'
+            y_axis_label = 'Background-referenced SNR (log scale, pooled across ROIs)'
         
         snr_threshold = self.get_snr_threshold()
         ax.axhline(
@@ -2027,9 +1957,9 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             label=f'SNR threshold: {snr_threshold:.1f}',
         )
 
-        ax.set_xlabel(f'{self._get_plot_intensity_label()} (averaged across ROIs)', fontsize=10)
+        ax.set_xlabel(f'{self._get_plot_intensity_label()} (pooled across ROIs)', fontsize=10)
         ax.set_ylabel(y_axis_label, fontsize=10)
-        ax.set_title(self._compose_plot_title('SNR vs Foreground Mean Intensity by Channel (Mean across all ROIs)'), fontsize=12, fontweight='bold')
+        ax.set_title(self._compose_plot_title('Background-referenced SNR vs Foreground Mean Intensity by Channel (Pooled across ROIs)'), fontsize=12, fontweight='bold')
         ax.grid(False)  # Remove gridlines
         ax.legend(fontsize=8, loc='best')
         
@@ -2062,8 +1992,8 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         ax1.bar(range(len(channels)), coverage, alpha=0.7, color='steelblue')
         ax1.set_xticks(range(len(channels)))
         ax1.set_xticklabels(channels, rotation=45, ha='right', fontsize=8)
-        ax1.set_ylabel('% Coverage (mean across ROIs)', fontsize=10)
-        ax1.set_title(self._compose_plot_title('Coverage by Channel (Mean across all ROIs)'), fontsize=12, fontweight='bold')
+        ax1.set_ylabel('% Coverage (pooled across ROIs)', fontsize=10)
+        ax1.set_title(self._compose_plot_title('Coverage by Channel (Pooled across ROIs)'), fontsize=12, fontweight='bold')
         ax1.grid(True, alpha=0.3, axis='y')
         
         # Add mean line
@@ -2076,8 +2006,8 @@ class QCAnalysisDialog(QtWidgets.QDialog):
             ax2.bar(range(len(channels)), cell_density, alpha=0.7, color='orange')
             ax2.set_xticks(range(len(channels)))
             ax2.set_xticklabels(channels, rotation=45, ha='right', fontsize=8)
-            ax2.set_ylabel('Cell Density (cells/pixel², mean across ROIs)', fontsize=10)
-            ax2.set_title(self._compose_plot_title('Cell Density by Channel (Mean across all ROIs)'), fontsize=12, fontweight='bold')
+            ax2.set_ylabel('Cell Density (cells/pixel², pooled across ROIs)', fontsize=10)
+            ax2.set_title(self._compose_plot_title('Cell Density by Channel (Pooled across ROIs)'), fontsize=12, fontweight='bold')
             ax2.grid(True, alpha=0.3, axis='y')
             
             # Add mean line
@@ -2196,9 +2126,19 @@ class QCAnalysisDialog(QtWidgets.QDialog):
         
         if filename:
             try:
-                # Export aggregated results
+                # Export the pooled channel summary and the per-ROI values used
+                # to calculate it so every reported ratio is auditable.
                 self.qc_results_aggregated.to_csv(filename, index=False)
-                QtWidgets.QMessageBox.information(self, "Success", f"Results exported to {filename}")
+                stem, extension = os.path.splitext(filename)
+                per_roi_filename = f"{stem}_per_roi{extension or '.csv'}"
+                if self.qc_results is not None:
+                    self.qc_results.to_csv(per_roi_filename, index=False)
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Channel summary exported to {filename}\n"
+                    f"Per-ROI metrics exported to {per_roi_filename}",
+                )
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Error", f"Error exporting results: {str(e)}")
     

@@ -68,6 +68,11 @@ class TestArcsinhNormalize:
         assert result.shape == high_img.shape
         assert np.all(result > 0)
 
+    @pytest.mark.parametrize("cofactor", [0.0, -1.0, np.nan, np.inf])
+    def test_arcsinh_rejects_invalid_cofactor(self, cofactor):
+        with pytest.raises(ValueError, match="positive finite"):
+            arcsinh_normalize(np.ones((2, 2), dtype=np.float32), cofactor=cofactor)
+
 
 @pytest.mark.unit
 class TestPercentileClipNormalize:
@@ -208,6 +213,11 @@ class TestCombineChannels:
         with pytest.raises(ValueError, match="Weights must be provided"):
             combine_channels(images, method='weighted', weights=weights)
 
+    @pytest.mark.parametrize("weights", [[0.0, 0.0], [1.0, -1.0], [1.0, np.nan]])
+    def test_combine_weighted_rejects_invalid_weights(self, sample_image_2d, weights):
+        with pytest.raises(ValueError, match="finite, non-negative"):
+            combine_channels([sample_image_2d, sample_image_2d], method='weighted', weights=weights)
+
 
 @pytest.mark.unit
 class TestRobustPercentileScale:
@@ -227,6 +237,12 @@ class TestRobustPercentileScale:
         constant_img = np.full((10, 10), 100, dtype=np.uint16)
         result = robust_percentile_scale(constant_img, low=1.0, high=99.0)
         
-        # Should handle constant image gracefully
+        # A constant image has no dynamic range and must not produce NaNs.
         assert result.shape == constant_img.shape
+        assert np.array_equal(result, np.zeros_like(result))
+        assert np.isfinite(result).all()
 
+    @pytest.mark.parametrize("low,high", [(10, 10), (20, 10), (-1, 99), (1, 101)])
+    def test_robust_percentile_scale_rejects_invalid_percentiles(self, low, high):
+        with pytest.raises(ValueError, match="Percentiles"):
+            robust_percentile_scale(np.arange(4), low=low, high=high)

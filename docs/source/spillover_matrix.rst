@@ -206,6 +206,14 @@ The spillover matrix is a square matrix where:
 - **Diagonal**: Self-spillover (always 1.0)
 - **Off-diagonal**: Spillover from donor to receiver (0.0 to cap)
 
+With cells or pixels stored as rows, OpenIMC uses the CATALYST convention:
+
+.. math::
+
+   I_{\mathrm{observed}} = I_{\mathrm{real}} S
+
+Both NNLS solvers estimate non-negative ``I_real`` against this orientation.
+
 Example matrix structure:
 
 .. code-block:: text
@@ -267,4 +275,3 @@ Tips and Best Practices
    - Low spillover estimates: Check foreground selection (p_low may be too high)
    - High spillover estimates: Check for contamination or mis-mapped donors
    - Missing entries: Verify donor mapping covers all channels
-

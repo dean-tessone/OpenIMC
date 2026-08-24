@@ -61,6 +61,9 @@ def roi_enrichment_worker(args):
     """
     roi_id, roi_df, roi_edges, cluster_col, n_perm, seed = args
 
+    if int(n_perm) < 1:
+        raise ValueError("n_perm must be at least 1")
+
     results = []
 
     if roi_df.empty or roi_edges.empty or cluster_col not in roi_df.columns:
@@ -142,12 +145,13 @@ def roi_enrichment_worker(args):
 
         if expected_std > 0:
             z_score = float((observed - expected_mean) / expected_std)
-            p_value = float(
-                np.mean(
-                    np.abs(permuted_vectors[:, pair_idx] - expected_mean)
-                    >= abs(observed - expected_mean)
-                )
-            )
+            n_extreme = int(np.count_nonzero(
+                np.abs(permuted_vectors[:, pair_idx] - expected_mean)
+                >= abs(observed - expected_mean)
+            ))
+            # The observed labeling is one additional member of the null
+            # distribution; the correction prevents impossible zero p-values.
+            p_value = float((n_extreme + 1) / (n_perm + 1))
         else:
             z_score = 0.0
             p_value = 1.0
@@ -189,6 +193,9 @@ def permutation_worker(args):
     """
     import os
     roi_edges, roi_df, cluster_col, cluster_a, cluster_b, pair, observed, n_perm, seed = args
+
+    if int(n_perm) < 1:
+        raise ValueError("n_perm must be at least 1")
     
     worker_pid = os.getpid()
     
@@ -231,7 +238,11 @@ def permutation_worker(args):
     if expected_std > 0:
         z_score = (observed - expected_mean) / expected_std
         # Two-tailed p-value from permutation distribution
-        p_value = np.mean(np.abs(permuted_counts - expected_mean) >= abs(observed - expected_mean))
+        permuted_counts_array = np.asarray(permuted_counts)
+        n_extreme = int(np.count_nonzero(
+            np.abs(permuted_counts_array - expected_mean) >= abs(observed - expected_mean)
+        ))
+        p_value = (n_extreme + 1) / (n_perm + 1)
     else:
         z_score = 0.0
         p_value = 1.0
