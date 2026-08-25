@@ -8,12 +8,12 @@ available below for developers, command-line users, and advanced environments.
 Desktop application (recommended)
 ---------------------------------
 
-Download OpenIMC 1.1.0 for your computer:
+Download OpenIMC 1.1.1 for your computer:
 
-* `Windows 10/11, 64-bit ZIP <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-windows-x86_64.zip>`_
-* `Mac installer for Apple Silicon <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-arm64.pkg>`_
-* `Mac installer for Intel processors <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-x86_64.pkg>`_
-* `Ubuntu 22.04 or newer, 64-bit installer <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-linux-amd64.deb>`_
+* `Windows 10/11, 64-bit ZIP <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-windows-x86_64.zip>`_
+* `Mac installer for Apple Silicon <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-darwin-arm64.pkg>`_
+* `Mac installer for Intel processors <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-darwin-x86_64.pkg>`_
+* `Ubuntu 22.04 or newer, 64-bit installer <https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-linux-amd64.deb>`_
 
 You do not need to install Python, Git, Conda, or a virtual environment when
 using these downloads.
@@ -80,7 +80,7 @@ containing the download and run:
 
 .. code-block:: bash
 
-   sudo apt install ./OpenIMC-1.1.0-linux-amd64.deb
+   sudo apt install ./OpenIMC-1.1.1-linux-amd64.deb
 
 GPU acceleration
 ~~~~~~~~~~~~~~~~
@@ -97,8 +97,8 @@ Macs use the CPU.
 Download verification
 ~~~~~~~~~~~~~~~~~~~~~
 
-The `OpenIMC 1.1.0 release page
-<https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.0>`_ also contains:
+The `OpenIMC 1.1.1 release page
+<https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.1>`_ also contains:
 
 * ``SHA256SUMS.txt``, which lists fingerprints for confirming that downloads
   arrived unchanged.

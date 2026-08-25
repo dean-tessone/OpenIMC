@@ -645,7 +645,7 @@ def write_sha256(path: Path) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="1.1.0", help="Release version")
+    parser.add_argument("--version", default="1.1.1", help="Release version")
     parser.add_argument("--console", action="store_true", help="Keep a console for diagnostics")
     parser.add_argument("--no-clean", action="store_true", help="Reuse PyInstaller work files")
     parser.add_argument(
