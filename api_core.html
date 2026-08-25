@@ -39,6 +39,21 @@
 <p>This module provides unified core operations that can be used by both
 the GUI and CLI interfaces, ensuring exact parity between them.</p>
 <dl class="py function">
+<dt class="sig sig-object py" id="openimc.core.aggregate_qc_results">
+<span class="sig-prename descclassname"><span class="pre">openimc.core.</span></span><span class="sig-name descname"><span class="pre">aggregate_qc_results</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">results</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/openimc/core.html#aggregate_qc_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#openimc.core.aggregate_qc_results" title="Link to this definition">¶</a></dt>
+<dd><p>Aggregate per-ROI QC results with pixel-weighted sufficient statistics.</p>
+<p>Averaging ROI-level ratios independently produces summary rows whose SNR and
+CNR cannot be reproduced from their displayed signal and background columns.
+This function pools the underlying means, population SDs, and pixel counts
+first, then calculates both ratios once from the pooled values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="openimc.core.batch_correction">
 <span class="sig-prename descclassname"><span class="pre">openimc.core.</span></span><span class="sig-name descname"><span class="pre">batch_correction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">features_df</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'harmony'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_var</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">features</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_clusters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_reg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pca_variance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.9</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/openimc/core.html#batch_correction"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#openimc.core.batch_correction" title="Link to this definition">¶</a></dt>
 <dd><p>Apply batch correction to feature data.</p>
@@ -438,9 +453,9 @@ Only denoising is applied. Arcsinh transform should be applied on extracted inte
 <dt class="sig sig-object py" id="openimc.core.qc_analysis">
 <span class="sig-prename descclassname"><span class="pre">openimc.core.</span></span><span class="sig-name descname"><span class="pre">qc_analysis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">loader</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">acquisition</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channels</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'pixel'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">denoise_settings</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cell_signal_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'positive_pixels'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">positive_threshold_sd</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_quantile</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.9</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/openimc/core.html#qc_analysis"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#openimc.core.qc_analysis" title="Link to this definition">¶</a></dt>
 <dd><p>Perform quality control analysis on IMC data.</p>
-<p>This function calculates QC metrics including SNR (Signal-to-Noise Ratio),
-intensity statistics, and coverage metrics. Can analyze at pixel level or
-cell level (if mask is provided).</p>
+<p>This function calculates region-based SNR, CNR, intensity statistics, and
+coverage metrics. Can analyze at pixel level or cell level (if mask is
+provided).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -765,6 +780,7 @@ spectral overlap between channels in IMC data.</p>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Core pipeline API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#openimc.core.aggregate_qc_results"><code class="docutils literal notranslate"><span class="pre">aggregate_qc_results()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#openimc.core.batch_correction"><code class="docutils literal notranslate"><span class="pre">batch_correction()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#openimc.core.build_spatial_graph"><code class="docutils literal notranslate"><span class="pre">build_spatial_graph()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#openimc.core.build_spatial_graph_anndata"><code class="docutils literal notranslate"><span class="pre">build_spatial_graph_anndata()</span></code></a></li>

@@ -200,27 +200,27 @@
 <p>The LLM returns structured JSON with phenotype suggestions for each cluster:</p>
 <p><strong>Output Structure:</strong></p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;cluster_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;phenotype_guesses&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">"cluster_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"phenotype_guesses"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CD4+ T cells&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;rationale&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;High expression of CD3, CD4, and CD45. Low expression of CD8 and CD20.&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">75.5</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"CD4+ T cells"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"rationale"</span><span class="p">:</span><span class="w"> </span><span class="s2">"High expression of CD3, CD4, and CD45. Low expression of CD8 and CD20."</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"confidence"</span><span class="p">:</span><span class="w"> </span><span class="mf">75.5</span>
 <span class="w">    </span><span class="p">},</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Helper T cells&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;rationale&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CD3+ CD4+ profile consistent with helper T cell lineage.&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">20.0</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Helper T cells"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"rationale"</span><span class="p">:</span><span class="w"> </span><span class="s2">"CD3+ CD4+ profile consistent with helper T cell lineage."</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"confidence"</span><span class="p">:</span><span class="w"> </span><span class="mf">20.0</span>
 <span class="w">    </span><span class="p">},</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T cells&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;rationale&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;General T cell markers present, but subtype uncertain.&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.5</span>
+<span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"T cells"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"rationale"</span><span class="p">:</span><span class="w"> </span><span class="s2">"General T cell markers present, but subtype uncertain."</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"confidence"</span><span class="p">:</span><span class="w"> </span><span class="mf">4.5</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;key_markers_positive&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;CD3&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CD4&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CD45&quot;</span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;key_markers_negative&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;CD8&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CD20&quot;</span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;notes&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Strong T cell signature with helper T cell characteristics.&quot;</span>
+<span class="w">  </span><span class="nt">"key_markers_positive"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"CD3"</span><span class="p">,</span><span class="w"> </span><span class="s2">"CD4"</span><span class="p">,</span><span class="w"> </span><span class="s2">"CD45"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"key_markers_negative"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"CD8"</span><span class="p">,</span><span class="w"> </span><span class="s2">"CD20"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"notes"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Strong T cell signature with helper T cell characteristics."</span>
 <span class="p">}</span>
 </pre></div>
 </div>

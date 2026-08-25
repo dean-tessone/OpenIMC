@@ -148,7 +148,7 @@
 <section id="with-manual-donor-mapping">
 <h3>With Manual Donor Mapping<a class="headerlink" href="#with-manual-donor-mapping" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>openimc<span class="w"> </span>generate-spillover-matrix<span class="w"> </span>single_stain_controls.mcd<span class="w"> </span>spillover_matrix.csv<span class="w"> </span><span class="se">\\</span>
-<span class="w">    </span>--donor-mapping<span class="w"> </span><span class="s1">&#39;{&quot;acq_1&quot;: &quot;Yb176&quot;, &quot;acq_2&quot;: &quot;Er170&quot;}&#39;</span>
+<span class="w">    </span>--donor-mapping<span class="w"> </span><span class="s1">'{"acq_1": "Yb176", "acq_2": "Er170"}'</span>
 </pre></div>
 </div>
 </section>
@@ -215,6 +215,10 @@
 - <strong>Columns</strong>: Receiver channels (receiving spillover)
 - <strong>Diagonal</strong>: Self-spillover (always 1.0)
 - <strong>Off-diagonal</strong>: Spillover from donor to receiver (0.0 to cap)</p>
+<p>With cells or pixels stored as rows, OpenIMC uses the CATALYST convention:</p>
+<div class="math notranslate nohighlight">
+\[I_{\mathrm{observed}} = I_{\mathrm{real}} S\]</div>
+<p>Both NNLS solvers estimate non-negative <code class="docutils literal notranslate"><span class="pre">I_real</span></code> against this orientation.</p>
 <p>Example matrix structure:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>         Yb176  Er170  Dy164  ...
 Yb176    1.000  0.023  0.015  ...

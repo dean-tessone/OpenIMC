@@ -69,7 +69,7 @@ Distance Distributions
   - More workers speed up computation for large datasets
 
 Spatial Communities
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
 
 - **min_cells** (default: ``5``): Minimum number of cells in a community
   - Filters out very small communities
@@ -212,6 +212,7 @@ Each edge is treated as an unordered cluster pair within an ROI.
    - Compute z-score: ``(observed - mean(permuted)) / std(permuted)``
 
 4. **P-value**: Compute a two-sided permutation p-value from the shuffled null distribution
+   - Includes the observed labeling correction ``(extreme + 1) / (n_permutations + 1)``, so a finite permutation test never reports an impossible p-value of zero
 
 5. **Plotting**: Display a symmetric cluster-by-cluster heatmap
    - The GUI averages ROI-level ``z_score`` and ``p_value`` values by ``cluster_A``/``cluster_B`` before plotting when multiple ROIs are present

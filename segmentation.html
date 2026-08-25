@@ -237,15 +237,15 @@
 <h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading">¶</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">segmentation</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cellsam&quot;</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">"cellsam"</span>
 <span class="w">  </span><span class="nt">nuclear_channels</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;DNA1_Ir191&quot;</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;DNA2_Ir193&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"DNA1_Ir191"</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"DNA2_Ir193"</span>
 <span class="w">  </span><span class="nt">cytoplasm_channels</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;CD3_1841&quot;</span>
-<span class="w">  </span><span class="nt">nuclear_fusion_method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mean&quot;</span>
-<span class="w">  </span><span class="nt">cyto_fusion_method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mean&quot;</span>
-<span class="w">  </span><span class="nt">normalization_method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;channelwise_minmax&quot;</span><span class="w">  </span><span class="c1"># Options: &quot;None&quot;, &quot;arcsinh&quot;, &quot;channelwise_minmax&quot;, &quot;percentile_clip&quot;</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"CD3_1841"</span>
+<span class="w">  </span><span class="nt">nuclear_fusion_method</span><span class="p">:</span><span class="w"> </span><span class="s">"mean"</span>
+<span class="w">  </span><span class="nt">cyto_fusion_method</span><span class="p">:</span><span class="w"> </span><span class="s">"mean"</span>
+<span class="w">  </span><span class="nt">normalization_method</span><span class="p">:</span><span class="w"> </span><span class="s">"channelwise_minmax"</span><span class="w">  </span><span class="c1"># Options: "None", "arcsinh", "channelwise_minmax", "percentile_clip"</span>
 <span class="w">  </span><span class="nt">arcsinh_cofactor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
 <span class="w">  </span><span class="nt">bbox_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span>
 <span class="w">  </span><span class="nt">use_wsi</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>

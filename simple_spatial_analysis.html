@@ -180,7 +180,7 @@
 <h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading">¶</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">spatial_analysis</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;kNN&quot;</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="s">"kNN"</span>
 <span class="w">  </span><span class="nt">k_neighbors</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 <span class="w">  </span><span class="nt">radius</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Not used for kNN</span>
 <span class="w">  </span><span class="nt">pixel_size_um</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
@@ -226,7 +226,8 @@ Each edge is treated as an unordered cluster pair within an ROI.</p>
 <li><p><strong>Permutation Test</strong>: Randomly shuffle cluster labels within each ROI while preserving the graph structure
 - Repeat <code class="docutils literal notranslate"><span class="pre">n_permutations</span></code> times
 - Compute z-score: <code class="docutils literal notranslate"><span class="pre">(observed</span> <span class="pre">-</span> <span class="pre">mean(permuted))</span> <span class="pre">/</span> <span class="pre">std(permuted)</span></code></p></li>
-<li><p><strong>P-value</strong>: Compute a two-sided permutation p-value from the shuffled null distribution</p></li>
+<li><p><strong>P-value</strong>: Compute a two-sided permutation p-value from the shuffled null distribution
+- Includes the observed labeling correction <code class="docutils literal notranslate"><span class="pre">(extreme</span> <span class="pre">+</span> <span class="pre">1)</span> <span class="pre">/</span> <span class="pre">(n_permutations</span> <span class="pre">+</span> <span class="pre">1)</span></code>, so a finite permutation test never reports an impossible p-value of zero</p></li>
 <li><p><strong>Plotting</strong>: Display a symmetric cluster-by-cluster heatmap
 - The GUI averages ROI-level <code class="docutils literal notranslate"><span class="pre">z_score</span></code> and <code class="docutils literal notranslate"><span class="pre">p_value</span></code> values by <code class="docutils literal notranslate"><span class="pre">cluster_A</span></code>/<code class="docutils literal notranslate"><span class="pre">cluster_B</span></code> before plotting when multiple ROIs are present</p></li>
 </ol>

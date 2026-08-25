@@ -36,6 +36,9 @@
   <section id="pixel-correlation-analysis">
 <h1>Pixel Correlation Analysis<a class="headerlink" href="#pixel-correlation-analysis" title="Link to this heading">¶</a></h1>
 <p>Pixel correlation analysis computes pairwise correlations between markers at the pixel level, helping identify co-expression patterns, spatial co-localization, and potential spillover effects.</p>
+<p>If an image contains non-finite values, each marker pair uses its own
+pairwise-complete pixels. Missing values in an unrelated third channel do not
+change another pair’s coefficient or reported <code class="docutils literal notranslate"><span class="pre">n_pixels</span></code>.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>Pixel correlation analysis examines how marker intensities co-vary at the pixel level across the image. This can reveal:
@@ -118,9 +121,9 @@
 <h3>Workflow YAML Example<a class="headerlink" href="#workflow-yaml-example" title="Link to this heading">¶</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pixel_correlation</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="c1"># input: &quot;path/to/input.mcd&quot;  # Optional: uses previous step output if not specified</span>
-<span class="w">  </span><span class="c1"># output: &quot;pixel_correlation.csv&quot;  # Optional: override default output location</span>
-<span class="w">  </span><span class="c1"># mask: &quot;path/to/masks/&quot;  # Optional: restrict to cell pixels</span>
+<span class="w">  </span><span class="c1"># input: "path/to/input.mcd"  # Optional: uses previous step output if not specified</span>
+<span class="w">  </span><span class="c1"># output: "pixel_correlation.csv"  # Optional: override default output location</span>
+<span class="w">  </span><span class="c1"># mask: "path/to/masks/"  # Optional: restrict to cell pixels</span>
 </pre></div>
 </div>
 </section>

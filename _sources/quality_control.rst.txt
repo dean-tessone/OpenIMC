@@ -1,13 +1,13 @@
 Quality Control Analysis
 =========================
 
-Quality control (QC) analysis assesses image quality by computing metrics such as Signal-to-Noise Ratio (SNR), intensity statistics, and coverage metrics for each channel.
+Quality control (QC) analysis assesses image quality by computing Signal-to-Noise Ratio (SNR), Contrast-to-Noise Ratio (CNR), intensity statistics, and coverage metrics for each channel.
 
 Overview
 --------
 
 QC analysis helps identify:
-- **Low-quality channels**: Channels with poor signal-to-noise ratios
+- **Low-quality channels**: Channels with poor signal-to-noise or contrast-to-noise ratios
 - **Detection issues**: Channels with low coverage or detection rates
 - **Image artifacts**: Unusual intensity distributions or patterns
 - **Acquisition problems**: Systematic issues across acquisitions
@@ -63,6 +63,7 @@ Using Quality Control Analysis in the GUI
    
      - **Pixel-level**: Uses Otsu thresholding (no mask required)
      - **Cell-level**: Uses segmentation masks (requires masks to be loaded)
+
    - In cell-level mode, choose the **Cell Signal Definition**:
 
      - **Positive pixels above background**: Best default for sparse markers
@@ -75,10 +76,13 @@ Using Quality Control Analysis in the GUI
 
 4. Results are displayed in multiple tabs:
    - **QC Metrics Table**: Detailed metrics for each channel
-   - **SNR vs Intensity**: Scatter plot showing SNR vs mean intensity
+   - **SNR / CNR vs Intensity**: Side-by-side plots showing each noise-normalized metric vs mean signal intensity
    - **Distribution Plots**: Boxplots showing distributions across ROIs
 
-5. Export results using the **Export Results** button
+5. Export results using the **Export Results** button. OpenIMC writes both:
+
+   - A pooled channel summary (the selected filename)
+   - A companion ``*_per_roi.csv`` file containing every ROI-level metric used in the summary
 
 Using Quality Control Analysis in the CLI
 -------------------------------------------
@@ -146,36 +150,71 @@ Workflow YAML Example
 Method Details
 --------------
 
-Signal-to-Noise Ratio (SNR)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Signal-to-Noise and Contrast-to-Noise Ratios
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-SNR measures the strength of the signal relative to background noise. Higher SNR indicates better image quality.
+SNR and CNR answer different questions. SNR measures the magnitude of the
+selected signal relative to background noise, while CNR measures how clearly
+the selected signal is separated from the background mean. OpenIMC reports both
+and states the equations explicitly because microscopy terminology is not
+uniform across publications.
 
-**SNR Equation:**
+**SNR equation:**
 
 .. math::
 
-   \text{SNR} = \frac{\mu_{\text{signal}} - \mu_{\text{background}}}{\sigma_{\text{background}}}
+   \text{SNR} = \frac{\mu_{\text{signal}}}{\sigma_{\text{background}}}
+
+**CNR equation:**
+
+.. math::
+
+   \text{CNR} = \frac{|\mu_{\text{signal}} - \mu_{\text{background}}|}{\sigma_{\text{background}}}
 
 Where:
 - :math:`\mu_{\text{signal}}` = Mean intensity of signal (foreground) pixels
 - :math:`\mu_{\text{background}}` = Mean intensity of background pixels
 - :math:`\sigma_{\text{background}}` = Standard deviation of background pixels
 
-**Robust SNR Calculation:**
+These are the linear forms of the Gaussian region metrics described for
+`fluorescence microscopy <https://www.nature.com/articles/srep20640>`_, where
+SNR uses the signal-region mean and CNR uses the signal-background difference,
+both relative to the background-region SD.
 
-To prevent inflated SNR values when background standard deviation is extremely small, OpenIMC uses a minimum background standard deviation:
+**Robust denominator:**
+
+To prevent inflated SNR or CNR values when background standard deviation is extremely small, OpenIMC uses a minimum background standard deviation:
 
 .. math::
 
    \sigma_{\text{min}} = \max(\sigma_{\text{background}}, 0.001 \times |\mu_{\text{background}}|, 0.0001 \times \text{range}, 10^{-6})
 
-   \text{SNR} = \frac{\mu_{\text{signal}} - \mu_{\text{background}}}{\sigma_{\text{min}}}
+   \text{SNR} = \frac{\mu_{\text{signal}}}{\sigma_{\text{min}}}
+
+   \text{CNR} = \frac{|\mu_{\text{signal}} - \mu_{\text{background}}|}{\sigma_{\text{min}}}
 
 Where:
 - :math:`\text{range}` = Image intensity range (max - min)
 
-This ensures SNR values remain reasonable even for very uniform backgrounds or very low-intensity channels.
+This ensures both metrics remain finite and bounded against unrealistically
+small denominators in very uniform or very low-intensity backgrounds.
+
+**Multiple-ROI summaries:**
+
+OpenIMC pools signal and background pixel counts, means, and population
+variances across ROIs before calculating channel-level SNR and CNR. It does not
+average ROI-level ratios. Consequently, both metrics in an exported channel
+summary can be reproduced directly from that row's ``signal_mean``,
+``background_mean``, and ``background_std`` values. Use the companion
+``*_per_roi.csv`` export to inspect ROI heterogeneity.
+
+SNR can remain high when both foreground and background have an elevated
+baseline; CNR removes that baseline and measures their separation. Conversely,
+a dim channel with a stable background can have a useful CNR despite low raw
+intensity. Review the two metrics together with ``signal_minus_background`` and
+``background_std``. IMC hot pixels and speckles can increase background SD;
+inspect per-ROI values and use the pre-QC denoising controls when artifacts are
+present.
 
 **Pixel-level Mode:**
 - Uses Otsu thresholding to separate foreground (signal) from background
@@ -240,9 +279,12 @@ The following metrics are computed for each channel:
 
 **Quality Metrics:**
 - **snr**: Signal-to-Noise Ratio (see equation above)
+- **cnr**: Contrast-to-Noise Ratio (see equation above)
+- **signal_minus_background**: Signed foreground-minus-background intensity difference (channel summary)
+- **signal_to_background_ratio**: Foreground mean divided by background mean (channel summary)
 - **coverage_pct**: Percentage of pixels covered by signal/cells
 - **cell_density** (cell mode only): Number of cells per unit area
-- **cell_signal_method** (cell mode only): Signal definition used for the reported SNR
+- **cell_signal_method** (cell mode only): Signal definition used for the reported SNR and CNR
 - **signal_threshold** (positive-pixel mode only): Background-derived threshold used to select signal pixels
 - **signal_quantile** (upper-quantile mode only): Quantile used to select high-signal cells
 - **n_signal_pixels** (cell mode only): Number of signal pixels selected by the chosen cell signal method
@@ -258,14 +300,15 @@ Tips and Best Practices
 
 1. **Mode Selection**:
    - Use **pixel-level** mode for quick assessment without segmentation
-   - Use **cell-level** mode for more accurate SNR when segmentation is available
+   - Use **cell-level** mode for more biologically targeted SNR/CNR when segmentation is available
    - For sparse markers, prefer **positive_pixels** or **upper_quantile** over legacy all-cell averaging
 
-2. **SNR Interpretation**:
-   - **SNR > 10**: Excellent signal quality
-   - **SNR 5-10**: Good signal quality
-   - **SNR 2-5**: Acceptable but may need optimization
-   - **SNR < 2**: Poor signal quality, consider excluding or optimizing
+2. **SNR and CNR Interpretation**:
+   - Treat both configurable thresholds as study-specific references, not universal pass/fail cutoffs
+   - Use SNR for signal magnitude relative to noise and CNR for signal-background separation
+   - Compare like-for-like signal definitions, preprocessing settings, and tissue types
+   - Review ``signal_minus_background`` and ``background_std`` before concluding that a visually bright channel is low quality
+   - Investigate hot pixels, speckles, segmentation leakage, and ROI outliers in the per-ROI export
 
 3. **Coverage Interpretation**:
    - Low coverage may indicate:
@@ -284,9 +327,9 @@ Tips and Best Practices
 
 5. **Channel Filtering**:
    - Use QC metrics to identify and exclude low-quality channels
-   - Set minimum SNR thresholds for downstream analysis
+   - Set study-specific SNR and CNR thresholds for downstream analysis
 
 6. **Validation**:
-   - Check SNR vs Intensity plot for expected relationships
-   - High-intensity channels should generally have higher SNR
-   - Investigate outliers in the SNR vs Intensity plot
+   - Check the side-by-side SNR/CNR vs Intensity plots for expected relationships
+   - Investigate channels whose SNR and CNR disagree; an elevated background mean can increase SNR without improving contrast
+   - Investigate outliers in either plot using the per-ROI export

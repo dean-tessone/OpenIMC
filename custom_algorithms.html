@@ -77,7 +77,7 @@ the existing OpenIMC pipeline.</p>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomSegmenter</span><span class="p">(</span><span class="n">BaseSegmenter</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_segmenter&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"my_custom_segmenter"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">segment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">nuclear_image</span><span class="p">,</span> <span class="n">cyto_image</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="c1"># Validate inputs (optional, but recommended)</span>
@@ -87,7 +87,7 @@ the existing OpenIMC pipeline.</p>
         <span class="c1"># ...</span>
 
         <span class="c1"># Create mask (example: simple thresholding)</span>
-        <span class="n">threshold</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;threshold&#39;</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+        <span class="n">threshold</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'threshold'</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
         <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">nuclear_image</span> <span class="o">&gt;</span> <span class="n">threshold</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint32</span><span class="p">)</span>
 
         <span class="c1"># Validate output (optional, but recommended)</span>
@@ -125,7 +125,7 @@ the existing OpenIMC pipeline.</p>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomClusterer</span><span class="p">(</span><span class="n">BaseClusterer</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_clusterer&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"my_custom_clusterer"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">features_df</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="c1"># Validate and prepare inputs</span>
@@ -133,7 +133,7 @@ the existing OpenIMC pipeline.</p>
         <span class="n">original_shape</span> <span class="o">=</span> <span class="n">features_df</span><span class="o">.</span><span class="n">shape</span>
 
         <span class="c1"># Your clustering algorithm here</span>
-        <span class="n">n_clusters</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;n_clusters&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="n">n_clusters</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'n_clusters'</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
         <span class="n">kmeans</span> <span class="o">=</span> <span class="n">KMeans</span><span class="p">(</span><span class="n">n_clusters</span><span class="o">=</span><span class="n">n_clusters</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
         <span class="n">cluster_labels</span> <span class="o">=</span> <span class="n">kmeans</span><span class="o">.</span><span class="n">fit_predict</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">values</span><span class="p">)</span>
 
@@ -142,7 +142,7 @@ the existing OpenIMC pipeline.</p>
 
         <span class="c1"># Add cluster column</span>
         <span class="n">result_df</span> <span class="o">=</span> <span class="n">features_df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-        <span class="n">result_df</span><span class="p">[</span><span class="s1">&#39;cluster&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cluster_labels</span>
+        <span class="n">result_df</span><span class="p">[</span><span class="s1">'cluster'</span><span class="p">]</span> <span class="o">=</span> <span class="n">cluster_labels</span>
 
         <span class="c1"># Validate output</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">validate_output</span><span class="p">(</span><span class="n">result_df</span><span class="p">,</span> <span class="n">original_shape</span><span class="p">)</span>
@@ -188,7 +188,7 @@ the existing OpenIMC pipeline.</p>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">MyCustomFeatureExtractor</span><span class="p">(</span><span class="n">BaseFeatureExtractor</span><span class="p">):</span>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_extractor&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"my_custom_extractor"</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">extract</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="n">image_stack</span><span class="p">,</span> <span class="n">channel_names</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="c1"># Validate inputs</span>
@@ -201,7 +201,7 @@ the existing OpenIMC pipeline.</p>
         <span class="n">features_list</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">unique_labels</span><span class="p">):</span>
             <span class="n">cell_id</span> <span class="o">=</span> <span class="n">idx</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># 1-based</span>
-            <span class="n">features</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;cell_id&#39;</span><span class="p">:</span> <span class="n">cell_id</span><span class="p">,</span> <span class="s1">&#39;label&#39;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">label</span><span class="p">)}</span>
+            <span class="n">features</span> <span class="o">=</span> <span class="p">{</span><span class="s1">'cell_id'</span><span class="p">:</span> <span class="n">cell_id</span><span class="p">,</span> <span class="s1">'label'</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">label</span><span class="p">)}</span>
 
             <span class="c1"># Create binary mask for this cell</span>
             <span class="n">cell_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">mask</span> <span class="o">==</span> <span class="n">label</span><span class="p">)</span>
@@ -233,7 +233,7 @@ by modifying the core functions to support your new algorithm. Here’s how:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">segment</span><span class="p">(</span><span class="n">loader</span><span class="p">,</span> <span class="n">acquisition</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
     <span class="c1"># ... existing code ...</span>
 
-    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;my_custom_segmenter&#39;</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">'my_custom_segmenter'</span><span class="p">:</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">my_module</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyCustomSegmenter</span>
 
         <span class="c1"># Preprocess channels (same as other methods)</span>
@@ -257,10 +257,10 @@ by modifying the core functions to support your new algorithm. Here’s how:</p>
 <section id="clustering-integration">
 <h3>Clustering Integration<a class="headerlink" href="#clustering-integration" title="Link to this heading">¶</a></h3>
 <p>Modify <code class="docutils literal notranslate"><span class="pre">openimc.core.cluster()</span></code> to add your clusterer:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span><span class="n">features_df</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;leiden&#39;</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">cluster</span><span class="p">(</span><span class="n">features_df</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">'leiden'</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
     <span class="c1"># ... existing code ...</span>
 
-    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;my_custom_clusterer&#39;</span><span class="p">:</span>
+    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s1">'my_custom_clusterer'</span><span class="p">:</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">my_module</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyCustomClusterer</span>
 
         <span class="c1"># Create clusterer instance</span>
