@@ -348,23 +348,12 @@ def extract_features_for_acquisition(
                             continue
 
                         try:
-                            pix_sorted = np.sort(pix)
-                            n = len(pix_sorted)
-
-                            if n % 2 == 0:
-                                median_vals[i] = float((pix_sorted[n // 2 - 1] + pix_sorted[n // 2]) / 2.0)
-                            else:
-                                median_vals[i] = float(pix_sorted[n // 2])
-
-                            p10_vals[i] = float(pix_sorted[int(n * 0.10)])
-                            p90_vals[i] = float(pix_sorted[int(n * 0.90)])
-
-                            abs_dev = np.abs(pix - median_vals[i])
-                            abs_dev_sorted = np.sort(abs_dev)
-                            if n % 2 == 0:
-                                mad_vals[i] = float((abs_dev_sorted[n // 2 - 1] + abs_dev_sorted[n // 2]) / 2.0)
-                            else:
-                                mad_vals[i] = float(abs_dev_sorted[n // 2])
+                            median_vals[i] = float(np.median(pix))
+                            p10_vals[i] = float(np.percentile(pix, 10))
+                            p90_vals[i] = float(np.percentile(pix, 90))
+                            mad_vals[i] = float(
+                                np.median(np.abs(pix - median_vals[i]))
+                            )
                         except Exception as e:
                             print(f"[feature_worker] [ERROR] Error processing label {lbl} for channel {ch_name}: {e}")
                             median_vals[i] = np.nan

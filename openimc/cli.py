@@ -2261,7 +2261,7 @@ def workflow_command(args):
                 sigma=batch_config.get('sigma', 0.1),
                 theta=batch_config.get('theta', 2.0),
                 lambda_reg=batch_config.get('lambda_reg', 1.0),
-                max_iter=batch_config.get('max_iter', 10),
+                max_iter=batch_config.get('max_iter', 20),
                 pca_variance=batch_config.get('pca_variance', 0.9)
             )
         else:

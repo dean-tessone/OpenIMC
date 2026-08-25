@@ -29,7 +29,12 @@ import tifffile
 
 from openimc.data.mcd_loader import MCDLoader, AcquisitionInfo
 from openimc.data.ometiff_loader import OMETIFFLoader
-from openimc.core import _compute_cell_signal_metrics, qc_analysis
+from openimc.core import (
+    _calculate_qc_cnr,
+    _calculate_qc_snr,
+    _compute_cell_signal_metrics,
+    qc_analysis,
+)
 
 # Optional scikit-image for pixel-level QC
 try:
@@ -200,28 +205,30 @@ def qc_calculate_pixel_metrics_worker(img: np.ndarray, channel: str) -> Optional
         foreground = img_float[img_float > threshold]
         background = img_float[img_float <= threshold]
         
-        if len(foreground) == 0 or len(background) == 0:
-            return None
-        
         # Calculate metrics
-        signal_mean = np.mean(foreground)
-        signal_std = np.std(foreground)
-        background_mean = np.mean(background)
-        background_std = np.std(background)
+        signal_mean = np.mean(foreground) if foreground.size else np.mean(img_float)
+        signal_std = np.std(foreground) if foreground.size else 0.0
+        background_mean = np.mean(background) if background.size else np.mean(img_float)
+        background_std = np.std(background) if background.size else np.std(img_float)
         
-        # Calculate image range for robust SNR calculation
+        # Calculate image range for the shared robust noise denominator
         img_min = np.min(img_float)
         img_max = np.max(img_float)
         
-        # SNR: (signal_mean - background_mean) / background_std (with robust handling)
-        if background_std > 0:
-            snr = (signal_mean - background_mean) / background_std
-        else:
-            # Fallback: use range-based SNR
-            if img_max > img_min:
-                snr = (signal_mean - background_mean) / (img_max - img_min + 1e-6)
-            else:
-                snr = 0.0
+        snr = _calculate_qc_snr(
+            float(signal_mean),
+            float(background_mean),
+            float(background_std),
+            float(img_min),
+            float(img_max),
+        )
+        cnr = _calculate_qc_cnr(
+            float(signal_mean),
+            float(background_mean),
+            float(background_std),
+            float(img_min),
+            float(img_max),
+        )
         
         # Intensity metrics (using raw pixel intensities)
         mean_intensity = np.mean(img_float)
@@ -240,6 +247,7 @@ def qc_calculate_pixel_metrics_worker(img: np.ndarray, channel: str) -> Optional
         
         return {
             'snr': snr,
+            'cnr': cnr,
             'signal_mean': signal_mean,
             'signal_std': signal_std,
             'background_mean': background_mean,
@@ -312,6 +320,7 @@ def qc_calculate_cell_metrics_worker(
         signal_mean = signal_metrics['signal_mean']
         signal_std = signal_metrics['signal_std']
         snr = signal_metrics['snr']
+        cnr = signal_metrics['cnr']
         
         # Intensity metrics (raw image intensities for consistency with core.qc_analysis)
         mean_intensity = np.mean(img_float)
@@ -330,6 +339,7 @@ def qc_calculate_cell_metrics_worker(
         
         return {
             'snr': snr,
+            'cnr': cnr,
             'signal_mean': signal_mean,
             'signal_std': signal_std,
             'background_mean': background_mean,

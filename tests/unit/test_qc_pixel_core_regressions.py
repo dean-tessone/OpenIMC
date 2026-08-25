@@ -22,7 +22,14 @@ import pandas as pd
 import pytest
 from scipy.stats import spearmanr
 
-from openimc.core import _qc_min_background_std, pixel_correlation, qc_analysis
+from openimc.core import (
+    _calculate_qc_cnr,
+    _calculate_qc_snr,
+    _qc_min_background_std,
+    aggregate_qc_results,
+    pixel_correlation,
+    qc_analysis,
+)
 from openimc.data.mcd_loader import AcquisitionInfo
 
 
@@ -54,6 +61,19 @@ def _build_dummy_acquisition(channels):
         metadata={},
         source_file="dummy",
     )
+
+
+def test_qc_snr_and_cnr_are_distinct_region_based_metrics():
+    signal_mean = 12.0
+    background_mean = 4.0
+    background_std = 2.0
+
+    snr = _calculate_qc_snr(signal_mean, background_mean, background_std)
+    cnr = _calculate_qc_cnr(signal_mean, background_mean, background_std)
+
+    assert snr == pytest.approx(6.0)
+    assert cnr == pytest.approx(4.0)
+    assert snr != cnr
 
 
 def test_qc_analysis_applies_denoise_settings_before_metrics(monkeypatch):
@@ -132,7 +152,8 @@ def test_qc_analysis_cell_mode_uses_cell_pixels_for_signal_metrics():
     expected_signal_std = float(np.std(signal_pixels))
     expected_background_mean = float(np.mean(background_pixels))
     expected_background_std = float(np.std(background_pixels))
-    expected_snr = (expected_signal_mean - expected_background_mean) / expected_background_std
+    expected_snr = expected_signal_mean / expected_background_std
+    expected_cnr = abs(expected_signal_mean - expected_background_mean) / expected_background_std
 
     row = qc_df.iloc[0]
     assert row["signal_mean"] == pytest.approx(expected_signal_mean)
@@ -140,10 +161,14 @@ def test_qc_analysis_cell_mode_uses_cell_pixels_for_signal_metrics():
     assert row["background_mean"] == pytest.approx(expected_background_mean)
     assert row["background_std"] == pytest.approx(expected_background_std)
     assert row["snr"] == pytest.approx(expected_snr)
+    assert row["cnr"] == pytest.approx(expected_cnr)
     assert row["cell_signal_method"] == "all_cell_mean"
     assert row["n_signal_pixels"] == signal_pixels.size
     assert row["n_signal_cells"] == 2
     assert row["signal_fraction"] == pytest.approx(1.0)
+    assert row["n_total_pixels"] == channel_a.size
+    assert row["n_cell_pixels"] == np.count_nonzero(mask > 0)
+    assert row["n_background_pixels"] == np.count_nonzero(mask == 0)
 
 
 def test_qc_analysis_cell_positive_pixels_focuses_on_marker_positive_pixels():
@@ -302,6 +327,7 @@ def test_qc_analysis_cell_positive_pixels_handles_no_detected_signal():
     row = qc_df.iloc[0]
     background_pixels = channel_a[mask == 0]
     assert row["snr"] == 0.0
+    assert row["cnr"] == 0.0
     assert row["n_signal_pixels"] == 0
     assert row["n_signal_cells"] == 0
     assert row["signal_fraction"] == 0.0
@@ -337,3 +363,98 @@ def test_pixel_correlation_vectorized_path_matches_manual_pairwise_spearman():
         expected_corr, expected_p = manual[pair]
         assert row["correlation"] == expected_corr
         assert row["p_value"] == expected_p
+
+
+def test_pixel_correlation_uses_pairwise_complete_pixels():
+    channels = ["A", "B", "C"]
+    channel_a = np.array([[1, 2], [3, 4]], dtype=np.float32)
+    channel_b = np.array([[2, 4], [6, 8]], dtype=np.float32)
+    channel_c = np.array([[1, np.nan], [2, 3]], dtype=np.float32)
+    stack = np.stack([channel_a, channel_b, channel_c], axis=-1)
+    loader = _DummyLoader(stack, channels)
+    acquisition = _build_dummy_acquisition(channels)
+
+    corr_df = pixel_correlation(loader, acquisition, channels)
+    counts = {
+        (row.marker1, row.marker2): row.n_pixels
+        for row in corr_df.itertuples(index=False)
+    }
+
+    assert counts[("A", "B")] == 4
+    assert counts[("A", "C")] == 3
+    assert counts[("B", "C")] == 3
+    assert corr_df.loc[
+        (corr_df["marker1"] == "A") & (corr_df["marker2"] == "B"),
+        "correlation",
+    ].iloc[0] == pytest.approx(1.0)
+
+
+def test_qc_summary_pools_pixels_before_calculating_snr_and_cnr():
+    per_roi = pd.DataFrame(
+        {
+            "channel": ["Marker", "Marker"],
+            "mode": ["cell", "cell"],
+            "cell_signal_method": ["all_cell_mean", "all_cell_mean"],
+            "snr": [9.0, 1.0],  # Deliberately not the pooled result.
+            "cnr": [8.0, 0.5],  # Deliberately not the pooled result.
+            "signal_mean": [10.0, 20.0],
+            "signal_std": [2.0, 4.0],
+            "background_mean": [1.0, 3.0],
+            "background_std": [1.0, 2.0],
+            "mean_intensity": [4.0, 12.0],
+            "std_intensity": [3.0, 6.0],
+            "median_intensity": [2.0, 8.0],
+            "min_intensity": [0.0, 0.0],
+            "max_intensity": [30.0, 40.0],
+            "n_signal_pixels": [100, 300],
+            "n_background_pixels": [200, 100],
+            "n_cell_pixels": [150, 350],
+            "n_total_pixels": [350, 450],
+            "n_cells": [10, 20],
+        }
+    )
+
+    summary = aggregate_qc_results(per_roi).iloc[0]
+
+    expected_signal_mean = (100 * 10.0 + 300 * 20.0) / 400
+    expected_background_mean = (200 * 1.0 + 100 * 3.0) / 300
+    expected_background_second_moment = (
+        200 * (1.0 ** 2 + 1.0 ** 2) + 100 * (2.0 ** 2 + 3.0 ** 2)
+    ) / 300
+    expected_background_std = np.sqrt(
+        expected_background_second_moment - expected_background_mean ** 2
+    )
+    expected_snr = expected_signal_mean / expected_background_std
+    expected_cnr = abs(
+        expected_signal_mean - expected_background_mean
+    ) / expected_background_std
+
+    assert summary["n_rois"] == 2
+    assert summary["n_signal_pixels"] == 400
+    assert summary["n_background_pixels"] == 300
+    assert summary["signal_mean"] == pytest.approx(expected_signal_mean)
+    assert summary["background_mean"] == pytest.approx(expected_background_mean)
+    assert summary["background_std"] == pytest.approx(expected_background_std)
+    assert summary["signal_minus_background"] == pytest.approx(
+        expected_signal_mean - expected_background_mean
+    )
+    assert summary["snr"] == pytest.approx(expected_snr)
+    assert summary["cnr"] == pytest.approx(expected_cnr)
+    assert summary["snr"] != pytest.approx(per_roi["snr"].mean())
+    assert summary["cnr"] != pytest.approx(per_roi["cnr"].mean())
+
+
+def test_qc_analysis_rejects_cell_mask_without_background():
+    channels = ["A"]
+    stack = np.ones((4, 4, 1), dtype=np.float32)
+    loader = _DummyLoader(stack, channels)
+    acquisition = _build_dummy_acquisition(channels)
+
+    with pytest.raises(ValueError, match="non-cell pixels"):
+        qc_analysis(
+            loader,
+            acquisition,
+            channels,
+            mode="cell",
+            mask=np.ones((4, 4), dtype=np.uint16),
+        )

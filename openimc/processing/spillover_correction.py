@@ -91,15 +91,22 @@ def align_channels(
 # ----------------------------- Core solvers --------------------------------
 
 def _nnls_batch_scipy(Y: np.ndarray, S: np.ndarray) -> np.ndarray:
-    """Row-wise NNLS using SciPy (exact; slower)."""
+    """Row-wise NNLS using SciPy (exact; slower).
+
+    Spillover matrices use the CATALYST convention ``Y = X @ S`` where rows
+    are events and ``S[i, j]`` is spill from donor ``i`` into receiver ``j``.
+    SciPy's NNLS solver accepts a column-vector system, so each event must solve
+    ``S.T @ x = y``.
+    """
     N, C = Y.shape
     X = np.empty_like(Y)
+    design = S.T
     # Column scaling improves conditioning
-    colnorm = np.linalg.norm(S, axis=0)
+    colnorm = np.linalg.norm(design, axis=0)
     colnorm[colnorm == 0] = 1.0
-    S_scaled = S / colnorm
+    design_scaled = design / colnorm
     for i in range(N):
-        z, _ = _scipy_nnls(S_scaled, Y[i])
+        z, _ = _scipy_nnls(design_scaled, Y[i])
         X[i] = z / colnorm
     return X
 
@@ -113,7 +120,7 @@ def _nnls_batch_pgd(
 ) -> np.ndarray:
     """
     Batched projected gradient descent for NNLS:
-      minimize 0.5 || S Z - Y ||_F^2 s.t. Z >= 0
+      minimize 0.5 || Z S - Y ||_F^2 s.t. Z >= 0
     Very fast, typically close to NNLS.
     """
     N, C = Y.shape
@@ -126,14 +133,14 @@ def _nnls_batch_pgd(
         Z = np.zeros_like(Y)
     elif init == "obs":
         reg = 1e-6 * np.eye(C)
-        Z = (Y @ np.linalg.inv(S + reg).T).clip(min=0.0)
+        Z = (Y @ np.linalg.inv(S + reg)).clip(min=0.0)
     else:
         raise ValueError("init must be 'zeros' or 'obs'.")
 
     prev_obj = np.inf
     for k in range(max_iter):
-        R = (Z @ S.T) - Y      # (N,C), this is (S Z - Y) in row-space
-        grad = R @ S           # ∇ = (S Z - Y) S^T
+        R = (Z @ S) - Y
+        grad = R @ S.T
         Z -= alpha * grad
         np.maximum(Z, 0.0, out=Z)
 
@@ -172,10 +179,23 @@ def compensate_counts(
     -------
     (comp_counts_df, comp_asinh_df or None)
     """
+    if channel_map:
+        missing_map_columns = sorted(set(channel_map) - set(X_counts.columns))
+        if missing_map_columns:
+            raise ValueError(f"channel_map contains columns not present in X: {missing_map_columns}")
+        mapped_names = [channel_map.get(column, column) for column in X_counts.columns]
+        if len(set(mapped_names)) != len(mapped_names):
+            raise ValueError("channel_map must map input columns to unique channel names")
+
     # Align channels and get numeric arrays
     X_sub, S_sub, mask_present = align_channels(X_counts, S, channel_map, strict=strict_align)
     Y = X_sub.values.astype(np.float64, copy=False)  # (N, C)
     M = S_sub.values.astype(np.float64, copy=False)  # (C, C)
+
+    if not np.all(np.isfinite(Y)):
+        raise ValueError("X_counts must contain only finite numeric values")
+    if not np.all(np.isfinite(M)):
+        raise ValueError("Spillover matrix must contain only finite numeric values")
 
     if method == "nnls":
         if not _HAVE_SCIPY:
@@ -191,9 +211,18 @@ def compensate_counts(
 
     comp = pd.DataFrame(X_comp, index=X_sub.index, columns=X_sub.columns)
 
+    # Restore caller-facing input names after alignment through channel_map.
+    aligned_to_original = {
+        channel_map.get(column, column) if channel_map else column: column
+        for column in X_counts.columns
+    }
+    comp = comp.rename(columns=aligned_to_original)
+
+    untouched = []
     if return_all_channels and (len(X_counts.columns) != len(X_sub.columns)):
         # Reattach untouched channels (those not in S)
-        untouched = [c for c in X_counts.columns if c not in X_sub.columns]
+        compensated_original = set(comp.columns)
+        untouched = [c for c in X_counts.columns if c not in compensated_original]
         for c in untouched:
             comp[c] = X_counts[c].values
         # Preserve original column order
@@ -202,8 +231,13 @@ def compensate_counts(
     comp_asinh = None
     if arcsinh_cofactor is not None:
         c = float(arcsinh_cofactor)
+        if not np.isfinite(c) or c <= 0:
+            raise ValueError("arcsinh_cofactor must be a positive finite value")
         comp_asinh = comp.copy()
-        comp_asinh.loc[:, X_sub.columns] = np.arcsinh(comp.loc[:, X_sub.columns].values / c)
+        compensated_columns = [column for column in X_counts.columns if column in comp.columns and column not in untouched] if return_all_channels else list(comp.columns)
+        comp_asinh.loc[:, compensated_columns] = np.arcsinh(
+            comp.loc[:, compensated_columns].values / c
+        )
 
     return comp, comp_asinh
 
@@ -346,4 +380,3 @@ def comp_image_counts(
                 out[y0:y1, x0:x1, :] = _solve_block(img_counts[y0:y1, x0:x1, :])
     
     return out
-

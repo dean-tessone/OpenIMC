@@ -10482,6 +10482,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 qc_ui_state["num_workers"] = dlg.workers_spin.value()
             if hasattr(dlg, 'snr_threshold_spin'):
                 qc_ui_state["snr_threshold"] = dlg.snr_threshold_spin.value()
+            if hasattr(dlg, 'cnr_threshold_spin'):
+                qc_ui_state["cnr_threshold"] = dlg.cnr_threshold_spin.value()
             if hasattr(dlg, 'denoise_source_combo'):
                 qc_ui_state["denoise_source"] = dlg.denoise_source_combo.currentText()
             if hasattr(dlg, 'custom_denoise_settings') and dlg.custom_denoise_settings:
@@ -11159,6 +11161,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 dialog.workers_spin.setValue(ui_state["num_workers"])
             if "snr_threshold" in ui_state and hasattr(dialog, 'snr_threshold_spin'):
                 dialog.snr_threshold_spin.setValue(float(ui_state["snr_threshold"]))
+            if "cnr_threshold" in ui_state and hasattr(dialog, 'cnr_threshold_spin'):
+                dialog.cnr_threshold_spin.setValue(float(ui_state["cnr_threshold"]))
 
             if "denoise_source" in ui_state and hasattr(dialog, 'denoise_source_combo'):
                 index = dialog.denoise_source_combo.findText(ui_state["denoise_source"])

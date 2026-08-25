@@ -106,4 +106,15 @@ def test_roi_enrichment_worker_counts_all_cluster_pairs_for_each_roi():
     assert len(results) == 3
     assert np.isfinite(results['z_score']).all()
     assert np.isfinite(results['p_value']).all()
+    assert (results['p_value'] >= (1 / 9)).all()
     assert (results['n_permutations'] == 8).all()
+
+
+def test_roi_enrichment_worker_requires_at_least_one_permutation():
+    roi_df = pd.DataFrame({'cell_id': [1, 2], 'cluster': [1, 2]})
+    roi_edges = pd.DataFrame({'cell_id_A': [1], 'cell_id_B': [2]})
+
+    with pytest.raises(ValueError, match="at least 1"):
+        worker_module.roi_enrichment_worker(
+            ('ROI_1', roi_df, roi_edges, 'cluster', 0, 7)
+        )
