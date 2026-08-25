@@ -206,6 +206,7 @@ class TestQCAnalysisCLI:
         assert actual.loc[0, "cell_signal_method"] == "upper_quantile"
         assert actual.loc[0, "signal_quantile"] == pytest.approx(0.75)
         assert actual.loc[0, "snr"] == pytest.approx(expected.loc[0, "snr"])
+        assert actual.loc[0, "cnr"] == pytest.approx(expected.loc[0, "cnr"])
         assert actual.loc[0, "signal_mean"] == pytest.approx(expected.loc[0, "signal_mean"])
 
 

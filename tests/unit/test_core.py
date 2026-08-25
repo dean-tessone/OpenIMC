@@ -729,15 +729,19 @@ class TestQCAnalysis:
         # Check for expected columns
         assert 'channel' in qc_df.columns, "QC results should have 'channel' column"
         assert 'snr' in qc_df.columns, "QC results should have 'snr' column"
+        assert 'cnr' in qc_df.columns, "QC results should have 'cnr' column"
         assert 'intensity_mean' in qc_df.columns, "QC results should have 'intensity_mean' column"
         assert 'mode' in qc_df.columns, "QC results should have 'mode' column"
         
         # Check that all rows are in pixel mode
         assert (qc_df['mode'] == 'pixel').all(), "All results should be in pixel mode"
         
-        # Check that SNR values are reasonable (can be negative but should be finite)
+        # Check that the noise-normalized metrics are finite.
         assert qc_df['snr'].notna().all(), "SNR values should not be NaN"
         assert np.isfinite(qc_df['snr']).all(), "SNR values should be finite"
+        assert qc_df['cnr'].notna().all(), "CNR values should not be NaN"
+        assert np.isfinite(qc_df['cnr']).all(), "CNR values should be finite"
+        assert (qc_df['cnr'] >= 0).all(), "CNR values should be non-negative"
         
         # Check that intensity values are reasonable
         assert qc_df['intensity_mean'].notna().all(), "Intensity means should not be NaN"
@@ -797,6 +801,7 @@ class TestQCAnalysis:
         if len(qc_df) > 0:
             assert 'channel' in qc_df.columns, "QC results should have 'channel' column"
             assert 'snr' in qc_df.columns, "QC results should have 'snr' column"
+            assert 'cnr' in qc_df.columns, "QC results should have 'cnr' column"
             assert 'n_cells' in qc_df.columns, "Cell mode QC should have 'n_cells' column"
             
             # Check that all rows are in cell mode

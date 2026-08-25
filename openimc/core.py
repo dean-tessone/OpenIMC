@@ -125,10 +125,21 @@ def _calculate_qc_snr(
     img_min: Optional[float] = None,
     img_max: Optional[float] = None,
 ) -> float:
-    """Calculate Signal-to-Noise Ratio with robust handling."""
-    signal_diff = signal_mean - background_mean
+    """Calculate region-based SNR as signal mean divided by background noise."""
     min_std = _qc_min_background_std(background_mean, background_std, img_min, img_max)
-    return signal_diff / min_std
+    return float(signal_mean) / min_std
+
+
+def _calculate_qc_cnr(
+    signal_mean: float,
+    background_mean: float,
+    background_std: float,
+    img_min: Optional[float] = None,
+    img_max: Optional[float] = None,
+) -> float:
+    """Calculate CNR as absolute signal-background contrast over background noise."""
+    min_std = _qc_min_background_std(background_mean, background_std, img_min, img_max)
+    return abs(float(signal_mean) - float(background_mean)) / min_std
 
 
 def _pool_population_statistics(
@@ -165,10 +176,10 @@ def _pool_population_statistics(
 def aggregate_qc_results(results: pd.DataFrame) -> pd.DataFrame:
     """Aggregate per-ROI QC results with pixel-weighted sufficient statistics.
 
-    Averaging ROI-level ratios independently produces a summary row whose SNR
-    cannot be reproduced from its displayed signal and background columns. This
-    function pools the underlying means, population SDs, and pixel counts first,
-    then calculates the background-referenced SNR once from the pooled values.
+    Averaging ROI-level ratios independently produces summary rows whose SNR and
+    CNR cannot be reproduced from their displayed signal and background columns.
+    This function pools the underlying means, population SDs, and pixel counts
+    first, then calculates both ratios once from the pooled values.
     """
     if results is None or results.empty:
         return pd.DataFrame()
@@ -251,10 +262,19 @@ def aggregate_qc_results(results: pd.DataFrame) -> pd.DataFrame:
 
         if pooled_signal_count == 0:
             row["snr"] = 0.0
+            row["cnr"] = 0.0
         elif pooled_background_count == 0:
             row["snr"] = np.nan
+            row["cnr"] = np.nan
         else:
             row["snr"] = _calculate_qc_snr(
+                signal_mean,
+                background_mean,
+                background_std,
+                row.get(intensity_min_col),
+                row.get(intensity_max_col),
+            )
+            row["cnr"] = _calculate_qc_cnr(
                 signal_mean,
                 background_mean,
                 background_std,
@@ -317,6 +337,7 @@ def _compute_cell_signal_metrics(
             "signal_mean": float(background_mean),
             "signal_std": 0.0,
             "snr": 0.0,
+            "cnr": 0.0,
             "signal_threshold": signal_threshold,
             "signal_quantile": signal_quantile,
             "n_signal_pixels": 0,
@@ -342,6 +363,7 @@ def _compute_cell_signal_metrics(
                 "signal_mean": float(background_mean),
                 "signal_std": 0.0,
                 "snr": 0.0,
+                "cnr": 0.0,
                 "signal_threshold": signal_threshold,
                 "signal_quantile": signal_quantile,
                 "n_signal_pixels": 0,
@@ -378,6 +400,7 @@ def _compute_cell_signal_metrics(
                     "signal_mean": float(background_mean),
                     "signal_std": 0.0,
                     "snr": 0.0,
+                    "cnr": 0.0,
                     "signal_threshold": signal_threshold,
                     "signal_quantile": signal_quantile,
                     "n_signal_pixels": 0,
@@ -406,6 +429,7 @@ def _compute_cell_signal_metrics(
                     "signal_mean": float(background_mean),
                     "signal_std": 0.0,
                     "snr": 0.0,
+                    "cnr": 0.0,
                     "signal_threshold": signal_threshold,
                     "signal_quantile": signal_quantile,
                     "n_signal_pixels": 0,
@@ -423,6 +447,7 @@ def _compute_cell_signal_metrics(
                 "signal_mean": float(background_mean),
                 "signal_std": 0.0,
                 "snr": 0.0,
+                "cnr": 0.0,
                 "signal_threshold": signal_threshold,
                 "signal_quantile": signal_quantile,
                 "n_signal_pixels": 0,
@@ -444,6 +469,7 @@ def _compute_cell_signal_metrics(
         "signal_mean": signal_mean,
         "signal_std": signal_std,
         "snr": _calculate_qc_snr(signal_mean, background_mean, background_std, img_min, img_max),
+        "cnr": _calculate_qc_cnr(signal_mean, background_mean, background_std, img_min, img_max),
         "signal_threshold": signal_threshold,
         "signal_quantile": signal_quantile,
         "n_signal_pixels": n_signal_pixels,
@@ -2449,9 +2475,9 @@ def qc_analysis(
 ) -> pd.DataFrame:
     """Perform quality control analysis on IMC data.
     
-    This function calculates QC metrics including SNR (Signal-to-Noise Ratio),
-    intensity statistics, and coverage metrics. Can analyze at pixel level or
-    cell level (if mask is provided).
+    This function calculates region-based SNR, CNR, intensity statistics, and
+    coverage metrics. Can analyze at pixel level or cell level (if mask is
+    provided).
     
     Args:
         loader: Data loader (MCDLoader or OMETIFFLoader)
@@ -2611,6 +2637,7 @@ def qc_analysis(
                             background_std = img_std
                         
                         snr = _calculate_qc_snr(signal_mean, background_mean, background_std, img_min, img_max)
+                        cnr = _calculate_qc_cnr(signal_mean, background_mean, background_std, img_min, img_max)
                         coverage = float(len(signal_pixels) / img.size) if img.size > 0 else 0.0
                     except Exception:
                         # Fallback if Otsu fails
@@ -2622,6 +2649,7 @@ def qc_analysis(
                         signal_pixels = np.empty(0, dtype=img.dtype)
                         background_pixels = img.reshape(-1)
                         snr = 0.0
+                        cnr = 0.0
                         coverage = 0.0
                 else:
                     # No scikit-image, use simple statistics
@@ -2633,6 +2661,7 @@ def qc_analysis(
                     signal_pixels = np.empty(0, dtype=img.dtype)
                     background_pixels = img.reshape(-1)
                     snr = 0.0
+                    cnr = 0.0
                     coverage = 0.0
                 
                 results.append({
@@ -2641,6 +2670,7 @@ def qc_analysis(
                     'channel': channel,
                     'mode': 'pixel',
                     'snr': snr,
+                    'cnr': cnr,
                     'signal_mean': signal_mean,
                     'signal_std': signal_std,
                     'background_mean': background_mean,
@@ -2694,6 +2724,7 @@ def qc_analysis(
                 signal_mean = signal_metrics["signal_mean"]
                 signal_std = signal_metrics["signal_std"]
                 snr = signal_metrics["snr"]
+                cnr = signal_metrics["cnr"]
                 
                 # Coverage: fraction of pixels covered by cells - optimized
                 n_cell_pixels = np.sum(mask > 0)
@@ -2709,6 +2740,7 @@ def qc_analysis(
                     'channel': channel,
                     'mode': 'cell',
                     'snr': snr,
+                    'cnr': cnr,
                     'signal_mean': signal_mean,
                     'signal_std': signal_std,
                     'background_mean': background_mean,

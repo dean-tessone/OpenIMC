@@ -424,6 +424,29 @@ def test_qc_snr_plot_uses_symlog_and_keeps_nonpositive_snr_points(qtbot):
     assert any('3.0' in text.get_text() for text in legend.get_texts())
 
 
+def test_qc_cnr_plot_is_distinct_and_uses_its_own_threshold(qtbot):
+    dialog = _build_qc_dialog(qtbot)
+    dialog.cnr_threshold_spin.setValue(2.5)
+    dialog.qc_results_aggregated = pd.DataFrame(
+        {
+            'channel': ['Marker A', 'Marker B'],
+            'signal_mean': [12.0, 30.0],
+            'snr': [6.0, 10.0],
+            'cnr': [4.0, 7.0],
+        }
+    )
+
+    dialog._plot_snr_vs_intensity()
+    cnr_ax = dialog.snr_intensity_canvas.figure.axes[1]
+
+    scatter_points = cnr_ax.collections[0].get_offsets()
+    assert np.allclose(scatter_points[:, 1], [4.0, 7.0])
+    assert 'cnr' in cnr_ax.get_ylabel().lower()
+    assert 'cnr' in cnr_ax.get_title().lower()
+    threshold_lines = [line for line in cnr_ax.lines if line.get_linestyle() == '--']
+    assert any(np.allclose(line.get_ydata(), [2.5, 2.5]) for line in threshold_lines)
+
+
 def test_qc_cell_signal_controls_toggle_by_mode_and_method(qtbot):
     parent = _QCTestParent(with_masks=True)
     dialog = _build_qc_dialog(qtbot, parent)
@@ -452,6 +475,7 @@ def test_qc_restores_cell_signal_ui_state(qtbot):
     parent._saved_qc_ui_state = {
         "analysis_mode": "Cell-level",
         "snr_threshold": 5.0,
+        "cnr_threshold": 6.0,
         "cell_signal_method": "upper_quantile",
         "positive_threshold_sd": 3.0,
         "upper_quantile_percent": 95.0,
@@ -461,6 +485,7 @@ def test_qc_restores_cell_signal_ui_state(qtbot):
 
     assert dialog.analysis_mode == "cell"
     assert dialog.snr_threshold_spin.value() == pytest.approx(5.0)
+    assert dialog.cnr_threshold_spin.value() == pytest.approx(6.0)
     assert dialog.get_cell_signal_method() == "upper_quantile"
     assert dialog.positive_threshold_sd_spin.value() == pytest.approx(3.0)
     assert dialog.upper_quantile_spin.value() == pytest.approx(95.0)
@@ -473,7 +498,7 @@ def test_qc_settings_summary_reflects_current_popup_state(qtbot):
     summary = dialog.settings_summary_label.text()
     assert "All Acquisitions" in summary
     assert "Cell-level" in summary
-    assert "SNR threshold: 3.0" in summary
+    assert "SNR/CNR thresholds: 3.0/3.0" in summary
     assert "Positive pixels" in summary
 
     dialog.cell_signal_method_combo.setCurrentIndex(dialog.cell_signal_method_combo.findData("upper_quantile"))
@@ -483,7 +508,7 @@ def test_qc_settings_summary_reflects_current_popup_state(qtbot):
     qtbot.wait(50)
 
     summary = dialog.settings_summary_label.text()
-    assert "SNR threshold: 4.5" in summary
+    assert "SNR/CNR thresholds: 4.5/3.0" in summary
     assert "Top 95.0% cells" in summary
     assert "Denoising: Viewer" in summary
 
@@ -577,6 +602,7 @@ def test_qc_threshold_spin_repositions_reference_lines_without_rerun(qtbot):
         {
             'channel': ['Marker A', 'Marker A', 'Marker B', 'Marker B'],
             'snr': [1.0, 1.5, 4.0, 5.0],
+            'cnr': [0.5, 0.8, 2.5, 3.0],
             'mean_intensity': [2.0, 2.5, 3.0, 3.5],
             'signal_mean': [10.0, 12.0, 20.0, 24.0],
             'coverage_pct': [20.0, 22.0, 35.0, 36.0],
@@ -586,6 +612,7 @@ def test_qc_threshold_spin_repositions_reference_lines_without_rerun(qtbot):
         {
             'channel': ['Marker A', 'Marker B'],
             'snr': [1.25, 4.5],
+            'cnr': [0.65, 2.75],
             'mean_intensity': [2.25, 3.25],
             'signal_mean': [11.0, 22.0],
             'coverage_pct': [21.0, 35.5],
@@ -594,14 +621,18 @@ def test_qc_threshold_spin_repositions_reference_lines_without_rerun(qtbot):
 
     dialog._update_plots()
     dialog.snr_threshold_spin.setValue(6.5)
+    dialog.cnr_threshold_spin.setValue(5.5)
 
     snr_ax = dialog.snr_intensity_canvas.figure.axes[0]
+    cnr_ax = dialog.snr_intensity_canvas.figure.axes[1]
     distribution_ax = dialog.distribution_canvas.figure.axes[0]
 
     snr_threshold_lines = [line for line in snr_ax.lines if line.get_linestyle() == '--']
+    cnr_threshold_lines = [line for line in cnr_ax.lines if line.get_linestyle() == '--']
     distribution_threshold_lines = [line for line in distribution_ax.lines if line.get_linestyle() == '--']
 
     assert any(np.allclose(line.get_ydata(), [6.5, 6.5]) for line in snr_threshold_lines)
+    assert any(np.allclose(line.get_ydata(), [5.5, 5.5]) for line in cnr_threshold_lines)
     assert any(np.allclose(line.get_ydata(), [6.5, 6.5]) for line in distribution_threshold_lines)
 
 
