@@ -16,7 +16,7 @@ conda-forge because PyPI no longer publishes current Intel macOS wheels.
 python -m pip install -r requirements.txt
 python -m pip install -e . --no-deps
 python -m pip install -r requirements-build.txt
-python scripts/build_desktop.py --version 1.1.0 --functional-test --archive
+python scripts/build_desktop.py --version 1.1.1 --functional-test --archive
 ```
 
 The script performs an offscreen smoke test of Qt and the major scientific

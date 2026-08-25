@@ -18,15 +18,15 @@ For complete documentation, installation instructions, and usage guides, please 
 ## Download OpenIMC
 
 Most users should install the ready-to-run desktop application. Python, Git,
-or a virtual environment are not required. Download OpenIMC 1.1.0 for your
+or a virtual environment are not required. Download OpenIMC 1.1.1 for your
 computer:
 
 | Operating system | Download |
 | --- | --- |
-| Windows 10/11, 64-bit | **[Windows ZIP](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-windows-x86_64.zip)** |
-| Mac with Apple Silicon (M1 or newer) | **[Apple Silicon Mac installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-arm64.pkg)** |
-| Mac with an Intel processor | **[Intel Mac installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-darwin-x86_64.pkg)** |
-| Ubuntu 22.04 or newer, 64-bit | **[Ubuntu installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.0/OpenIMC-1.1.0-linux-amd64.deb)** |
+| Windows 10/11, 64-bit | **[Windows ZIP](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-windows-x86_64.zip)** |
+| Mac with Apple Silicon (M1 or newer) | **[Apple Silicon Mac installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-darwin-arm64.pkg)** |
+| Mac with an Intel processor | **[Intel Mac installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-darwin-x86_64.pkg)** |
+| Ubuntu 22.04 or newer, 64-bit | **[Ubuntu installer](https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-linux-amd64.deb)** |
 
 Not sure which Mac you have? Choose **Apple menu → About This Mac**. Download
 the Apple Silicon installer if the **Chip** line says Apple M1, M2, M3, M4, or
@@ -63,7 +63,7 @@ If the graphical installer does not open, open a terminal in the Downloads
 folder and run:
 
 ```bash
-sudo apt install ./OpenIMC-1.1.0-linux-amd64.deb
+sudo apt install ./OpenIMC-1.1.1-linux-amd64.deb
 ```
 
 The Windows and Ubuntu downloads use the CPU by default. On a compatible
@@ -71,7 +71,7 @@ NVIDIA computer, OpenIMC offers a **Download CUDA support** button at startup
 until the optional GPU packages are installed and verified. Apple Silicon Macs
 use Apple's built-in GPU support; Intel Macs use the CPU.
 
-The [release page](https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.0)
+The [release page](https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.1)
 also provides download fingerprints (`SHA256SUMS.txt`) and a zipped software
 inventory for security review.
 
