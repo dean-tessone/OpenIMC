@@ -5,11 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Segmentation &#8212; OpenIMC 1.1.1 documentation</title>
+    <title>Segmentation &#8212; OpenIMC 1.1.2 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
-    <script src="_static/documentation_options.js?v=58fbf978"></script>
+    <link rel="stylesheet" type="text/css" href="_static/sphinx_autodoc_typehints.css?v=057ac668" />
+    <script src="_static/documentation_options.js?v=6f037312"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -35,7 +36,7 @@
             
   <section id="segmentation">
 <h1>Segmentation<a class="headerlink" href="#segmentation" title="Link to this heading">¶</a></h1>
-<p>Segmentation is the process of identifying and delineating individual cells in IMC images. OpenIMC provides four segmentation methods: CellSAM (via DeepCell API), Cellpose, Watershed, and Ilastik.</p>
+<p>Segmentation is the process of identifying and delineating individual cells in IMC images. OpenIMC provides four segmentation methods: CellSAM (with Hugging Face weights), Cellpose, Watershed, and Ilastik.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>Cell segmentation is a critical first step in IMC analysis, as it defines the boundaries of individual cells from which features will be extracted. The choice of segmentation method depends on your data characteristics, computational resources, and accuracy requirements.</p>
@@ -44,7 +45,7 @@
 <h2>Options<a class="headerlink" href="#options" title="Link to this heading">¶</a></h2>
 <p>OpenIMC supports four segmentation methods:</p>
 <ol class="arabic simple">
-<li><p><strong>CellSAM</strong> (default): Deep learning-based segmentation using DeepCell’s CellSAM model via API</p></li>
+<li><p><strong>CellSAM</strong> (default): Deep learning-based segmentation using CellSAM locally with Hugging Face weights</p></li>
 <li><p><strong>Cellpose</strong>: Local deep learning-based segmentation (supports GPU acceleration)</p></li>
 <li><p><strong>Watershed</strong>: Traditional marker-controlled watershed segmentation</p></li>
 <li><p><strong>Ilastik</strong>: Segmentation using pre-trained Ilastik models (<code class="docutils literal notranslate"><span class="pre">.ilp</span></code> project files)</p></li>
@@ -94,10 +95,12 @@
 <section id="cellsam-parameters">
 <h3>CellSAM Parameters<a class="headerlink" href="#cellsam-parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
-<li><p><strong>deepcell_api_key</strong> (optional): DeepCell API access token
-- If not provided, uses <code class="docutils literal notranslate"><span class="pre">DEEPCELL_ACCESS_TOKEN</span></code> environment variable
-- Required for CellSAM method
-- Get your API key from <a class="reference external" href="https://deepcell.org/">DeepCell</a></p></li>
+<li><p>Authenticate with Hugging Face after accepting the license at
+<a class="reference external" href="https://huggingface.co/vanvalenlab/cellsam">vanvalenlab/cellsam</a>.
+Use <code class="docutils literal notranslate"><span class="pre">hf</span> <span class="pre">auth</span> <span class="pre">login</span></code>, <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code>, or the GUI’s optional token field.</p></li>
+<li><p>Existing cached v1.2 weights work without credentials. Set
+<code class="docutils literal notranslate"><span class="pre">OPENIMC_CELLSAM_MODEL_PATH</span></code> to use a local generalist checkpoint.</p></li>
+<li><p><strong>deepcell_api_key</strong>: Deprecated compatibility parameter, ignored.</p></li>
 <li><p><strong>bbox_threshold</strong> (default: <code class="docutils literal notranslate"><span class="pre">0.4</span></code>): Bounding box detection threshold
 - Lower values (0.01-0.1) detect fainter cells
 - Higher values (0.4-0.8) detect only bright cells
@@ -258,23 +261,31 @@
 <section id="cellsam">
 <h3>CellSAM<a class="headerlink" href="#cellsam" title="Link to this heading">¶</a></h3>
 <p>CellSAM uses DeepCell’s CellSAM model, which is a state-of-the-art deep learning model for cell segmentation. It leverages the Segment Anything Model (SAM) architecture adapted for cell segmentation tasks.</p>
-<p><strong>How it works:</strong>
-1. Nuclear channels are combined using the specified fusion method
-2. The combined nuclear image is sent to DeepCell’s API
-3. CellSAM detects cell bounding boxes using the bbox_threshold
-4. Within each bounding box, precise cell boundaries are segmented
-5. Results are returned as segmentation masks</p>
-<p><strong>Advantages:</strong>
-- High accuracy, especially for complex cell morphologies
-- Handles variable cell sizes well
-- No local GPU required (uses cloud API)</p>
-<p><strong>Limitations:</strong>
-- Requires internet connection and API key
-- Processing time depends on API availability
-- May have usage limits depending on API plan</p>
-<p><strong>Citation:</strong>
-- DeepCell CellSAM: <a class="reference external" href="https://deepcell.org/">DeepCell Platform</a>
-- Segment Anything Model: Kirillov, A., et al. (2023). “Segment Anything.” arXiv:2304.02643</p>
+<p><strong>How it works:</strong></p>
+<ol class="arabic simple">
+<li><p>Nuclear channels are combined using the specified fusion method</p></li>
+<li><p>CellSAM loads the cached checkpoint (downloaded from Hugging Face on first use)</p></li>
+<li><p>CellSAM detects cell bounding boxes using the bbox_threshold</p></li>
+<li><p>Within each bounding box, precise cell boundaries are segmented</p></li>
+<li><p>Results are returned as segmentation masks</p></li>
+</ol>
+<p><strong>Advantages:</strong></p>
+<ul class="simple">
+<li><p>High accuracy, especially for complex cell morphologies</p></li>
+<li><p>Handles variable cell sizes well</p></li>
+<li><p>Runs locally on a GPU or CPU; images are not sent to a cloud segmentation API</p></li>
+</ul>
+<p><strong>Limitations:</strong></p>
+<ul class="simple">
+<li><p>The first model download requires internet access, a Hugging Face account, and acceptance of the CellSAM model terms</p></li>
+<li><p>Cached weights work offline; CPU inference can be substantially slower than GPU inference</p></li>
+<li><p>Model weights have separate noncommercial license terms</p></li>
+</ul>
+<p><strong>Citation:</strong></p>
+<ul class="simple">
+<li><p>DeepCell CellSAM: <a class="reference external" href="https://deepcell.org/">DeepCell Platform</a></p></li>
+<li><p>Segment Anything Model: Kirillov, A., et al. (2023). “Segment Anything.” arXiv:2304.02643</p></li>
+</ul>
 </section>
 <section id="cellpose">
 <h3>Cellpose<a class="headerlink" href="#cellpose" title="Link to this heading">¶</a></h3>
@@ -357,7 +368,7 @@
 - If cells are over-segmented (too many small pieces), increase thresholds or min_cell_area
 - If cells are under-segmented (merged together), decrease thresholds or adjust fusion methods</p></li>
 <li><p><strong>Method Selection</strong>:
-- Use CellSAM for best accuracy and when API access is available
+- Use CellSAM for best accuracy and with locally cached or downloaded weights
 - Use Cellpose for quicker processing with good accuracy
 - Use Watershed for fast processing of well-separated cells
 - Use Ilastik when you need custom segmentation models tailored to your specific data or cell types</p></li>
@@ -461,7 +472,7 @@
       &#169;2025, Dean Tessone.
       
       |
-      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.1</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
       
       |

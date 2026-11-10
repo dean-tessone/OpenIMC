@@ -4,11 +4,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>openimc.core &#8212; OpenIMC 1.1.1 documentation</title>
+    <title>openimc.core &#8212; OpenIMC 1.1.2 documentation</title>
     <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
-    <script src="../../_static/documentation_options.js?v=58fbf978"></script>
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx_autodoc_typehints.css?v=057ac668" />
+    <script src="../../_static/documentation_options.js?v=6f037312"></script>
     <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
     <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
@@ -864,7 +865,7 @@
 <span class="sd">        flow_threshold: Flow threshold (Cellpose)</span>
 <span class="sd">        cellprob_threshold: Cell probability threshold (Cellpose)</span>
 <span class="sd">        gpu_id: GPU ID to use (Cellpose, optional)</span>
-<span class="sd">        deepcell_api_key: DeepCell API key (CellSAM, optional, can use DEEPCELL_ACCESS_TOKEN env var)</span>
+<span class="sd">        deepcell_api_key: Deprecated compatibility argument; ignored (use Hugging Face login)</span>
 <span class="sd">        bbox_threshold: Bbox threshold for CellSAM</span>
 <span class="sd">        use_wsi: Use WSI mode for CellSAM</span>
 <span class="sd">        low_contrast_enhancement: Enable low contrast enhancement for CellSAM</span>
@@ -905,12 +906,13 @@
         <span class="k">except</span> <span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"CellSAM not installed or failed to load: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git"</span><span class="p">)</span>
         
-        <span class="c1"># Set API key from argument or environment variable</span>
-        <span class="n">api_key</span> <span class="o">=</span> <span class="n">deepcell_api_key</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"DEEPCELL_ACCESS_TOKEN"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">api_key</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"DeepCell API key is required for CellSAM. Set deepcell_api_key or DEEPCELL_ACCESS_TOKEN environment variable."</span><span class="p">)</span>
-        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"DEEPCELL_ACCESS_TOKEN"</span><span class="p">]</span> <span class="o">=</span> <span class="n">api_key</span>
-        
+        <span class="k">if</span> <span class="n">deepcell_api_key</span><span class="p">:</span>
+            <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+                <span class="s2">"deepcell_api_key is deprecated and ignored; CellSAM now uses Hugging Face."</span><span class="p">,</span>
+                <span class="ne">DeprecationWarning</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+
         <span class="c1"># Preprocess channels</span>
         <span class="n">nuclear_img</span><span class="p">,</span> <span class="n">cyto_img</span> <span class="o">=</span> <span class="n">_preprocess_channels_for_segmentation</span><span class="p">(</span>
             <span class="n">loader</span><span class="p">,</span> <span class="n">acquisition</span><span class="p">,</span> <span class="n">nuclear_channels</span><span class="p">,</span> <span class="n">cyto_channels</span><span class="p">,</span>
@@ -4560,7 +4562,7 @@
       &#169;2025, Dean Tessone.
       
       |
-      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.1</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
       
     </div>

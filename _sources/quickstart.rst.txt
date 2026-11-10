@@ -94,7 +94,7 @@ If you do not have a GPU, Cellpose is a potential alternative, but will still be
 
 **CellSAM Configuration:**
 
-If using CellSAM, enter your DeepCell API token under **DeepCell CellSAM Parameters**.  
+For CellSAM, accept the license at https://huggingface.co/vanvalenlab/cellsam, then run ``hf auth login`` or enter a Hugging Face read token under **DeepCell CellSAM Parameters**. Existing cached v1.2 weights also work offline.
 Adjustable CellSAM options:
 
 - **Bbox threshold** (default 0.4)

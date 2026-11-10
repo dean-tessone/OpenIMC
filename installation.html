@@ -5,11 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Installation &#8212; OpenIMC 1.1.1 documentation</title>
+    <title>Installation &#8212; OpenIMC 1.1.2 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
-    <script src="_static/documentation_options.js?v=58fbf978"></script>
+    <link rel="stylesheet" type="text/css" href="_static/sphinx_autodoc_typehints.css?v=057ac668" />
+    <script src="_static/documentation_options.js?v=6f037312"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
@@ -40,12 +41,12 @@ Python and the packages OpenIMC needs. The source installation sections are
 available below for developers, command-line users, and advanced environments.</p>
 <section id="desktop-application-recommended">
 <h2>Desktop application (recommended)<a class="headerlink" href="#desktop-application-recommended" title="Link to this heading">¶</a></h2>
-<p>Download OpenIMC 1.1.1 for your computer:</p>
+<p>Download OpenIMC 1.1.2 for your computer:</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-windows-x86_64.zip">Windows 10/11, 64-bit ZIP</a></p></li>
-<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-darwin-arm64.pkg">Mac installer for Apple Silicon</a></p></li>
-<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-darwin-x86_64.pkg">Mac installer for Intel processors</a></p></li>
-<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.1/OpenIMC-1.1.1-linux-amd64.deb">Ubuntu 22.04 or newer, 64-bit installer</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.2/OpenIMC-1.1.2-windows-x86_64.zip">Windows 10/11, 64-bit ZIP</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.2/OpenIMC-1.1.2-darwin-arm64.pkg">Mac installer for Apple Silicon</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.2/OpenIMC-1.1.2-darwin-x86_64.pkg">Mac installer for Intel processors</a></p></li>
+<li><p><a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/download/v1.1.2/OpenIMC-1.1.2-linux-amd64.deb">Ubuntu 22.04 or newer, 64-bit installer</a></p></li>
 </ul>
 <p>You do not need to install Python, Git, Conda, or a virtual environment when
 using these downloads.</p>
@@ -105,7 +106,7 @@ wording and security guidance.</p>
 </ol>
 <p>If Ubuntu’s graphical installer does not open, open a terminal in the folder
 containing the download and run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>./OpenIMC-1.1.1-linux-amd64.deb
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>./OpenIMC-1.1.2-linux-amd64.deb
 </pre></div>
 </div>
 </section>
@@ -121,7 +122,7 @@ Macs use the CPU.</p>
 </section>
 <section id="download-verification">
 <h3>Download verification<a class="headerlink" href="#download-verification" title="Link to this heading">¶</a></h3>
-<p>The <a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.1">OpenIMC 1.1.1 release page</a> also contains:</p>
+<p>The <a class="reference external" href="https://github.com/dean-tessone/OpenIMC/releases/tag/v1.1.2">OpenIMC 1.1.2 release page</a> also contains:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">SHA256SUMS.txt</span></code>, which lists fingerprints for confirming that downloads
 arrived unchanged.</p></li>
@@ -365,35 +366,24 @@ Python package):</p>
 - Copy the generated API key (starts with <code class="docutils literal notranslate"><span class="pre">sk-</span></code>)</p></li>
 </ol>
 </section>
-<section id="deepcell-api-token-setup">
-<h3>DeepCell API Token Setup<a class="headerlink" href="#deepcell-api-token-setup" title="Link to this heading">¶</a></h3>
-<p>To use the DeepCell CellSAM segmentation method, you’ll need a DeepCell API token:</p>
-<ol class="arabic">
-<li><p><strong>Generate API Token</strong></p>
-<ul class="simple">
-<li><p>Visit <a class="reference external" href="https://users.deepcell.org/login/">DeepCell User Portal</a></p></li>
-<li><p>Sign up or log in to your account</p></li>
-<li><p>Your username is your registration email without the domain suffix
-(e.g., if your email is <code class="docutils literal notranslate"><span class="pre">user&#64;example.com</span></code>, your username is <code class="docutils literal notranslate"><span class="pre">user</span></code>)</p></li>
-<li><p>Navigate to your account settings or API section</p></li>
-<li><p>Generate or copy your API token</p></li>
-<li><p>The API token is used to download the most up-to-date CellSAM model weights</p></li>
-</ul>
-</li>
-<li><p><strong>Set the API Token</strong></p>
-<p>You can set the API token in one of the following ways:</p>
-<p><strong>Option A: Environment Variable (Recommended for CLI)</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DEEPCELL_ACCESS_TOKEN</span><span class="o">=</span><span class="s2">"your-api-token-here"</span>
-</pre></div>
-</div>
-<p><strong>Option B: GUI Settings</strong></p>
-<ul class="simple">
-<li><p>When using the GUI, enter your API token in the “DeepCell CellSAM Parameters”
-section of the segmentation dialog</p></li>
-<li><p>The token will be saved in your user preferences for future use</p></li>
-</ul>
-</li>
+<section id="cellsam-model-access-hugging-face">
+<h3>CellSAM Model Access (Hugging Face)<a class="headerlink" href="#cellsam-model-access-hugging-face" title="Link to this heading">¶</a></h3>
+<p>CellSAM weights are hosted at <a class="reference external" href="https://huggingface.co/vanvalenlab/cellsam">vanvalenlab/cellsam</a>. A DeepCell API key is no longer used.
+The latest published archive is v1.2; model weights have separate noncommercial
+license terms from the inference code.</p>
+<ol class="arabic simple">
+<li><p>Install support with <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">'openimc[cellsam]'</span></code>.</p></li>
+<li><p>Log in to Hugging Face and accept the model license on the repository page.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">hf</span> <span class="pre">auth</span> <span class="pre">login</span></code>, set <code class="docutils literal notranslate"><span class="pre">HF_TOKEN</span></code> to a read token with access, or enter
+the token in the GUI’s <strong>DeepCell CellSAM Parameters</strong> section. OpenIMC keeps
+GUI-entered tokens only in the current process, without saving preferences.</p></li>
 </ol>
+<p>The first run downloads the approximately 1.83 GB archive into the Hugging Face
+cache, checks the published v1.2 checksum, and extracts the generalist checkpoint.
+OpenIMC pins the Hub revision for reproducibility. Later runs reuse the cache;
+set <code class="docutils literal notranslate"><span class="pre">HF_HUB_OFFLINE=1</span></code> for strictly offline use. Existing
+<code class="docutils literal notranslate"><span class="pre">~/.deepcell/models/cellsam_v1.2/cellsam_general.pt</span></code> checkpoints are also reused.
+For an explicit local checkpoint, set <code class="docutils literal notranslate"><span class="pre">OPENIMC_CELLSAM_MODEL_PATH</span></code> to its path.</p>
 </section>
 </section>
 <section id="verification">
@@ -556,7 +546,7 @@ active environment:</p>
       &#169;2025, Dean Tessone.
       
       |
-      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.1</a>
       &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
       
       |
