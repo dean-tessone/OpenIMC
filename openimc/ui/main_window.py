@@ -6094,10 +6094,13 @@ class MainWindow(QtWidgets.QMainWindow):
                     self, "Model Initialization Failed",
                     f"Failed to initialize CellSAM model:\n{str(e)}\n\n"
                     "This may be due to:\n"
-                    "- Invalid API key\n"
+                    "- CellSAM terms have not been accepted on Hugging Face\n"
+                    "- Hugging Face login or token lacks CellSAM access\n"
                     "- Network connectivity issues\n"
                     "- Insufficient disk space for model weights\n\n"
-                    "Please check your API key and internet connection."
+                    "Accept the terms at https://huggingface.co/vanvalenlab/cellsam, "
+                    "then use a Hugging Face login or read token from that same account. "
+                    "Also check your internet connection."
                 )
                 return
             
