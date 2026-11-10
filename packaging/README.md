@@ -23,7 +23,7 @@ The script performs an offscreen smoke test of Qt and the major scientific
 dependencies. `--functional-test` is the release gate: it runs real OME-TIFF
 loading, Cellpose, watershed, feature extraction, Combat, Harmony, clustering,
 spatial graph construction, and data/state export through the packaged
-executable. If `DEEPCELL_ACCESS_TOKEN` is present and
+executable. If `HF_TOKEN` is present and
 `--allow-cellsam-download` is explicitly supplied, it additionally runs a live
 CellSAM download and inference check. Its checkpointed report is written to
 `build/functional-validation/openimc-functional-validation.json`.
@@ -85,9 +85,9 @@ application bundle.
   first use. If fully offline operation is required, add the chosen weight files
   to the bundle and configure their runtime cache paths.
 - API credentials are never build inputs or bundle data. The build removes
-  `DEEPCELL_ACCESS_TOKEN` and `OPENAI_API_KEY` from child-process environments
+  `HF_TOKEN` and `OPENAI_API_KEY` from child-process environments
   and scans the finished application for credential values and key-shaped
-  strings. GUI-entered DeepCell and OpenAI keys are held in memory for the
+  strings. GUI-entered Hugging Face and OpenAI keys are held in memory for the
   current session only and are not included in saved OpenIMC state.
 - The Windows bundle uses a project PyInstaller runtime hook to initialize
   PyTorch before Qt. This ordering is required by current Windows PyTorch and
@@ -124,13 +124,14 @@ default after every platform succeeds. It contains the four end-user packages,
 `SHA256SUMS.txt`, and the zipped software inventory. Its tag is
 `desktop-test-<commit>` so each test build is tied to the exact source used.
 
-A DeepCell token is not required to build or publish OpenIMC. If an optional
-repository secret named `DEEPCELL_ACCESS_TOKEN` is configured, the same test
+A Hugging Face token is not required to build or publish OpenIMC. If an optional
+repository secret named `HF_TOKEN` is configured, the same test
 also downloads the CellSAM weights into the runner's user cache and runs live
 inference. The token is exposed only to that functional-test process, never the
 PyInstaller build step, and the finished bundle is scanned for its exact value
-before it can be archived. End users provide their own DeepCell token in the
-application when they choose CellSAM.
+before it can be archived. End users accept the model license on Hugging Face and authenticate in the
+application or with `hf auth login` before the first download. Existing v1.2
+checkpoints remain usable offline.
 
 Tagged Windows builds fail unless Azure Artifact Signing is configured. Create
 an Artifact Signing account and certificate profile, grant the GitHub OIDC

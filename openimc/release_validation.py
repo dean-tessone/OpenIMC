@@ -187,6 +187,7 @@ def run_release_validation(
     validation.check("cellpose_segmentation_and_tiff_save", segment_cellpose)
 
     def segment_cellsam() -> dict[str, Any]:
+        from openimc.processing.cellsam_models import download_cellsam_checkpoint
         from openimc.processing.custom_cellsam import (
             cellsam_pipeline_custom,
             clear_model_cache,
@@ -206,6 +207,7 @@ def run_release_validation(
         try:
             mask = cellsam_pipeline_custom(
                 crop,
+                model_path=str(download_cellsam_checkpoint()),
                 bbox_threshold=0.1,
                 use_wsi=False,
             )
@@ -220,12 +222,12 @@ def run_release_validation(
             raise AssertionError("CellSAM TIFF did not round-trip exactly")
         return {"shape": list(mask.shape), "labels": int(mask.max())}
 
-    if os.environ.get("DEEPCELL_ACCESS_TOKEN", "").strip():
+    if os.environ.get("OPENIMC_VALIDATE_CELLSAM") == "1":
         validation.check("cellsam_model_and_segmentation", segment_cellsam)
     else:
         validation.skip(
             "cellsam_model_and_segmentation",
-            "DEEPCELL_ACCESS_TOKEN was not supplied; CellSAM credentials belong to "
+            "CellSAM validation was not requested; Hugging Face credentials belong to "
             "the end user and are not required to build or publish OpenIMC.",
         )
 

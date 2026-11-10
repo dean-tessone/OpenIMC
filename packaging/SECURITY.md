@@ -42,10 +42,10 @@ credentials, and generated artifacts as separate trust boundaries.
 
 ## Credential handling
 
-`OPENAI_API_KEY` and `DEEPCELL_ACCESS_TOKEN` are application runtime inputs, not
+`OPENAI_API_KEY` and `HF_TOKEN` are application runtime inputs, not
 compiled configuration or build requirements. The GUI retains them in process
 memory for the current session. If the optional repository secret exists, the
-tagged functional test may receive `DEEPCELL_ACCESS_TOKEN` through GitHub's
+tagged functional test may receive `HF_TOKEN` through GitHub's
 masked secret environment for a live CellSAM check, but the PyInstaller step
 cannot access it and releases do not depend on it. Azure OIDC credentials and
 Artifact Signing settings are scoped to signing steps that run after the bundle
@@ -62,8 +62,9 @@ preferences, workflow command lines, or release archives.
 - Most scientific Python dependencies resolve within declared version ranges.
   Each build is audited and recorded in its SBOM, but it is not bit-for-bit
   reproducible across dates.
-- CellSAM weights are downloaded at runtime from DeepCell and are outside the
-  executable's code-signing boundary. CellSAM verifies its declared model hash;
+- CellSAM weights are downloaded at runtime from Hugging Face and are outside the
+  executable's code-signing boundary. OpenIMC pins the Hub revision and checks
+  the archive against CellSAM's published v1.2 MD5 before extraction;
   release validation exercises the actual download and inference path whenever
   the optional CI token is configured. Otherwise the credential-dependent check
   is explicitly recorded as skipped.

@@ -359,36 +359,26 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
    - Click "Create new secret key"
    - Copy the generated API key (starts with ``sk-``)
 
-DeepCell API Token Setup
-~~~~~~~~~~~~~~~~~~~~~~~~
+CellSAM Model Access (Hugging Face)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To use the DeepCell CellSAM segmentation method, you'll need a DeepCell API token:
+CellSAM weights are hosted at `vanvalenlab/cellsam
+<https://huggingface.co/vanvalenlab/cellsam>`_. A DeepCell API key is no longer used.
+The latest published archive is v1.2; model weights have separate noncommercial
+license terms from the inference code.
 
-1. **Generate API Token**
+1. Install support with ``pip install 'openimc[cellsam]'``.
+2. Log in to Hugging Face and accept the model license on the repository page.
+3. Run ``hf auth login``, set ``HF_TOKEN`` to a read token with access, or enter
+   the token in the GUI's **DeepCell CellSAM Parameters** section. OpenIMC keeps
+   GUI-entered tokens only in the current process, without saving preferences.
 
-   - Visit `DeepCell User Portal <https://users.deepcell.org/login/>`_
-   - Sign up or log in to your account
-   - Your username is your registration email without the domain suffix
-     (e.g., if your email is ``user@example.com``, your username is ``user``)
-   - Navigate to your account settings or API section
-   - Generate or copy your API token
-   - The API token is used to download the most up-to-date CellSAM model weights
-
-2. **Set the API Token**
-
-   You can set the API token in one of the following ways:
-
-   **Option A: Environment Variable (Recommended for CLI)**
-
-   .. code-block:: bash
-
-      export DEEPCELL_ACCESS_TOKEN="your-api-token-here"
-
-   **Option B: GUI Settings**
-
-   - When using the GUI, enter your API token in the "DeepCell CellSAM Parameters"
-     section of the segmentation dialog
-   - The token will be saved in your user preferences for future use
+The first run downloads the approximately 1.83 GB archive into the Hugging Face
+cache, checks the published v1.2 checksum, and extracts the generalist checkpoint.
+OpenIMC pins the Hub revision for reproducibility. Later runs reuse the cache;
+set ``HF_HUB_OFFLINE=1`` for strictly offline use. Existing
+``~/.deepcell/models/cellsam_v1.2/cellsam_general.pt`` checkpoints are also reused.
+For an explicit local checkpoint, set ``OPENIMC_CELLSAM_MODEL_PATH`` to its path.
 
 
 Verification

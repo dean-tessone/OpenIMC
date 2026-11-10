@@ -261,21 +261,21 @@ class TestSegmentWorkflow:
         
         This test requires:
         - CellSAM to be installed (pip install git+https://github.com/vanvalenlab/cellSAM.git)
-        - DEEPCELL_ACCESS_TOKEN environment variable or deepcell_api_key parameter
+        - Cached CellSAM weights, or Hugging Face login and accepted model license
         """
-        import os
-        
         # Get test data path (supports both MCD and OME-TIFF)
         try:
             data_path, _ = _get_test_data_path(test_data_dir)
         except FileNotFoundError as e:
             pytest.skip(str(e))
         
-        # Check for API key
-        api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN")
-        if not api_key:
-            pytest.skip("DEEPCELL_ACCESS_TOKEN environment variable not set. CellSAM requires DeepCell API key.")
-        
+        from openimc.processing.cellsam_models import resolve_cellsam_checkpoint
+        # Avoid implicit downloads in the normal test suite.
+        try:
+            resolve_cellsam_checkpoint(local_files_only=True)
+        except (ImportError, OSError, RuntimeError) as exc:
+            pytest.skip(f"CellSAM weights are not cached: {exc}")
+
         # Load data
         loader, _ = load_mcd(data_path)
         acquisitions = loader.list_acquisitions()
@@ -304,7 +304,6 @@ class TestSegmentWorkflow:
                 nuclear_channels=nuclear_channels,
                 cyto_channels=cyto_channels,
                 output_dir=temp_dir / "masks_cellsam",
-                deepcell_api_key=api_key,
                 bbox_threshold=0.4,
                 use_wsi=False,
                 low_contrast_enhancement=False,
@@ -312,9 +311,6 @@ class TestSegmentWorkflow:
             )
         except ImportError as e:
             pytest.skip(f"CellSAM not installed: {e}")
-        except (ValueError, RuntimeError) as e:
-            # API key issues or model initialization problems
-            pytest.skip(f"CellSAM initialization failed: {e}")
         
         # Verify mask
         assert mask is not None

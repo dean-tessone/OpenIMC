@@ -817,7 +817,7 @@ def segment(
         flow_threshold: Flow threshold (Cellpose)
         cellprob_threshold: Cell probability threshold (Cellpose)
         gpu_id: GPU ID to use (Cellpose, optional)
-        deepcell_api_key: DeepCell API key (CellSAM, optional, can use DEEPCELL_ACCESS_TOKEN env var)
+        deepcell_api_key: Deprecated compatibility argument; ignored (use Hugging Face login)
         bbox_threshold: Bbox threshold for CellSAM
         use_wsi: Use WSI mode for CellSAM
         low_contrast_enhancement: Enable low contrast enhancement for CellSAM
@@ -858,12 +858,13 @@ def segment(
         except (ImportError, OSError) as e:
             raise ImportError(f"CellSAM not installed or failed to load: {e}. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git")
         
-        # Set API key from argument or environment variable
-        api_key = deepcell_api_key or os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
-        if not api_key:
-            raise ValueError("DeepCell API key is required for CellSAM. Set deepcell_api_key or DEEPCELL_ACCESS_TOKEN environment variable.")
-        os.environ["DEEPCELL_ACCESS_TOKEN"] = api_key
-        
+        if deepcell_api_key:
+            import warnings
+            warnings.warn(
+                "deepcell_api_key is deprecated and ignored; CellSAM now uses Hugging Face.",
+                DeprecationWarning, stacklevel=2,
+            )
+
         # Preprocess channels
         nuclear_img, cyto_img = _preprocess_channels_for_segmentation(
             loader, acquisition, nuclear_channels, cyto_channels,

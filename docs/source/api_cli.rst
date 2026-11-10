@@ -94,8 +94,8 @@ Segmentation
     # Watershed segmentation (requires both channels)
     openimc segment input.mcd output/ --method watershed --nuclear-channels DNA1 --cytoplasm-channels CK8_CK18
 
-    # CellSAM segmentation (requires API key)
-    openimc segment input.mcd output/ --method cellsam --nuclear-channels DAPI --deepcell-api-key YOUR_KEY
+    # CellSAM segmentation (accept the Hugging Face license and run hf auth login once)
+    openimc segment input.mcd output/ --method cellsam --nuclear-channels DAPI
 
 **Parameters:**
 - ``input`` - Input MCD file or OME-TIFF directory (required)
@@ -115,7 +115,7 @@ Segmentation
 - ``--min-cell-area`` - Minimum cell area in pixels (watershed, default: 100)
 - ``--max-cell-area`` - Maximum cell area in pixels (watershed, default: 10000)
 - ``--compactness`` - Watershed compactness (default: 0.01)
-- ``--deepcell-api-key`` - DeepCell API key (CellSAM, can also use DEEPCELL_ACCESS_TOKEN env var)
+- ``--deepcell-api-key`` - Deprecated and ignored; use Hugging Face login or HF_TOKEN
 - ``--bbox-threshold`` - Bbox threshold for CellSAM (default: 0.4, lower for faint cells: 0.01-0.1)
 - ``--use-wsi`` - Use WSI mode for CellSAM (for ROIs with >500 cells)
 - ``--low-contrast-enhancement`` - Enable low contrast enhancement for CellSAM
