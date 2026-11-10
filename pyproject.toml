@@ -82,7 +82,7 @@ desktop-build = [
 ]
 cellsam = [
     "cellSAM @ git+https://github.com/vanvalenlab/cellSAM.git@362a8e521bcd7313d5cb280bcd4cfc12977c1e9f",
-    "huggingface_hub>=0.27,<2",
+    "huggingface_hub>=0.34,<2",
 ]
 
 [project.scripts]
