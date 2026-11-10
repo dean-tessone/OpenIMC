@@ -170,11 +170,11 @@ class SegmentationDialog(QtWidgets.QDialog):
     def accept(self):
         """Override accept to save selections before closing."""
         self._save_persisted_selections()
-        # Keep the API key in this process only for the current app session.
+        # Keep an explicitly entered token in this process for the app session.
         if self.model_combo.currentText() == "DeepCell CellSAM":
-            api_key = self.api_key_edit.text().strip()
-            if api_key:
-                os.environ["DEEPCELL_ACCESS_TOKEN"] = api_key
+            hf_token = self.hf_token_edit.text().strip()
+            if hf_token:
+                os.environ["HF_TOKEN"] = hf_token
         super().accept()
         
     def _create_ui(self):
@@ -608,43 +608,32 @@ class SegmentationDialog(QtWidgets.QDialog):
         cellsam_layout.setSpacing(4)
         cellsam_layout.setContentsMargins(8, 8, 8, 8)
         
-        # API key section
-        api_key_layout = QtWidgets.QVBoxLayout()
-        api_key_label = QtWidgets.QLabel("DeepCell API Key:")
-        api_key_label.setStyleSheet("QLabel { font-weight: bold; }")
-        api_key_layout.addWidget(api_key_label)
-        
-        api_key_info = QtWidgets.QLabel(
-            "Get your API key from https://users.deepcell.org/login/\n"
-            "Your username is your registration email without the domain suffix.\n"
-            "The API key downloads model weights and is kept only for this app session; "
-            "OpenIMC does not save it."
+        model_info = QtWidgets.QLabel(
+            '<b>First-time CellSAM setup</b>'
+            '<ol>'
+            '<li>Sign in to (or create) your Hugging Face account.</li>'
+            '<li>Open <a href="https://huggingface.co/vanvalenlab/cellsam">'
+            'the CellSAM model page</a> and accept its terms and model license '
+            '(noncommercial use). Signing in alone does not grant access.</li>'
+            '<li>Create a <a href="https://huggingface.co/settings/tokens">'
+            'Hugging Face read token</a> using the same account, then paste it below. '
+            'The token must have permission to download CellSAM.</li>'
+            '</ol>'
+            'OpenIMC downloads the weights when segmentation starts and caches them '
+            'for future use. Existing cached v1.2 weights work offline. '
+            'The token is kept only for this app session.'
+            '<br><br>If you already ran <code>hf auth login</code> on this computer '
+            'or set <code>HF_TOKEN</code>, leave the token field blank.'
         )
-        api_key_info.setStyleSheet("QLabel { color: #666; font-size: 9pt; }")
-        api_key_info.setWordWrap(True)
-        api_key_layout.addWidget(api_key_info)
-        
-        api_key_input_layout = QtWidgets.QHBoxLayout()
-        self.api_key_edit = QtWidgets.QLineEdit()
-        # An environment value may be supplied at launch; never load credentials
-        # from disk or application state.
-        existing_key = os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
-        if existing_key:
-            self.api_key_edit.setText(existing_key)
-            self.api_key_edit.setPlaceholderText("API key loaded from environment variable")
-        else:
-            self.api_key_edit.setPlaceholderText("Enter DeepCell API key...")
-        self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-        api_key_input_layout.addWidget(self.api_key_edit)
-        
-        self.show_api_key_btn = QtWidgets.QPushButton("Show")
-        self.show_api_key_btn.setCheckable(True)
-        self.show_api_key_btn.toggled.connect(self._on_show_api_key_toggled)
-        api_key_input_layout.addWidget(self.show_api_key_btn)
-        api_key_layout.addLayout(api_key_input_layout)
-        
-        cellsam_layout.addLayout(api_key_layout)
-        
+        model_info.setOpenExternalLinks(True)
+        model_info.setWordWrap(True)
+        cellsam_layout.addWidget(model_info)
+        cellsam_layout.addWidget(QtWidgets.QLabel("Hugging Face token (optional, this session only):"))
+        self.hf_token_edit = QtWidgets.QLineEdit()
+        self.hf_token_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.hf_token_edit.setPlaceholderText("Uses HF_TOKEN or your Hugging Face login if blank")
+        cellsam_layout.addWidget(self.hf_token_edit)
+
         # bbox_threshold
         bbox_layout = QtWidgets.QHBoxLayout()
         bbox_layout.addWidget(QtWidgets.QLabel("Bbox threshold:"))
@@ -887,15 +876,6 @@ class SegmentationDialog(QtWidgets.QDialog):
     def _on_auto_diameter_toggled(self):
         """Enable/disable diameter spinbox based on auto-estimate checkbox."""
         self.diameter_spinbox.setEnabled(not self.auto_diameter_chk.isChecked())
-    
-    def _on_show_api_key_toggled(self, checked):
-        """Toggle API key visibility."""
-        if checked:
-            self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Normal)
-            self.show_api_key_btn.setText("Hide")
-        else:
-            self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-            self.show_api_key_btn.setText("Show")
     
     def get_model(self):
         """Get selected model (returns original values for compatibility)."""
@@ -1478,13 +1458,10 @@ class SegmentationDialog(QtWidgets.QDialog):
         return self.nuclear_fusion_combo.currentText()
     
     # CellSAM parameter getters
-    def get_cellsam_api_key(self):
-        """Get the session-only DeepCell key from the field or environment."""
-        api_key = self.api_key_edit.text().strip()
-        if not api_key:
-            api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN", "")
-        return api_key
-    
+    def get_cellsam_hf_token(self):
+        """Get an explicitly entered session token without reading saved credentials."""
+        return self.hf_token_edit.text().strip()
+
     def get_cellsam_bbox_threshold(self):
         """Get bbox threshold for CellSAM."""
         return self.bbox_threshold_spin.value()

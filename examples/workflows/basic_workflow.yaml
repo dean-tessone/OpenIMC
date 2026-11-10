@@ -62,7 +62,8 @@ segmentation:
   cyto_weights: null
   
   # CellSAM parameters
-  deepcell_api_key: null         # Optional: uses DEEPCELL_ACCESS_TOKEN env var if not set
+  # Accept the license at huggingface.co/vanvalenlab/cellsam and run hf auth login.
+  # Existing cached v1.2 weights work offline; no DeepCell API key is needed.
   bbox_threshold: 0.4            # Lower for faint cells (0.01-0.1)
   use_wsi: false                 # Use WSI mode for ROIs with >500 cells
   low_contrast_enhancement: false

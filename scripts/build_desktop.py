@@ -31,9 +31,12 @@ LINUX_RUNTIME_DEPENDENCIES = (
 )
 SENSITIVE_ENVIRONMENT_VARIABLES = (
     "DEEPCELL_ACCESS_TOKEN",
+    "HF_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN",
     "OPENAI_API_KEY",
 )
 SECRET_PATTERNS = (
+    re.compile(rb"(?<![A-Za-z0-9_-])hf_[A-Za-z0-9]{20,}"),
     re.compile(rb"(?<![A-Za-z0-9_-])sk-(?:proj-|svcacct-)[A-Za-z0-9_-]{24,}"),
     re.compile(rb"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9]{32,}(?![A-Za-z0-9_-])"),
 )
@@ -94,7 +97,7 @@ def audit_bundle_for_secrets(app_bundle: Path | None = None) -> None:
     if not application_root.exists():
         raise FileNotFoundError(f"Packaged application not found: {application_root}")
 
-    prohibited_names = {".env", "user_preferences.json", "credentials.json"}
+    prohibited_names = {".env", "user_preferences.json", "credentials.json", "token", "stored_tokens"}
     exact_values = tuple(
         value.encode("utf-8")
         for variable_name in SENSITIVE_ENVIRONMENT_VARIABLES
@@ -231,12 +234,13 @@ def functional_test(
         shutil.rmtree(output_dir)
     environment = sanitized_environment()
     if allow_cellsam_download:
-        token = os.environ.get("DEEPCELL_ACCESS_TOKEN")
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
         if not token:
             raise RuntimeError(
-                "--allow-cellsam-download requires DEEPCELL_ACCESS_TOKEN"
+                "--allow-cellsam-download requires HF_TOKEN with CellSAM access"
             )
-        environment["DEEPCELL_ACCESS_TOKEN"] = token
+        environment["HF_TOKEN"] = token
+        environment["OPENIMC_VALIDATE_CELLSAM"] = "1"
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
     command = [
         str(executable),
@@ -645,7 +649,7 @@ def write_sha256(path: Path) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="1.1.1", help="Release version")
+    parser.add_argument("--version", default="1.1.2", help="Release version")
     parser.add_argument("--console", action="store_true", help="Keep a console for diagnostics")
     parser.add_argument("--no-clean", action="store_true", help="Reuse PyInstaller work files")
     parser.add_argument(
@@ -663,7 +667,7 @@ def parse_args() -> argparse.Namespace:
         "--allow-cellsam-download",
         action="store_true",
         help=(
-            "Optionally pass DEEPCELL_ACCESS_TOKEN only to the functional-test "
+            "Optionally pass HF_TOKEN only to the functional-test "
             "process for a live CellSAM model check"
         ),
     )

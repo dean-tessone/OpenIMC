@@ -91,7 +91,7 @@ except ImportError:
 
 # Import necessary functions from cellSAM
 try:
-    from cellSAM import get_model, get_local_model, segment_cellular_image
+    from cellSAM import get_local_model, segment_cellular_image
     from cellSAM.utils import (
         format_image_shape,
         fill_holes_and_remove_small_masks,
@@ -100,7 +100,6 @@ try:
     _HAVE_CELLSAM = True
 except (ImportError, OSError):
     _HAVE_CELLSAM = False
-    get_model = None
     get_local_model = None
     segment_cellular_image = None
     format_image_shape = None
@@ -129,6 +128,7 @@ except (ImportError, OSError):
 _CACHED_MODEL = None
 _CACHED_MODEL_DEVICE = None
 _CACHED_MODEL_BBOX_THRESHOLD = None
+_CACHED_MODEL_PATH = None
 
 
 def get_median_size(labels: np.ndarray):
@@ -506,25 +506,25 @@ def _get_cached_model(model_path: Optional[str] = None, bbox_threshold: float = 
     Returns:
         Cached model instance
     """
-    global _CACHED_MODEL, _CACHED_MODEL_DEVICE, _CACHED_MODEL_BBOX_THRESHOLD
+    global _CACHED_MODEL, _CACHED_MODEL_DEVICE, _CACHED_MODEL_BBOX_THRESHOLD, _CACHED_MODEL_PATH
     
-    if not _HAVE_CELLSAM or get_model is None:
+    if not _HAVE_CELLSAM or get_local_model is None:
         raise ImportError("CellSAM not installed. Install with: pip install git+https://github.com/vanvalenlab/cellSAM.git")
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    # Check if we need to create or update the cached model
+    from openimc.processing.cellsam_models import resolve_cellsam_checkpoint
+    checkpoint = str(resolve_cellsam_checkpoint(model_path))
+    if _CACHED_MODEL is not None and _CACHED_MODEL_PATH != checkpoint:
+        clear_model_cache()
+
     if _CACHED_MODEL is None:
-        # Create new model
-        if model_path is not None:
-            if get_local_model is None:
-                raise ImportError("get_local_model not available from CellSAM")
-            _CACHED_MODEL = get_local_model(model_path)
-            _CACHED_MODEL.bbox_threshold = bbox_threshold
-        else:
-            _CACHED_MODEL = get_model()
-            _CACHED_MODEL.bbox_threshold = bbox_threshold
-        
+        # Always load locally: upstream get_model() still calls DeepCell.
+        model = get_local_model(checkpoint)
+        model.bbox_threshold = bbox_threshold
+        _CACHED_MODEL = model
+        _CACHED_MODEL_PATH = checkpoint
+
         _CACHED_MODEL = _CACHED_MODEL.to(device)
         _CACHED_MODEL.eval()
         _CACHED_MODEL_DEVICE = device
@@ -841,7 +841,7 @@ def clear_model_cache():
     
     This can be called when you're done with segmentation to free GPU/CPU memory.
     """
-    global _CACHED_MODEL, _CACHED_MODEL_DEVICE, _CACHED_MODEL_BBOX_THRESHOLD
+    global _CACHED_MODEL, _CACHED_MODEL_DEVICE, _CACHED_MODEL_BBOX_THRESHOLD, _CACHED_MODEL_PATH
     
     if _CACHED_MODEL is not None:
         # Move model to CPU and clear CUDA cache
@@ -859,6 +859,7 @@ def clear_model_cache():
         _CACHED_MODEL = None
         _CACHED_MODEL_DEVICE = None
         _CACHED_MODEL_BBOX_THRESHOLD = None
+        _CACHED_MODEL_PATH = None
         
         # Force garbage collection
         import gc

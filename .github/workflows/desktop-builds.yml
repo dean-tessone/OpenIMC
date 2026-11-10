@@ -105,7 +105,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="1.1.1+${GITHUB_SHA:0:7}"
+            version="1.1.2+${GITHUB_SHA:0:7}"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -254,14 +254,14 @@ jobs:
           (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease)
         shell: bash
         env:
-          DEEPCELL_ACCESS_TOKEN: ${{ secrets.DEEPCELL_ACCESS_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           functional_test_args=(
             --skip-build
             --functional-test
             --version "${{ steps.metadata.outputs.version }}"
           )
-          if [[ -n "$DEEPCELL_ACCESS_TOKEN" ]]; then
+          if [[ -n "$HF_TOKEN" ]]; then
             echo "Running the optional credentialed CellSAM download check."
             functional_test_args+=(--allow-cellsam-download)
           else

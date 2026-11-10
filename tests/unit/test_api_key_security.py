@@ -81,3 +81,34 @@ def test_validation_report_records_the_current_check(tmp_path):
 
     assert "current_check" not in report
     assert report["checks"]["real_scientific_check"]["status"] == "passed"
+
+
+def test_hugging_face_tokens_are_removed_from_build_environment(monkeypatch):
+    monkeypatch.setenv("HF_TOKEN", "test-session-token")
+    monkeypatch.setenv("HUGGING_FACE_HUB_TOKEN", "test-legacy-token")
+    environment = build_desktop.sanitized_environment()
+    assert "HF_TOKEN" not in environment
+    assert "HUGGING_FACE_HUB_TOKEN" not in environment
+
+
+def test_cellsam_dialog_uses_session_only_hugging_face_token(qtbot, monkeypatch):
+    from PyQt5 import QtWidgets
+
+    monkeypatch.setattr(segmentation_dialog, "_remove_legacy_saved_api_key", lambda: False)
+    monkeypatch.delenv("DEEPCELL_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "")
+    dialog = segmentation_dialog.SegmentationDialog([])
+    qtbot.addWidget(dialog)
+    assert dialog.hf_token_edit.echoMode() == QtWidgets.QLineEdit.Password
+    assert dialog.get_cellsam_hf_token() == ""
+    dialog.hf_token_edit.setText("test-session-token")
+    dialog.accept()
+    import os
+    assert os.environ["HF_TOKEN"] == "test-session-token"
+    assert "DEEPCELL_ACCESS_TOKEN" not in os.environ
+
+
+def test_hugging_face_token_patterns_are_detected(tmp_path):
+    path = tmp_path / "config.txt"
+    path.write_text("hf_" + "a" * 32)
+    assert build_desktop._file_contains_secret(path, (), scan_key_patterns=True)

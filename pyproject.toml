@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openimc"
-version = "1.1.1"
+version = "1.1.2"
 description = "OpenIMC - Open-source Imaging Mass Cytometry analysis platform"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -82,6 +82,7 @@ desktop-build = [
 ]
 cellsam = [
     "cellSAM @ git+https://github.com/vanvalenlab/cellSAM.git@362a8e521bcd7313d5cb280bcd4cfc12977c1e9f",
+    "huggingface_hub>=0.34,<2",
 ]
 
 [project.scripts]

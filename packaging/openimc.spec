@@ -9,7 +9,7 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 
 PROJECT_ROOT = Path(SPECPATH).parent
-APP_VERSION = os.environ.get("OPENIMC_VERSION", "1.1.1")
+APP_VERSION = os.environ.get("OPENIMC_VERSION", "1.1.2")
 CONSOLE = os.environ.get("OPENIMC_CONSOLE", "0") == "1"
 
 datas = [
@@ -62,6 +62,8 @@ COLLECT_PACKAGES = (
     "distributed",
     "harmonypy",
     "hdbscan",
+    "huggingface_hub",
+    "hf_xet",
     "igraph",
     "imagecodecs",
     "kornia",
@@ -97,6 +99,8 @@ for distribution_name in (
     "distributed",
     "harmonypy",
     "hdbscan",
+    "huggingface_hub",
+    "hf_xet",
     "imagecodecs",
     "kornia",
     "leidenalg",

@@ -377,7 +377,7 @@ def segment_command(args):
     
     This command performs cell segmentation on IMC data using one of three methods:
     
-    - **CellSAM**: DeepCell's CellSAM model via API (requires API key)
+    - **CellSAM**: CellSAM with Hugging Face weights (accept license and log in once)
     - **Cellpose**: Local Cellpose segmentation (supports GPU)
     - **Watershed**: Traditional watershed segmentation
     
@@ -2040,7 +2040,7 @@ def workflow_command(args):
         seg_args.min_cell_area = seg_config.get('min_cell_area', 100)
         seg_args.max_cell_area = seg_config.get('max_cell_area', 10000)
         seg_args.compactness = seg_config.get('compactness', 0.01)
-        seg_args.deepcell_api_key = seg_config.get('deepcell_api_key') or os.environ.get("DEEPCELL_ACCESS_TOKEN")
+        seg_args.deepcell_api_key = seg_config.get('deepcell_api_key')
         seg_args.bbox_threshold = seg_config.get('bbox_threshold', 0.4)
         seg_args.use_wsi = seg_config.get('use_wsi', False)
         seg_args.low_contrast_enhancement = seg_config.get('low_contrast_enhancement', False)
@@ -2510,7 +2510,7 @@ Examples:
     segment_parser.add_argument('--max-cell-area', type=int, default=10000, help='Maximum cell area in pixels (watershed, default: 10000)')
     segment_parser.add_argument('--compactness', type=float, default=0.01, help='Watershed compactness (default: 0.01)')
     # DeepCell CellSAM parameters
-    segment_parser.add_argument('--deepcell-api-key', type=str, help='DeepCell API key (CellSAM). Can also be set via DEEPCELL_ACCESS_TOKEN environment variable')
+    segment_parser.add_argument('--deepcell-api-key', type=str, help='Deprecated and ignored; CellSAM uses Hugging Face login or HF_TOKEN')
     segment_parser.add_argument('--bbox-threshold', type=float, default=0.4, help='Bbox threshold for CellSAM (default: 0.4, lower for faint cells: 0.01-0.1)')
     segment_parser.add_argument('--use-wsi', action='store_true', help='Use WSI mode for CellSAM (for ROIs with >500 cells, increases processing time)')
     segment_parser.add_argument('--low-contrast-enhancement', action='store_true', help='Enable low contrast enhancement for CellSAM (for poor contrast images)')

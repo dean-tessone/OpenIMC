@@ -5527,36 +5527,16 @@ class MainWindow(QtWidgets.QMainWindow):
                     progress_dlg.update_progress(0, "Initializing DeepCell CellSAM model", "Loading model...")
                     core_method = "cellsam"
                     
-                    # Set API key from dialog
                     if dlg is not None:
-                        api_key = dlg.get_cellsam_api_key()
-                        if api_key:
-                            os.environ.update({"DEEPCELL_ACCESS_TOKEN": api_key})
-                        elif not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
-                            QtWidgets.QMessageBox.critical(
-                                self, "Missing API Key",
-                                "DeepCell API key is required for CellSAM.\n"
-                                "Please enter your API key in the CellSAM Parameters section.\n"
-                                "Get your key from https://users.deepcell.org/login/"
-                            )
-                            progress_dlg.close()
-                            return
-                    else:
-                        if not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
-                            QtWidgets.QMessageBox.critical(
-                                self, "Missing API Key",
-                                "DeepCell API key is required for CellSAM.\n"
-                                "Please set DEEPCELL_ACCESS_TOKEN environment variable or enter it in the dialog."
-                            )
-                            progress_dlg.close()
-                            return
-                    
+                        token = dlg.get_cellsam_hf_token()
+                        if token:
+                            os.environ["HF_TOKEN"] = token
+
                     # Get CellSAM parameters from dialog
                     bbox_threshold = dlg.get_cellsam_bbox_threshold() if dlg else 0.4
                     use_wsi = dlg.get_cellsam_use_wsi() if dlg else False
                     low_contrast_enhancement = dlg.get_cellsam_low_contrast_enhancement() if dlg else False
                     gauge_cell_size = dlg.get_cellsam_gauge_cell_size() if dlg else False
-                    deepcell_api_key = os.environ.get("DEEPCELL_ACCESS_TOKEN")
                     
                 elif model == "Cellpose Nuclei":
                     progress_dlg.update_progress(0, "Initializing Cellpose model", "Loading model...")
@@ -6073,20 +6053,10 @@ class MainWindow(QtWidgets.QMainWindow):
             progress_dlg.update_progress(0, "Initializing DeepCell CellSAM", "Setting up model...")
             QtWidgets.QApplication.processEvents()
             
-            # Set API key from dialog
-            api_key = dlg.get_cellsam_api_key()
-            if api_key:
-                os.environ.update({"DEEPCELL_ACCESS_TOKEN": api_key})
-            elif not os.environ.get("DEEPCELL_ACCESS_TOKEN"):
-                progress_dlg.close()
-                QtWidgets.QMessageBox.critical(
-                    self, "Missing API Key",
-                    "DeepCell API key is required for CellSAM.\n"
-                    "Please enter your API key in the CellSAM Parameters section.\n"
-                    "Get your key from https://users.deepcell.org/login/"
-                )
-                return
-            
+            token = dlg.get_cellsam_hf_token()
+            if token:
+                os.environ["HF_TOKEN"] = token
+
             if not _load_cellsam_helpers():
                 progress_dlg.close()
                 detail = f"\n\nDetails: {_CELLSAM_IMPORT_ERROR}" if _CELLSAM_IMPORT_ERROR else ""
@@ -6124,10 +6094,13 @@ class MainWindow(QtWidgets.QMainWindow):
                     self, "Model Initialization Failed",
                     f"Failed to initialize CellSAM model:\n{str(e)}\n\n"
                     "This may be due to:\n"
-                    "- Invalid API key\n"
+                    "- CellSAM terms have not been accepted on Hugging Face\n"
+                    "- Hugging Face login or token lacks CellSAM access\n"
                     "- Network connectivity issues\n"
                     "- Insufficient disk space for model weights\n\n"
-                    "Please check your API key and internet connection."
+                    "Accept the terms at https://huggingface.co/vanvalenlab/cellsam, "
+                    "then use a Hugging Face login or read token from that same account. "
+                    "Also check your internet connection."
                 )
                 return
             
