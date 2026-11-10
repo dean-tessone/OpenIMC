@@ -257,6 +257,7 @@ CellSAM
 CellSAM uses DeepCell's CellSAM model, which is a state-of-the-art deep learning model for cell segmentation. It leverages the Segment Anything Model (SAM) architecture adapted for cell segmentation tasks.
 
 **How it works:**
+
 1. Nuclear channels are combined using the specified fusion method
 2. CellSAM loads the cached checkpoint (downloaded from Hugging Face on first use)
 3. CellSAM detects cell bounding boxes using the bbox_threshold
@@ -264,16 +265,19 @@ CellSAM uses DeepCell's CellSAM model, which is a state-of-the-art deep learning
 5. Results are returned as segmentation masks
 
 **Advantages:**
+
 - High accuracy, especially for complex cell morphologies
 - Handles variable cell sizes well
-- No local GPU required (uses cloud API)
+- Runs locally on a GPU or CPU; images are not sent to a cloud segmentation API
 
 **Limitations:**
-- Requires internet connection and API key
-- Processing time depends on API availability
-- May have usage limits depending on API plan
+
+- The first model download requires internet access, a Hugging Face account, and acceptance of the CellSAM model terms
+- Cached weights work offline; CPU inference can be substantially slower than GPU inference
+- Model weights have separate noncommercial license terms
 
 **Citation:**
+
 - DeepCell CellSAM: `DeepCell Platform <https://deepcell.org/>`_
 - Segment Anything Model: Kirillov, A., et al. (2023). "Segment Anything." arXiv:2304.02643
 

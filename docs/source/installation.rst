@@ -360,7 +360,7 @@ To use the LLM-based cell phenotyping features, you'll need an OpenAI API key:
    - Copy the generated API key (starts with ``sk-``)
 
 CellSAM Model Access (Hugging Face)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 CellSAM weights are hosted at `vanvalenlab/cellsam
 <https://huggingface.co/vanvalenlab/cellsam>`_. A DeepCell API key is no longer used.
