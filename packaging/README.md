@@ -41,6 +41,12 @@ Use `--console` for a diagnostic build that shows Python output. Use
 test uses the repository fixture and locally cached Cellpose weights. CellSAM
 is reported as skipped unless its optional credentialed check is enabled.
 
+Every frozen bundle must execute Torchvision CPU NMS and import the CellSAM
+pipeline without downloading weights or requiring a token. This catches missing
+native operator libraries even when the optional model-download check is skipped.
+The project Torchvision hook collects both legacy and stable-ABI native libraries,
+including Windows `.pyd` files loaded indirectly by `torch.ops.load_library`.
+
 ## Runtime files
 
 Installed application bundles are read-only. OpenIMC therefore stores its
