@@ -25,6 +25,45 @@ def _json_value(value: Any) -> Any:
     return value
 
 
+def check_cellsam_cpu_runtime() -> dict[str, Any]:
+    """Exercise native CPU operators and CellSAM imports without model access.
+
+    This check must run even when no Hugging Face credentials are available.
+    A successful Torch import alone does not prove that the frozen app contains
+    Torchvision's indirectly loaded operator libraries.
+    """
+    import torch
+    import torchvision
+    from torchvision.ops import nms
+
+    boxes = torch.tensor(
+        [[0.0, 0.0, 10.0, 10.0], [1.0, 1.0, 9.0, 9.0],
+         [20.0, 20.0, 30.0, 30.0]],
+        dtype=torch.float32, device="cpu",
+    )
+    scores = torch.tensor([0.9, 0.8, 0.7], dtype=torch.float32, device="cpu")
+    kept = nms(boxes, scores, 0.5).tolist()
+    if kept != [0, 2]:
+        raise AssertionError(f"Torchvision CPU NMS returned unexpected indices: {kept}")
+
+    from cellSAM import get_local_model, segment_cellular_image
+    from openimc.processing import custom_cellsam
+
+    if not callable(get_local_model) or not callable(segment_cellular_image):
+        raise ImportError("CellSAM model and segmentation entry points are unavailable")
+    if not all((custom_cellsam._HAVE_CELLSAM, custom_cellsam._HAVE_DASK,
+                custom_cellsam._HAVE_IMAGE_HELPERS)):
+        raise ImportError("OpenIMC's CellSAM pipeline dependencies failed to load")
+
+    return {
+        "torch": str(torch.__version__),
+        "torchvision": str(torchvision.__version__),
+        "device": "cpu",
+        "nms_indices": kept,
+        "cellsam_imported": True,
+    }
+
+
 class ValidationRun:
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
@@ -112,6 +151,8 @@ def run_release_validation(
     validation.report.pop("current_check", None)
     validation._write()
     context: dict[str, Any] = {}
+
+    validation.check("cellsam_cpu_runtime", check_cellsam_cpu_runtime)
 
     def load_ome_tiff() -> dict[str, Any]:
         from openimc.data.ometiff_loader import OMETIFFLoader

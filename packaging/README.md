@@ -16,7 +16,7 @@ conda-forge because PyPI no longer publishes current Intel macOS wheels.
 python -m pip install -r requirements.txt
 python -m pip install -e . --no-deps
 python -m pip install -r requirements-build.txt
-python scripts/build_desktop.py --version 1.1.2 --functional-test --archive
+python scripts/build_desktop.py --version 1.1.3 --functional-test --archive
 ```
 
 The script performs an offscreen smoke test of Qt and the major scientific
@@ -40,6 +40,12 @@ Use `--console` for a diagnostic build that shows Python output. Use
 `--skip-smoke-test` only while investigating a build failure. The functional
 test uses the repository fixture and locally cached Cellpose weights. CellSAM
 is reported as skipped unless its optional credentialed check is enabled.
+
+Every frozen bundle must execute Torchvision CPU NMS and import the CellSAM
+pipeline without downloading weights or requiring a token. This catches missing
+native operator libraries even when the optional model-download check is skipped.
+The project Torchvision hook collects both legacy and stable-ABI native libraries,
+including Windows `.pyd` files loaded indirectly by `torch.ops.load_library`.
 
 ## Runtime files
 

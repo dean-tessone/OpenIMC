@@ -90,6 +90,12 @@ def _run_bootstrap_command() -> bool:
             importlib.import_module(module_name)
             _smoke_checkpoint(f"imported {module_name}")
 
+        from openimc.release_validation import check_cellsam_cpu_runtime
+
+        _smoke_checkpoint("checking CellSAM CPU runtime")
+        check_cellsam_cpu_runtime()
+        _smoke_checkpoint("CellSAM CPU runtime passed")
+
         if sys.platform == "win32":
             # OpenIMC intentionally probes the Squidpy stack in a disposable
             # child process on Windows instead of importing it into the GUI

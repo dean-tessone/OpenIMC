@@ -105,7 +105,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="1.1.2+${GITHUB_SHA:0:7}"
+            version="1.1.3+${GITHUB_SHA:0:7}"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -204,6 +204,7 @@ jobs:
           fi
           python -m pytest \
             tests/unit/test_api_key_security.py \
+            tests/unit/test_cellsam_packaging.py \
             tests/unit/test_data_loaders.py \
             tests/unit/test_gpu_runtime.py \
             tests/unit/test_linux_installer.py \
